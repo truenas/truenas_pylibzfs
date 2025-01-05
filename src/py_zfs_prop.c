@@ -1,25 +1,6 @@
-#ifndef _PY_ZFS_PROP_H
-#define _PY_ZFS_PROP_H
-
-#include "zfs.h"
+#include "pylibzfs2.h"
 
 #define	ZFS_PROP_STR	"<libzfs2.ZFSProperty name %s value %s>"
-
-typedef struct {
-	PyObject_HEAD
-	int propid;
-	const char *cname;
-	char cvalue[ZFS_MAXPROPLEN + 1];
-	char crawvalue[ZFS_MAXPROPLEN + 1];
-	char csrcstr[ZFS_MAXPROPLEN + 1];
-	zprop_source_t csource;
-} py_zfs_prop_t;
-
-typedef struct {
-	py_zfs_prop_t super;
-	PyObject *values;
-	const char *name;
-} py_zfs_user_prop_t;
 
 PyObject *py_zfs_prop_str(PyObject *self) {
 	py_zfs_prop_t *prop = (py_zfs_prop_t *)self;
@@ -150,5 +131,3 @@ PyTypeObject ZFSProperty = {
 	.tp_repr = py_zfs_prop_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
-
-#endif /* _PY_ZFS_PROP_H */

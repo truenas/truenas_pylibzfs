@@ -1,12 +1,4 @@
-#ifndef	_ZFS_H
-#define _ZFS_H
-
-#define __USE_LARGEFILE64
-#define _LARGEFILE_SOURCE
-#define _LARGEFILE64_SOURCE
-
-#include <libzfs.h>
-#include <Python.h>
+#include "pylibzfs2.h"
 
 const char* get_dataset_type(zfs_type_t type) {
 	const char *ret;
@@ -36,4 +28,18 @@ const char* get_dataset_type(zfs_type_t type) {
 	return (ret);
 }
 
-#endif /* _ZFS_H */
+static
+PyObject *py_empty_str(void)
+{
+	return PyUnicode_FromString("<EMPTY>");
+}
+
+PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt)
+{
+	return PyUnicode_FromFormat(
+		fmt,
+		obj->name ? obj->name : py_empty_str(),
+		obj->pool_name ? obj->pool_name : py_empty_str(),
+		obj->type ? obj->type : py_empty_str()
+	);
+}

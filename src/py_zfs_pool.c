@@ -1,17 +1,8 @@
-#ifndef _PY_ZFS_POOL_H
-#define _PY_ZFS_POOL_H
-
-#include "zfs.h"
+#include "pylibzfs2.h"
 
 #define	ZFS_POOL_STR	"<libzfs2.ZFSpool name %s>"
 
-typedef struct {
-	PyObject_HEAD
-	zpool_handle_t *zhp;
-	boolean_t free;
-	const PyObject *root;
-} py_zfs_pool_t;
-
+static
 PyObject *py_zfs_pool_str(PyObject *self) {
 	py_zfs_pool_t *pool = (py_zfs_pool_t *)self;
 	if (pool->zhp) {
@@ -22,6 +13,7 @@ PyObject *py_zfs_pool_str(PyObject *self) {
 	}
 }
 
+static
 PyObject *py_zfs_pool_new(PyTypeObject *type, PyObject *args,
     PyObject *kwds) {
 	py_zfs_pool_t *self = NULL;
@@ -29,122 +21,152 @@ PyObject *py_zfs_pool_new(PyTypeObject *type, PyObject *args,
 	return ((PyObject *)self);
 }
 
+static
 int py_zfs_pool_init(PyObject *type, PyObject *args, PyObject *kwds) {
 	return (0);
 }
 
+static
 void py_zfs_pool_dealloc(py_zfs_pool_t *self) {
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static
 PyObject *py_zfs_pool_asdict(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_reiterate_vdevs(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_unsup_features(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_wait(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_sync(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_create(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_attach_vdevs(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_sync_vdev_by_guid(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_start_scrub(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_stop_scrub(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_clear(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_ddt_prefetch(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_ddt_prune(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_root_dataset(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_root_vdev(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_data_vdevs(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_log_vdevs(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_cache_vdevs(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_spare_vdevs(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_special_vdevs(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_dedup_vdevs(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_groups(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_config(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_name(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_guid(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_hostname(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
@@ -153,42 +175,52 @@ PyObject *py_zfs_pool_get_state(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_status_code(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_healthy(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_warning(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_status_detail(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_error_count(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_properties(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_features(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_disks(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_scrub(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
 
+static
 PyObject *py_zfs_pool_get_expand(py_zfs_prop_t *self, void *extra) {
 	Py_RETURN_NONE;
 }
@@ -385,5 +417,3 @@ PyTypeObject ZFSPool = {
 	.tp_repr = py_zfs_pool_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
-
-#endif /* _PY_ZFS_POOL_H */

@@ -3,13 +3,16 @@
 static char hello_docstring[] = "Hello from py-libzfs2!";
 
 static PyTypeObject *types[] = {
-	&ZFSProperty,
-	&ZFSObject,
-	&ZFSResource,
-	&ZFSDataset,
-	&ZFSEncDataset,
-	&ZFSPool,
 	&ZFS
+};
+
+static PyTypeObject *alltypes[] = {
+	&ZFS,
+	&ZFSDataset,
+	&ZFSObject,
+	&ZFSPool,
+	&ZFSProperty,
+	NULL
 };
 
 static int num_types = sizeof(types) / sizeof(PyTypeObject *);
@@ -19,10 +22,19 @@ static PyObject *hello (PyObject *self, PyObject *args) {
 }
 
 static void add_constants(PyObject *m) {
-	PyModule_AddIntConstant(m, "ZFS_TYPE_FILESYSTEM", ZFS_TYPE_FILESYSTEM);
-	PyModule_AddIntConstant(m, "ZFS_TYPE_VOLUME", ZFS_TYPE_VOLUME);
-	PyModule_AddIntConstant(m, "ZFS_TYPE_SNAPSHOT", ZFS_TYPE_SNAPSHOT);
-	PyModule_AddIntConstant(m, "ZFS_TYPE_BOOKMARK", ZFS_TYPE_BOOKMARK);
+	uint i;
+
+#define ADD_CONSTANT(val)  PyModule_AddIntConstant(m, #val, val)
+
+	ADD_CONSTANT(ZFS_TYPE_FILESYSTEM);
+	ADD_CONSTANT(ZFS_TYPE_VOLUME);
+	ADD_CONSTANT(ZFS_TYPE_SNAPSHOT);
+	ADD_CONSTANT(ZFS_TYPE_BOOKMARK);
+
+	for (i=0; i < ARRAY_SIZE(zfserr_table); i++) {
+		PyModule_AddIntConstant(m, zfserr_table[i].name,
+					zfserr_table[i].error);
+	}
 }
 
 static int add_types(PyObject * m) {
@@ -36,6 +48,21 @@ static int add_types(PyObject * m) {
 		}
 	}
 	return (0);
+}
+
+static int types_ready(PyObject *m) {
+	int i, j;
+
+	for (i = 0; alltypes[i]; i++) {
+		if (PyType_Ready(alltypes[i]) < 0) {
+			for (j = 0; j <= i; j++) {
+				Py_DECREF(alltypes[j]);
+			}
+			return -1;
+		}
+	}
+
+	return 0;
 }
 
 static int init_types() {
@@ -72,11 +99,31 @@ PyInit_libzfs2(void)
 	if (mlibzfs2 == NULL)
 		return (NULL);
 
+	if (types_ready(mlibzfs2) < 0) {
+		Py_DECREF(mlibzfs2);
+		return (NULL);
+	}
+
 	if (add_types(mlibzfs2) < 0) {
 		Py_DECREF(mlibzfs2);
 		return (NULL);
 	}
 
 	add_constants(mlibzfs2);
+
+	PyExc_ZFSError = PyErr_NewException("libzfs2.ZFSError",
+					    PyExc_RuntimeError,
+					    NULL);
+
+	if (PyExc_ZFSError == NULL) {
+		Py_DECREF(mlibzfs2);
+		return (NULL);
+	}
+
+	if (PyModule_AddObject(mlibzfs2, "ZFSError", PyExc_ZFSError) < 0) {
+		Py_DECREF(mlibzfs2);
+		return (NULL);
+	}
+
 	return (mlibzfs2);
 }
