@@ -108,26 +108,51 @@ PyObject *py_get_prop(PyObject *obj)
 	return Py_NewRef(obj);
 }
 
+PyDoc_STRVAR(py_zfs_obj_name__doc__,
+"Name of the ZFS object\n"
+);
 static
 PyObject *py_zfs_obj_get_name(py_zfs_obj_t *self, void *extra) {
 	return py_get_prop(self->name);
 }
 
+PyDoc_STRVAR(py_zfs_obj_type__doc__,
+"Dataset type underlying the ZFS object\n\n"
+"This will be one of \"FILESYSTEM\", \"VOLUME\", \"SNAPSHOT\", "
+"or \"BOOKMARK\".\n"
+);
 static
 PyObject *py_zfs_obj_get_type(py_zfs_obj_t *self, void *extra) {
 	return py_get_prop(self->type);
 }
 
+PyDoc_STRVAR(py_zfs_obj_guid__doc__,
+"GUID of the ZFS object\n\n"
+"The 64 bit GUID of this dataset or bookmark which does not change over its\n"
+"entire lifetime. When a snapshot is sent to another pool, the received\n"
+"snapshot has the same GUID.  Thus, the guid is suitable to identify a\n"
+"snapshot across pools.\n"
+);
 static
 PyObject *py_zfs_obj_get_guid(py_zfs_obj_t *self, void *extra) {
 	return py_get_prop(self->guid);
 }
 
+PyDoc_STRVAR(py_zfs_obj_createtxg__doc__,
+"Transaction group in which ZFS object was created\n\n"
+"Bookmarks have the same createtxg as the snapshot they are initially tied to.\n"
+"This property is suitable for ordering a list of snapshots, e.g. for\n"
+"incremental send and receive, and for slicing ranges of snapshots for\n"
+"iteration.\n"
+);
 static
 PyObject *py_zfs_obj_get_createtxg(py_zfs_obj_t *self, void *extra) {
 	return py_get_prop(self->createtxg);
 }
 
+PyDoc_STRVAR(py_zfs_obj_pool_name__doc__,
+"Name of the ZFS pool of which this ZFS object is a member.\n"
+);
 static
 PyObject *py_zfs_obj_get_pool(py_zfs_obj_t *self, void *extra) {
 	return py_get_prop(self->pool_name);
@@ -137,23 +162,28 @@ static
 PyGetSetDef zfs_obj_getsetters[] = {
 	{
 		.name	= "name",
-		.get	= (getter)py_zfs_obj_get_name
+		.get	= (getter)py_zfs_obj_get_name,
+		.doc	= py_zfs_obj_name__doc__,
 	},
 	{
 		.name	= "type",
-		.get	= (getter)py_zfs_obj_get_type
+		.get	= (getter)py_zfs_obj_get_type,
+		.doc	= py_zfs_obj_type__doc__,
 	},
 	{
 		.name	= "guid",
-		.get	= (getter)py_zfs_obj_get_guid
+		.get	= (getter)py_zfs_obj_get_guid,
+		.doc	= py_zfs_obj_guid__doc__,
 	},
 	{
 		.name	= "createtxg",
-		.get	= (getter)py_zfs_obj_get_createtxg
+		.get	= (getter)py_zfs_obj_get_createtxg,
+		.doc	= py_zfs_obj_createtxg__doc__,
 	},
 	{
 		.name	= "pool_name",
-		.get	= (getter)py_zfs_obj_get_pool
+		.get	= (getter)py_zfs_obj_get_pool,
+		.doc	= py_zfs_obj_pool_name__doc__,
 	},
 	{ .name = NULL }
 };
