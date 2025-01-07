@@ -152,8 +152,46 @@ typedef struct {
 	char action[1024];
 } py_zfs_error_t;
 
+/*
+ * @brief extract error information from libzfs handle
+ *
+ * This function extracts ZFS error information from a given libzfs
+ * handle (error description, error action, and code). It should be
+ * called under PY_ZFS_LOCK to ensure that other threads using the
+ * libzfs dataset handle do not corrupt error information.
+ *
+ * @param[in]	lz - pointer to libzfs handle from which to get error info
+ * @param[out]	out - pointer to py_zfs_error_t in which to write error info
+ *
+ * @return	void - should always succeed
+ *
+ * NOTE: this may be called without GIL
+ */
 extern void py_get_zfs_error(libzfs_handle_t *lz, py_zfs_error_t *out);
+
 extern PyObject *PyExc_ZFSError;
+
+/*
+ * @brief set a ZFSError exception based on given parameters
+ *
+ * This function sets a ZFSError python exception based on
+ * libzfs error information that is contained in the py_zfs_error_t
+ * struct. Additional information may be specified. This should
+ * only be used to handle ZFS errors. Requires GIL but does not
+ * require PY_ZFS_LOCK.
+ *
+ * @param[in]	err - pointer to libzfs error information extracted
+ *		from libzfs_handle_t after a ZFS error.
+ *
+ * @param[in]	additional_information - pointer to a NULL-terminated
+ *		string containing additional information to put in
+ *		the ZFSError. May be NULL.
+ *
+ * NOTE: this should be called through macro `set_ex_from_libzfs()`
+ * to ensure that location (file and line number) is properly set.
+ *
+ * GIL must be held when this is called.
+ */
 extern void _set_exc_from_libzfs(py_zfs_error_t *err,
 				 const char *additional_info,
 				 const char *location);
@@ -161,10 +199,30 @@ extern void _set_exc_from_libzfs(py_zfs_error_t *err,
 	_set_exc_from_libzfs(err, additional_info, __location__)
 
 /* Provided by py_zfs_dataset.c */
+/*
+ * @brief create a new ZFSDataset object based on parameters
+ *
+ * This function creates a new ZFSDataset object based on a py_zfs_t object
+ * and a zfs_handle_t handle. Some example consumers are open_resource() method
+ * for ZFSObject and iter_filesystems() method in ZFSDataset.
+ *
+ * @param[in]	lzp - pointer to py_zfs_t object. On success reference count
+ *		for the py_zfs_t object will be incremented.
+ *
+ * @param[in]	zfsp - pointer to open zfs_handle_t handle. On success the
+ *		resulting ZFSDataset object owns the handle and it must not
+ *		be closed or manipulated in other ways.
+ *
+ * @return	returns pointer to new ZFSDataset object. NULL on failure.
+ *
+ * NOTE: if this call fails, onus is on caller to zfs_close() zfsp if required.
+ *
+ * GIL must be held when this is called.
+ */
 extern py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp);
 
 /* Provided by utils.c */
-extern const char* get_dataset_type(zfs_type_t type);
+extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
 
 #endif  /* _PYLIBZFS2_H */
