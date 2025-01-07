@@ -34,12 +34,32 @@ union iter_config {
 	iter_conf_bookmark_t bookmark;
 };
 
+/*
+ * Common iter state for all ZFS iterators
+ *
+ * pylibzfsp: pointer to underlying libzfs object. This is required in order
+ *     to create ZFS objects and do proper reference counting as well as
+ *     locking.
+ *
+ * target: libzfs_handle_t handle to iterate.
+ *
+ * callback_fn: python callback function to be called in the zfs_iter_f
+ *     callback in py_zfs_iter.c
+ *
+ * private_data: private data provided by python method caller. May be NULL.
+ *     if non-null then is added as an argument to the callback.
+ *
+ * iter_config: iterator-specific configuration options
+ *
+ * _save - saved thread state to allow toggling GIL as part of iteration.
+ */
 typedef struct {
 	py_zfs_t *pylibzfsp;
 	zfs_handle_t *target;
 	PyObject *callback_fn;
 	PyObject *private_data;
 	union iter_config iter_config;
+	PyThreadState *_save;
 } py_iter_state_t;
 
 extern int py_iter_filesystems(py_iter_state_t *state);
