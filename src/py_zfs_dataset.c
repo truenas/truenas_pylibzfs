@@ -34,6 +34,44 @@ PyObject *py_repr_zfs_dataset(PyObject *self)
 	return py_repr_zfs_obj_impl(RSRC_TO_ZFS(ds), ZFS_DATASET_STR);
 }
 
+PyDoc_STRVAR(py_zfs_dataset_iter_filesystems__doc__,
+"iter_filesystems(*, callback, state, fast=False) -> bool\n\n"
+"--------------------------------------------------------\n\n"
+"List all child filesystems of this ZFSDataset. Arguments are keyword-only\n\n"
+"Parameters\n"
+"----------\n"
+"callback: callable\n"
+"    Callback function that will be called for every child dataset.\n\n"
+"state: object, optional\n"
+"    Optional python object (for example dictionary) passed as an argument\n"
+"    to the callback function for each dataset child.\n\n"
+"fast: bool, optional, default=False\n"
+"    Optional boolean flag to perform faster filesystem iteration.\n"
+"    The speedup is accomplished by generating simple ZFS dataset handles\n"
+"    that do not contain full property information\n\n"
+"Returns\n"
+"-------\n"
+"bool\n"
+"    Value indicates that iteration completed without being stopp by the\n"
+"    callback fuction returning False.\n\n"
+"Raises:\n"
+"-------\n"
+"libzfs2.ZFSError:\n"
+"    An error occurred during iteration of the dataset. Note that this\n"
+"    exception type may also be raised within the callback function.\n\n"
+"NOTE regarding \"callback\":\n"
+"--------------------------\n"
+"Minimally the function signature must take a single argument for each ZFS\n"
+"object. If the \"state\" keyword is specified then the callback function\n"
+"should take two arguments. The callback function must return bool value\n"
+"indicating whether iteration should continue.\n\n"
+"Example \"callback\":\n"
+"-------------------\n"
+"def my_callback(ds, state):\n"
+"    print(f'{ds.name}: {state}')\n"
+"    return True\n"
+);
+
 static
 PyObject *py_zfs_dataset_iter_filesystems(PyObject *self,
 					  PyObject *args_unused,
@@ -110,6 +148,7 @@ PyMethodDef zfs_dataset_methods[] = {
 		.ml_name = "iter_filesystems",
 		.ml_meth = (PyCFunction)py_zfs_dataset_iter_filesystems,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_dataset_iter_filesystems__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
