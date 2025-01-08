@@ -80,7 +80,7 @@
  * @brief Common callback function
  *
  * This callback function should be be called from within zfs_iter_f functions
- * to call the requried python method specified by python API caller.
+ * to call the required python method specified by python API caller.
  *
  * NOTE: currently this function is called while the GIL is held. We can
  * refactor if-needed, but since it's primarily a wrapper around calling a
@@ -93,7 +93,6 @@
  *
  * @return		int - either:
  *			(0) Continue iteration,
- *			(-1) ZFS iterator error,
  *			(-2) Stop iteration,
  *			(-3) Error from callback function
  */
@@ -102,10 +101,8 @@ common_callback(PyObject *new_hdl, py_iter_state_t *state)
 {
 	PyObject *result = NULL;
 
-	/*
-	 * unlock resource before callback because the callback may perform
-	 * operations that acquire this lock.
-	 */
+	 // unlock resource before callback because the callback may perform
+	 // operations that acquire this lock.
 	PY_ZFS_UNLOCK(state->pylibzfsp);
 
 	result = PyObject_CallFunctionObjArgs(state->callback_fn,
@@ -113,9 +110,7 @@ common_callback(PyObject *new_hdl, py_iter_state_t *state)
 					      state->private_data,
 					      NULL);
 
-	/*
-	 * re-aquire lock because we're going back to iterating
-	 */
+	// re-acquire lock because we're going back to iterating
 	PY_ZFS_LOCK(state->pylibzfsp);
 
 	// Deallocate and free handle if callback didn't increment it
@@ -213,6 +208,26 @@ out:
 
 #endif
 
+/**
+ * @brief iterate ZFS filesystems and zvols from python
+ *
+ * This function iterates the child filesystems (non-recursive) of the
+ * zfs_handle_t specified as `target` in the py_iter_state_t struct,
+ * and calls the python callback function specified as `callback_fn` in
+ * the aforementioned struct.
+ *
+ * NOTE: GIL must be held before calling this function, and
+ * state->pylibzfsp->zfs_lock must *not* be held.
+ *
+ * @param[in] state	py_zfs iterator state structure
+ *
+ * @return		int - either:
+ *			(0) Continue iteration,
+ *			(-1) ZFS iterator error,
+ *			(-2) Stop iteration,
+ *			(-3) Error from callback function
+ *			Python exception will be set on error.
+ */
 int
 py_iter_filesystems(py_iter_state_t *state)
 {
