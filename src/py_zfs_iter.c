@@ -61,12 +61,13 @@
  *    zfs_handle_t handle will be automatically closed by python as the
  *    object is deallocated.
  *
+ *    zfs_iter_f:
+ *    `typedef int (*zfs_iter_f)(zfs_handle_t *, void *);`
+ *
  * 4. Within the function created in (1) call the new ZFS iterator (c)
  *    with parameters (2) that are provided in py_iter_state_t, and the
  *    callback function from (3).
- *
  */
-
 
 /*
  * Macros for toggling GIL within an iterator
@@ -143,6 +144,22 @@ common_callback(PyObject *new_hdl, py_iter_state_t *state)
 	return ITER_RESULT_ERROR;
 }
 
+/**
+ * @brief zfs_iter_f callback for zfs_iter_filesystems_*
+ *
+ * This function is passed as an argument to zfs_iter_filesystems_v2
+ * and acts as a wrapper around common_callback().
+ *
+ * @param[in]	zhp - ZFS handle created by the libzfs iterator.
+ * @param[in]	private - pointer to private data passed as argument
+ * 		to the libzfs iterator. This will be the `private_data`
+ * 		python object in py_iter_state_t. NULL is ok.
+ *
+ * @result	Returns an int with one of following values:
+ * 		ITER_RESULT_SUCCESS (0)
+ * 		ITER_RESULT_STOP (-2)
+ * 		ITER_RESULT_ERROR (-3)
+ */
 static int
 filesystem_callback(zfs_handle_t *zhp, void *private)
 {
