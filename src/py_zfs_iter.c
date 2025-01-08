@@ -5,6 +5,35 @@
  *
  * py_iter_filesystems() should be used as a prototype for writing
  * new iterators.
+ *
+ * Example:
+ * (USER_PYTHON_CALLBACK) refers to callable passed as argument to
+ * ZFSDataset.iter_filesystems()
+ *
+ * py_zfs_dataset_iter_filesystems()
+ *   ->py_iter_filesystems()
+ *     ->ITER_ALLOW_THREADS
+ *       ->zfs_iter_filesystems_v2()
+ *         ->filesystem_callback()
+ *           ->ITER_END_ALLOW_THREADS
+ *             ->common_callback()
+ *               ->USER_PYTHON_CALLBACK()
+ *           ->ITER_ALLOW_THREADS
+ *
+ *         ->filesystem_callback()
+ *           ->ITER_END_ALLOW_THREADS
+ *             ->common_callback()
+ *               ->USER_PYTHON_CALLBACK()
+ *           ->ITER_ALLOW_THREADS
+ *
+ *         ->filesystem_callback()
+ *           ->ITER_END_ALLOW_THREADS
+ *             ->common_callback()
+ *               ->USER_PYTHON_CALLBACK()
+ *           ->ITER_END_ALLOW_THREADS
+ *         ...
+ *
+ *     ->ITER_END_ALLOW_THREADS
  */
 
 
