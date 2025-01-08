@@ -35,6 +35,11 @@ static void add_constants(PyObject *m) {
 		PyModule_AddIntConstant(m, zfserr_table[i].name,
 					zfserr_table[i].error);
 	}
+
+	for (i=0; i < ARRAY_SIZE(zpool_status_table); i++) {
+		PyModule_AddIntConstant(m, zpool_status_table[i].name,
+					zpool_status_table[i].status);
+	}
 }
 
 static int add_types(PyObject * m) {
