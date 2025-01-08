@@ -103,6 +103,10 @@ filesystem_callback(zfs_handle_t *zhp, void *private)
 		goto out;
 	}
 
+	if (state->iter_config.filesystem.flags & ZFS_ITER_SIMPLE) {
+		new_ds->rsrc.is_simple = B_TRUE;
+	}
+
 	result = common_callback((PyObject *)new_ds, state);
 out:
 	// drop GIL because we're going back to iterating in ZFS
