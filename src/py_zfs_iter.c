@@ -6,15 +6,16 @@
  * py_iter_filesystems() should be used as a prototype for writing
  * new iterators.
  *
- * Example:
+ * Explanation:
+ * -----------
  * (USER_PYTHON_CALLBACK) refers to callable passed as argument to
  * ZFSDataset.iter_filesystems()
  *
- * py_zfs_dataset_iter_filesystems()
- *   ->py_iter_filesystems()
+ * py_zfs_dataset_iter_filesystems()		(a)
+ *   ->py_iter_filesystems()			(b)
  *     ->ITER_ALLOW_THREADS
- *       ->zfs_iter_filesystems_v2()
- *         ->filesystem_callback()
+ *       ->zfs_iter_filesystems_v2()		(c)
+ *         ->filesystem_callback()		(d)
  *           ->ITER_END_ALLOW_THREADS
  *             ->common_callback()
  *               ->USER_PYTHON_CALLBACK()
@@ -34,6 +35,36 @@
  *         ...
  *
  *     ->ITER_END_ALLOW_THREADS
+ *
+ * How to add a new python ZFS iterator:
+ * -----------------------------
+ * 1. Write a public function in this file that takes a pointer to
+ *    an initialized py_iter_state_t struct as an argument. See
+ *    `py_iter_filesystems()` as an example -- (b) above, especially
+ *    for where to implement PY_ZFS_LOCK and when / how to release GIL.
+ *
+ * 2. Create a struct defining the configuration needed for the ZFS iterator
+ *    and add it to `union iter_config` in py_zfs_iter.h.
+ *    `iter_conf_filesystem_t` may be used as an example.
+ *
+ * 3. Create a `zfs_iter_f` callback function (copy of definition is below)
+ *    using filesystem_callback() -- (d) above as an example.
+ *
+ *    The callback function must do two things:
+ *    3a) Create python object wrapping around zfs_handle_t created by
+ *        the ZFS iterator.
+ *    3b) Call common_callback() with the python object from (3a) and the
+ *        py_iter_state.
+ *
+ *    NOTE: zfs_close() should only be called on the zfs_handle_t handle
+ *    if an error occurs in (3a). If an error occurs in (3b) then the
+ *    zfs_handle_t handle will be automatically closed by python as the
+ *    object is deallocated.
+ *
+ * 4. Within the function created in (1) call the new ZFS iterator (c)
+ *    with parameters (2) that are provided in py_iter_state_t, and the
+ *    callback function from (3).
+ *
  */
 
 
