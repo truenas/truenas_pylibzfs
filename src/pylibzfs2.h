@@ -95,8 +95,7 @@ typedef struct {
 	PyObject_HEAD
 	py_zfs_t *pylibzfsp;
 	zpool_handle_t *zhp;
-	boolean_t free;
-	const PyObject *root;
+	PyObject *name;
 } py_zfs_pool_t;
 
 typedef struct {
@@ -221,6 +220,9 @@ extern void _set_exc_from_libzfs(py_zfs_error_t *err,
  * GIL must be held when this is called.
  */
 extern py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp);
+
+/* Provided by py_zfs_pool.c */
+extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
