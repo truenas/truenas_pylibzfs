@@ -3,6 +3,7 @@
 #include "zfs.h"
 #include "pylibzfs2_enums.h"
 
+#define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM
 
 /*

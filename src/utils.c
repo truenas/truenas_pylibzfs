@@ -48,6 +48,70 @@ PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt)
 }
 
 static
+PyObject *zfs_type_table_to_dict(void)
+{
+	PyObject *dict_out = NULL;
+	int err;
+	uint i;
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (i=0; i < ARRAY_SIZE(zfs_type_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(zfs_type_table[i].type);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(dict_out,
+					   zfs_type_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return dict_out;
+fail:
+	Py_XDECREF(dict_out);
+	return NULL;
+}
+
+static
+PyObject *zfs_dosflag_table_to_dict(void)
+{
+	PyObject *dict_out = NULL;
+	int err;
+	uint i;
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (i=0; i < ARRAY_SIZE(zfs_dosflag_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(zfs_dosflag_table[i].flag);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(dict_out,
+					   zfs_dosflag_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return dict_out;
+fail:
+	Py_XDECREF(dict_out);
+	return NULL;
+}
+
+static
 PyObject *zfs_err_table_to_dict(void)
 {
 	PyObject *zfserr_dict = NULL;
@@ -139,7 +203,8 @@ static
 int add_enum(PyObject *module,
 	     PyObject *enum_type,
 	     const char *class_name,
-	     PyObject *(*get_dict)(void))
+	     PyObject *(*get_dict)(void),
+	     PyObject *kwargs)
 {
 	PyObject *args = NULL;
 	PyObject *enum_obj = NULL;
@@ -150,7 +215,7 @@ int add_enum(PyObject *module,
 
 	// Create the enum via the functional API for python enums
 	// https://docs.python.org/3/howto/enum.html#functional-api
-	enum_obj = PyObject_Call(enum_type, args, NULL);
+	enum_obj = PyObject_Call(enum_type, args, kwargs);
 	Py_DECREF(args);
 
 	// steals reference to enum_obj
@@ -166,29 +231,50 @@ py_add_zfs_enums(PyObject *module)
 {
 	int err = -1;
 	PyObject *enum_mod = NULL;
-	PyObject *enum_type = NULL;
+	PyObject *int_enum = NULL;
+	PyObject *intflag_enum = NULL;
+	PyObject *kwargs = NULL;
+
+	kwargs = Py_BuildValue("{s:s}", "module", PYLIBZFS_MODULE_NAME);
+	if (kwargs == NULL)
+		goto out;
 
 	enum_mod = PyImport_ImportModule("enum");
 	if (enum_mod == NULL)
 		goto out;
 
-	enum_type = PyObject_GetAttrString(enum_mod, "IntEnum");
-	if (enum_type == NULL)
+	int_enum = PyObject_GetAttrString(enum_mod, "IntEnum");
+	if (int_enum == NULL)
 		goto out;
 
+	intflag_enum = PyObject_GetAttrString(enum_mod, "IntFlag");
+	if (intflag_enum == NULL)
+		goto out;
 
-	err = add_enum(module, enum_type, "ZFSError",
-		       zfs_err_table_to_dict);
+	err = add_enum(module, int_enum, "ZFSError",
+		       zfs_err_table_to_dict, kwargs);
 	if (err)
 		goto out;
 
-	err = add_enum(module, enum_type, "ZPOOLStatus",
-		       zpool_status_table_to_dict);
+	err = add_enum(module, int_enum, "ZPOOLStatus",
+		       zpool_status_table_to_dict, kwargs);
+	if (err)
+		goto out;
+
+	err = add_enum(module, int_enum, "ZFSType",
+		       zfs_type_table_to_dict, kwargs);
+	if (err)
+		goto out;
+
+	err = add_enum(module, intflag_enum, "ZFSDOSFlag",
+		       zfs_dosflag_table_to_dict, kwargs);
 	if (err)
 		goto out;
 
 out:
-	Py_XDECREF(enum_type);
+	Py_XDECREF(kwargs);
+	Py_XDECREF(int_enum);
+	Py_XDECREF(intflag_enum);
 	Py_XDECREF(enum_mod);
 	return err;
 }
