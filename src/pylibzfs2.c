@@ -91,6 +91,8 @@ static struct PyModuleDef pylibzfs2 = {
 PyMODINIT_FUNC
 PyInit_truenas_pylibzfs(void)
 {
+	PyObject *zfs_exc;
+
 	if (init_types() < 0)
 		return (NULL);
 
@@ -110,17 +112,13 @@ PyInit_truenas_pylibzfs(void)
 
 	add_constants(mlibzfs2);
 
-	PyExc_ZFSError = PyErr_NewException(PYLIBZFS_MODULE_NAME
-					    ".ZFSException",
-					    PyExc_RuntimeError,
-					    NULL);
-
-	if (PyExc_ZFSError == NULL) {
+	zfs_exc = setup_zfs_exception();
+	if (zfs_exc == NULL) {
 		Py_DECREF(mlibzfs2);
 		return (NULL);
 	}
 
-	if (PyModule_AddObject(mlibzfs2, "ZFSException", PyExc_ZFSError) < 0) {
+	if (PyModule_AddObject(mlibzfs2, "ZFSException", zfs_exc) < 0) {
 		Py_DECREF(mlibzfs2);
 		return (NULL);
 	}
