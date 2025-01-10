@@ -82,7 +82,7 @@ static PyMethodDef pylibzfs2Methods[] = {
 static struct PyModuleDef pylibzfs2 = {
 	PyModuleDef_HEAD_INIT,
 	PYLIBZFS_MODULE_NAME,
-	PYLIBZFS_MODULE_NAME " provides python bindings for libzfs",
+	PYLIBZFS_MODULE_NAME " provides python bindings for libzfs for TrueNAS",
 	-1,
 	pylibzfs2Methods
 };
