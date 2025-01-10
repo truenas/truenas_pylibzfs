@@ -1,7 +1,7 @@
 from setuptools import setup, Extension
 
-pylibzfs2 = Extension(
-    name='libzfs2',
+truenas_pylibzfs = Extension(
+    name='truenas_pylibzfs',
     sources=[
         'src/error.c',
         'src/py_zfs.c',
@@ -21,10 +21,11 @@ pylibzfs2 = Extension(
         'uutil'
     ],
     include_dirs = ['/usr/include/libzfs', '/usr/include/libspl'],
-    library_dirs = ['/usr/lib/x86_64-linux-gnu/'])
+    library_dirs = ['/usr/lib/x86_64-linux-gnu/'],
+)
 
-setup(name='pylibzfs2',
+setup(name='truenas_pylibzfs',
       version='0.1',
-      description='pylibzfs2 provides python bindings for libzfs',
-      ext_modules=[pylibzfs2])
+      description='truenas_pylibzfs provides python bindings for libzfs for TrueNAS',
+      ext_modules=[truenas_pylibzfs])
 

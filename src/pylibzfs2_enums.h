@@ -160,4 +160,34 @@ static const struct {
 #define LAST_ZPOOL_STATUS_T ZPOOL_STATUS_INCOMPATIBLE_FEAT
 _Static_assert(ZPOOL_STATUS_OK -1 == LAST_ZPOOL_STATUS_T);
 
+static const struct {
+	zfs_type_t type;
+	const char *name;
+} zfs_type_table[] = {
+	{ ZFS_TYPE_FILESYSTEM, "ZFS_TYPE_FILESYSTEM" },
+	{ ZFS_TYPE_SNAPSHOT, "ZFS_TYPE_SNAPSHOT" },
+	{ ZFS_TYPE_VOLUME, "ZFS_TYPE_VOLUME" },
+	{ ZFS_TYPE_POOL, "ZFS_TYPE_POOL" },
+	{ ZFS_TYPE_BOOKMARK, "ZFS_TYPE_BOOKMARK" },
+	{ ZFS_TYPE_VDEV, "ZFS_TYPE_VDEV" },
+	{ ZFS_TYPE_INVALID, "ZFS_TYPE_INVALID" },
+};
+
+/* Flags exposed via ZFS_IOC_GETDOSFLAGS and ZFS_IOC_SETDOSFLAGS */
+static const struct {
+	uint64_t flag;
+	const char *name;
+} zfs_dosflag_table[] = {
+	{ ZFS_READONLY, "ZFS_READONLY" },
+	{ ZFS_HIDDEN, "ZFS_HIDDEN" },
+	{ ZFS_SYSTEM, "ZFS_SYSTEM" },
+	{ ZFS_ARCHIVE, "ZFS_ARCHIVE" },
+	{ ZFS_IMMUTABLE, "ZFS_IMMUTABLE" },
+	{ ZFS_NOUNLINK, "ZFS_NOUNLINK" },
+	{ ZFS_APPENDONLY, "ZFS_APPENDONLY" },
+	{ ZFS_NODUMP, "ZFS_NODUMP" },
+	{ ZFS_SPARSE, "ZFS_SPARSE" },
+	{ ZFS_OFFLINE, "ZFS_SPARSE" },
+};
+
 #endif /* _PYLIBZFS2_ENUMS_H */

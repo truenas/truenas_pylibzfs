@@ -23,12 +23,17 @@ static PyObject *hello (PyObject *self, PyObject *args) {
 
 static void add_constants(PyObject *m) {
 
-#define ADD_CONSTANT(val)  PyModule_AddIntConstant(m, #val, val)
+#define ADD_INT_CONSTANT(val) PyModule_AddIntConstant(m, #val, val)
+#define ADD_STR_CONSTANT(val) PyModule_AddStringConstant(m, #val, val);
 
-	ADD_CONSTANT(ZFS_TYPE_FILESYSTEM);
-	ADD_CONSTANT(ZFS_TYPE_VOLUME);
-	ADD_CONSTANT(ZFS_TYPE_SNAPSHOT);
-	ADD_CONSTANT(ZFS_TYPE_BOOKMARK);
+	ADD_INT_CONSTANT(ZPL_VERSION);
+	ADD_INT_CONSTANT(L2ARC_PERSISTENT_VERSION);
+	ADD_INT_CONSTANT(ZFS_MAX_DATASET_NAME_LEN);
+	ADD_INT_CONSTANT(ZFS_IOC_GETDOSFLAGS);
+	ADD_INT_CONSTANT(ZFS_IOC_SETDOSFLAGS);
+
+	ADD_STR_CONSTANT(ZPOOL_CACHE_BOOT);
+	ADD_STR_CONSTANT(ZPOOL_CACHE);
 }
 
 static int add_types(PyObject * m) {
@@ -76,15 +81,15 @@ static PyMethodDef pylibzfs2Methods[] = {
 /* Module structure */
 static struct PyModuleDef pylibzfs2 = {
 	PyModuleDef_HEAD_INIT,
-	"pylibzfs2",
-	"pylibzfs2 provides python bindings for libzfs",
+	PYLIBZFS_MODULE_NAME,
+	PYLIBZFS_MODULE_NAME " provides python bindings for libzfs for TrueNAS",
 	-1,
 	pylibzfs2Methods
 };
 
 /* Module initialization */
 PyMODINIT_FUNC
-PyInit_libzfs2(void)
+PyInit_truenas_pylibzfs(void)
 {
 	if (init_types() < 0)
 		return (NULL);
@@ -105,7 +110,8 @@ PyInit_libzfs2(void)
 
 	add_constants(mlibzfs2);
 
-	PyExc_ZFSError = PyErr_NewException("libzfs2.ZFSException",
+	PyExc_ZFSError = PyErr_NewException(PYLIBZFS_MODULE_NAME
+					    ".ZFSException",
 					    PyExc_RuntimeError,
 					    NULL);
 
@@ -114,7 +120,7 @@ PyInit_libzfs2(void)
 		return (NULL);
 	}
 
-	if (PyModule_AddObject(mlibzfs2, "ZFSError", PyExc_ZFSError) < 0) {
+	if (PyModule_AddObject(mlibzfs2, "ZFSException", PyExc_ZFSError) < 0) {
 		Py_DECREF(mlibzfs2);
 		return (NULL);
 	}
