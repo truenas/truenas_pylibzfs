@@ -22,7 +22,6 @@ static PyObject *hello (PyObject *self, PyObject *args) {
 }
 
 static void add_constants(PyObject *m) {
-	uint i;
 
 #define ADD_CONSTANT(val)  PyModule_AddIntConstant(m, #val, val)
 
@@ -30,16 +29,6 @@ static void add_constants(PyObject *m) {
 	ADD_CONSTANT(ZFS_TYPE_VOLUME);
 	ADD_CONSTANT(ZFS_TYPE_SNAPSHOT);
 	ADD_CONSTANT(ZFS_TYPE_BOOKMARK);
-
-	for (i=0; i < ARRAY_SIZE(zfserr_table); i++) {
-		PyModule_AddIntConstant(m, zfserr_table[i].name,
-					zfserr_table[i].error);
-	}
-
-	for (i=0; i < ARRAY_SIZE(zpool_status_table); i++) {
-		PyModule_AddIntConstant(m, zpool_status_table[i].name,
-					zpool_status_table[i].status);
-	}
 }
 
 static int add_types(PyObject * m) {
@@ -116,7 +105,7 @@ PyInit_libzfs2(void)
 
 	add_constants(mlibzfs2);
 
-	PyExc_ZFSError = PyErr_NewException("libzfs2.ZFSError",
+	PyExc_ZFSError = PyErr_NewException("libzfs2.ZFSException",
 					    PyExc_RuntimeError,
 					    NULL);
 
@@ -126,6 +115,11 @@ PyInit_libzfs2(void)
 	}
 
 	if (PyModule_AddObject(mlibzfs2, "ZFSError", PyExc_ZFSError) < 0) {
+		Py_DECREF(mlibzfs2);
+		return (NULL);
+	}
+
+	if (py_add_zfs_enums(mlibzfs2)) {
 		Py_DECREF(mlibzfs2);
 		return (NULL);
 	}

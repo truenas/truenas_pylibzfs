@@ -224,5 +224,6 @@ extern py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp);
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
+extern int py_add_zfs_enums(PyObject *module);
 
 #endif  /* _PYLIBZFS2_H */
