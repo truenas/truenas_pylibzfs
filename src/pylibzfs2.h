@@ -227,6 +227,8 @@ extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
+
+/* Provided by py_zfs_enum.c */
 extern int py_add_zfs_enums(PyObject *module);
 
 #endif  /* _PYLIBZFS2_H */

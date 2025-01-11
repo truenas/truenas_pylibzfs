@@ -6,6 +6,7 @@ truenas_pylibzfs = Extension(
         'src/error.c',
         'src/py_zfs.c',
         'src/py_zfs_dataset.c',
+        'src/py_zfs_enum.c',
         'src/py_zfs_iter.c',
         'src/py_zfs_object.c',
         'src/py_zfs_pool.c',
