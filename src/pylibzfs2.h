@@ -169,7 +169,7 @@ typedef struct {
  */
 extern void py_get_zfs_error(libzfs_handle_t *lz, py_zfs_error_t *out);
 
-extern PyObject *PyExc_ZFSError;
+extern PyObject *setup_zfs_exception(void);
 
 /*
  * @brief set a ZFSError exception based on given parameters
