@@ -7,6 +7,19 @@
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM
 
 /*
+ * Macro to handle extreme error case in module. This should only be invoked
+ * if an error condition is detected that would make it dangerous to continue.
+ * This will call abort() and generate a corefile.
+ */
+#define __PYZFS_ASSERT_IMPL(test, message, location) do {\
+        if (!test) {\
+                Py_FatalError(message " [" location "]");\
+        }\
+} while (0);
+#define PYZFS_ASSERT(test, message)\
+        __PYZFS_ASSERT_IMPL(test, message, __location__);
+
+/*
  * Wrapper around libzfs_handle_t
  * lzh: libzfs handle
  * zfs_lock: pthread_mutex for protecting libzfs handle
