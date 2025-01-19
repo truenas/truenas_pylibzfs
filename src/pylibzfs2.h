@@ -2,6 +2,7 @@
 #define _PYLIBZFS2_H
 #include "zfs.h"
 #include "pylibzfs2_enums.h"
+#include "py_zfs_state.h"
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM
@@ -31,6 +32,7 @@
  */
 typedef struct {
 	PyObject_HEAD
+	PyObject *module;
 	libzfs_handle_t *lzh;
 	pthread_mutex_t zfs_lock;
 	boolean_t mnttab_cache_enable;
@@ -269,5 +271,43 @@ extern int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...);
 
 /* Provided by py_zfs_enum.c */
 extern int py_add_zfs_enums(PyObject *module);
+
+/* Provided by py_zfs_state.c */
+/*
+ * @brief retrieve the module state for a give py_zfs_t object
+ *
+ * When a module instance is created (for example on module import), a module
+ * state struct is allocated and populated with references to commonly-used
+ * objects (for instance enum values). This function returns a pointer to the
+ * state struct associated with a particul py_zfs_t object.
+ *
+ * @param[in]	zfs - pointer to py_zfs_t object.
+ * @return	returns pointer to the initialized pylibzfs_state_t struct
+ *		for the module instance under which `zfs` was allocated.
+ *
+ * NOTE: this call asserts on failure.
+ *
+ * GIL must be held when this is called.
+ * Does not require taking mutex in py_zfs_t object.
+ */
+extern pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs);
+
+/*
+ * @brief get a reference to truenas_libzfs.ZFSType for specified zfs_type_t
+ *
+ * This function retrieves a reference to the assocatiated truenas_libzfs.ZFSType
+ * object assocated with a specified zfs_type_t enum value from the module state
+ * struct associated with the specified py_zfs_t object. This is a faster alternative
+ * to calling the enum object from the C API.
+ *
+ * @param[in] zfs - pointer to py_zfs_t object.
+ * @param[in] type - zfs_type_t type to look up.
+ *
+ * NOTE: this call asserts on failure.
+ *
+ * GIL must be held when this is called.
+ * Does not require taking mutex in py_zfs_t object.
+ */
+extern PyObject *py_get_zfs_type(py_zfs_t *zfs, zfs_type_t type);
 
 #endif  /* _PYLIBZFS2_H */
