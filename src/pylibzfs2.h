@@ -241,6 +241,26 @@ extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
 extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
 
+/*
+ * @brief convenience function to write a message to the zpool history
+ *
+ * This function allows printf-style formatting of messages to be written
+ * to the zpool history applying the history_prefix specified when creating
+ * the libzfs handle. Note that this function will truncate the message to
+ * 4096 bytes.
+ *
+ * @param[in]	pyzfs - pointer to py_zfs_t object.
+ * @param[in]	fmt - format string.
+ * @param[in]	... - Add printf-style additional arguments
+ *
+ * @return	int 0 on success -1 on error. Error can happen if ZFS ioctl
+ * 		fails.
+ *
+ * @note The py_zfs_t lock for the libzfs handle should be held while writing
+ * history since a ZFS error may be written on ioctl failure.
+ */
+extern int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...);
+
 /* Provided by py_zfs_enum.c */
 extern int py_add_zfs_enums(PyObject *module);
 

@@ -1,5 +1,7 @@
 #include "pylibzfs2.h"
 
+#define PYMAXHISTORYLEN 4096
+
 const char* get_dataset_type(zfs_type_t type) {
 	const char *ret;
 	switch(type) {
@@ -45,4 +47,20 @@ PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt)
 		obj->pool_name ? obj->pool_name : py_empty_str(),
 		obj->type ? obj->type : py_empty_str()
 	);
+}
+
+int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...)
+{
+	char histbuf[PYMAXHISTORYLEN];
+	va_list args;
+	size_t sz;
+
+	sz = strlcpy(histbuf, pyzfs->history_prefix, sizeof(histbuf));
+	PYZFS_ASSERT((sz < sizeof(histbuf)), "unexpected prefix size.");
+
+	va_start(args, fmt);
+	vsnprintf(histbuf + sz, sizeof(histbuf) - sz, fmt, args);
+	va_end(args);
+
+	return zpool_log_history(pyzfs->lzh, histbuf);
 }
