@@ -55,6 +55,9 @@ int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...)
 	va_list args;
 	size_t sz;
 
+	if (!pyzfs->history)
+		return 0;
+
 	sz = strlcpy(histbuf, pyzfs->history_prefix, sizeof(histbuf));
 	PYZFS_ASSERT((sz < sizeof(histbuf)), "unexpected prefix size.");
 
