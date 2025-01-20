@@ -82,14 +82,6 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	err = zfs_rename(obj->zhp, new_name, flags);
 	if (err) {
 		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
-	} else {
-		py_log_history_fmt(obj->pylibzfsp,
-				   "zfs rename %s%s%s%s -> %s",
-				   forceunmount ? "-f ": "",
-				   nounmount ? "-u ": "",
-				   recursive ? "-r ": "",
-				   zfs_get_name(obj->zhp),
-				   new_name);
 	}
 	PY_ZFS_UNLOCK(obj->pylibzfsp);
 	Py_END_ALLOW_THREADS
@@ -97,11 +89,25 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	if (err) {
 		set_exc_from_libzfs(&zfs_err, "zfs_rename() failed");
 		return NULL;
+	} else {
+		err = py_log_history_fmt(obj->pylibzfsp,
+					 "zfs rename %s%s%s%s -> %s",
+					 forceunmount ? "-f ": "",
+					 nounmount ? "-u ": "",
+					 recursive ? "-r ": "",
+					 zfs_get_name(obj->zhp),
+					 new_name);
 	}
 
-	// swap out our name with new one
+	// swap out our name with new one even if we failed to write history
 	Py_CLEAR(obj->name);
 	obj->name = PyUnicode_FromString(new_name);
+
+	if (err) {
+		// writing the zpool history failed which means
+		// we have an exception set
+		return NULL;
+	}
 
 	Py_RETURN_NONE;
 }
