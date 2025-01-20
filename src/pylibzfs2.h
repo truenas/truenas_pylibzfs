@@ -257,8 +257,13 @@ extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
  * @return	int 0 on success -1 on error. Error can happen if ZFS ioctl
  * 		fails.
  *
- * @note The py_zfs_t lock for the libzfs handle should be held while writing
- * history since a ZFS error may be written on ioctl failure.
+ * @note This function will truncate the message to 4096 bytes.
+ *
+ * @note The GIL must be held when calling this function.
+ *
+ * @note On failure, exception will be set by python signal handler in case
+ *     of a EINTR, otherwise a RuntimeError will be set with error text
+ *     containing the history message and errno details.
  */
 extern int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...);
 
