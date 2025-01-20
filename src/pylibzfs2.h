@@ -5,6 +5,7 @@
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM
+#define MAX_HISTORY_PREFIX_LEN 25
 
 /*
  * Macro to handle extreme error case in module. This should only be invoked
@@ -34,7 +35,7 @@ typedef struct {
 	pthread_mutex_t zfs_lock;
 	boolean_t mnttab_cache_enable;
 	int history;
-	const char *history_prefix;
+	char history_prefix[MAX_HISTORY_PREFIX_LEN];
 	PyObject *proptypes;
 } py_zfs_t;
 

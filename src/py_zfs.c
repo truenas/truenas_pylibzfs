@@ -4,6 +4,7 @@
 #include "pylibzfs2.h"
 
 #define	ZFS_STR	"<libzfs2.ZFS>"
+#define	DEFAULT_HISTORY_PREFIX	"truenas-pylibzfs: "
 
 PyObject *py_zfs_str(PyObject *self) {
 	return (PyUnicode_FromFormat(ZFS_STR));
@@ -19,32 +20,27 @@ PyObject *py_zfs_new(PyTypeObject *type, PyObject *args,
 int py_zfs_init(PyObject *type, PyObject *args, PyObject *kwds) {
 	int err;
 	py_zfs_t *zfs = (py_zfs_t *)type;
-	PyObject *history = Py_True;
-	PyObject *history_prefix = PyUnicode_FromString("py-libzfs:");
-	PyObject *mnttab_cache = Py_True;
+	const char *history_prefix = DEFAULT_HISTORY_PREFIX;
 	char *kwlist[] = {"history", "history_prefix", "mnttab_cache", NULL};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OOO", kwlist, &history,
-	    &history_prefix, &mnttab_cache)) {
-		return (-1);
-	}
-	if (!PyBool_Check(history)) {
-		PyErr_SetString(PyExc_TypeError, "history is a boolean parameter");
-		return (-1);
-	}
-	if (!PyUnicode_Check(history_prefix)) {
-		PyErr_SetString(PyExc_TypeError, "history_prefix is a string parameter");
-		return (-1);
-	}	
-	if (!PyBool_Check(mnttab_cache)) {
-		PyErr_SetString(PyExc_TypeError, "mnttab_cache is a boolean parameter");
+	zfs->history = B_TRUE;
+	zfs->mnttab_cache_enable = B_TRUE;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|psp", kwlist,
+	    &zfs->history, &history_prefix, &zfs->mnttab_cache_enable)) {
 		return (-1);
 	}
 
-	zfs->history = PyObject_IsTrue(history);
-	zfs->history_prefix = PyUnicode_AsUTF8(history_prefix);
-	zfs->mnttab_cache_enable = PyObject_IsTrue(mnttab_cache);
+	if (strlen(history_prefix) > MAX_HISTORY_PREFIX_LEN) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: history prefix exceeds maximum "
+			     "supported length of %d characters.",
+			     history_prefix, MAX_HISTORY_PREFIX_LEN);
+		return (-1);
+	}
+
 	Py_BEGIN_ALLOW_THREADS
+	strlcpy(zfs->history_prefix, history_prefix, MAX_HISTORY_PREFIX_LEN);
 	zfs->lzh = libzfs_init();
 	err = pthread_mutex_init(&zfs->zfs_lock, NULL);
 	Py_END_ALLOW_THREADS
