@@ -154,7 +154,7 @@ PyMethodDef zfs_dataset_methods[] = {
 };
 
 PyTypeObject ZFSDataset = {
-	.tp_name = "ZFSDataset",
+	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSDataset",
 	.tp_basicsize = sizeof (py_zfs_dataset_t),
 	.tp_methods = zfs_dataset_methods,
 	.tp_getset = zfs_dataset_getsetters,
@@ -173,7 +173,6 @@ py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp)
 	py_zfs_obj_t *obj = NULL;
 	const char *ds_name;
 	const char *pool_name;
-	const char *ds_type;
 	zfs_type_t zfs_type;
 	uint64_t guid, createtxg;
 
@@ -189,7 +188,6 @@ py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp)
 	ds_name = zfs_get_name(zfsp);
 	zfs_type = zfs_get_type(zfsp);
 	pool_name = zfs_get_pool_name(zfsp);
-	ds_type = get_dataset_type(zfs_type);
 	guid = zfs_prop_get_int(zfsp, ZFS_PROP_GUID);
 	createtxg = zfs_prop_get_int(zfsp, ZFS_PROP_CREATETXG);
 	Py_END_ALLOW_THREADS
@@ -203,10 +201,7 @@ py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp)
 		goto error;
 
 	obj->ctype = zfs_type;
-	obj->type = PyUnicode_FromString(ds_type);
-	if (obj->type == NULL)
-		goto error;
-
+	obj->type_enum = py_get_zfs_type(lzp, zfs_type, &obj->type);
 	obj->guid = Py_BuildValue("k", guid);
 	if (obj->guid == NULL)
 		goto error;

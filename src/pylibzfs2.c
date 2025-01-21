@@ -1,11 +1,5 @@
 #include "pylibzfs2.h"
 
-static char hello_docstring[] = "Hello from py-libzfs2!";
-
-static PyTypeObject *types[] = {
-	&ZFS
-};
-
 static PyTypeObject *alltypes[] = {
 	&ZFS,
 	&ZFSDataset,
@@ -14,12 +8,6 @@ static PyTypeObject *alltypes[] = {
 	&ZFSProperty,
 	NULL
 };
-
-static int num_types = sizeof(types) / sizeof(PyTypeObject *);
-
-static PyObject *hello (PyObject *self, PyObject *args) {
-	return Py_BuildValue("s", hello_docstring);
-}
 
 static void add_constants(PyObject *m) {
 
@@ -34,19 +22,6 @@ static void add_constants(PyObject *m) {
 
 	ADD_STR_CONSTANT(ZPOOL_CACHE_BOOT);
 	ADD_STR_CONSTANT(ZPOOL_CACHE);
-}
-
-static int add_types(PyObject * m) {
-	for (int i = 0; i < num_types; ++i) {
-		Py_INCREF(types[i]);
-		if (PyModule_AddObject(m, types[i]->tp_name,
-		    (PyObject *)types[i]) < 0) {
-			for (int j = 0; j <= i; ++j)
-				Py_DECREF(types[j]);
-			return (-1);
-		}
-	}
-	return (0);
 }
 
 static int types_ready(PyObject *m) {
@@ -64,28 +39,70 @@ static int types_ready(PyObject *m) {
 	return 0;
 }
 
-static int init_types() {
-	for (int i = 0; i < num_types; ++i) {
-		if (PyType_Ready(types[i]) < 0)
-			return (-1);
-		}
-	return (0);
+PyDoc_STRVAR(py_get_libzfs_handle__doc__,
+"open_handle(*, history=True, history_prefix=\"truenas_pylibzfs:\", "
+"mnttab_cache=True) -> bool\n\n"
+"--------------------------------------------------------\n\n"
+"Open a python libzfs handle. Arguments are keyword-only\n\n"
+"Parameters\n"
+"----------\n"
+"history: bool, optional, default=True\n"
+"    Optional boolean argument to generate history entries.\n"
+"    Defaults to True (write zpool history)\n"
+""
+"history_prefix: str, optional, default=\"truenas_pylibzfs:\"\n"
+"    Optional string to prefix to all history entries. This is useful\n"
+"    for tracking origin of the history entry.\n"
+""
+"mnttab_cache: bool, optional, default=True\n"
+"    Option boolean argument to determine whether to cache the mnttab\n"
+"    within the libzfs handle. Defaults to True.\n\n"
+""
+"Returns\n"
+"-------\n"
+"new truenas_pylibzfs.ZFS object\n\n"
+""
+"Raises:\n"
+"-------\n"
+"libzfs2.ZFSError:\n"
+"    A libzfs error occurred while trying to open the underlying\n"
+"    libzfs_handle_t handle.\n"
+);
+static PyObject *py_get_libzfs_handle(PyObject *self,
+				      PyObject *args,
+				      PyObject *kwargs)
+{
+	py_zfs_t *out = NULL;
+
+	out = (py_zfs_t *)PyObject_Call((PyObject *)&ZFS, args, kwargs);
+	if (out == NULL)
+		return NULL;
+
+	out->module = self;
+	Py_INCREF(self);
+	return (PyObject *)out;
 }
 
 /* Module method table */
 static PyMethodDef pylibzfs2Methods[] = {
-	{"hello", hello, METH_NOARGS, hello_docstring},
+	{
+		.ml_name = "open_handle",
+		.ml_meth = (PyCFunction)py_get_libzfs_handle,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_get_libzfs_handle__doc__
+	},
 	{NULL}
 };
 
 /* Module structure */
 static struct PyModuleDef pylibzfs2 = {
-	PyModuleDef_HEAD_INIT,
-	PYLIBZFS_MODULE_NAME,
-	PYLIBZFS_MODULE_NAME " provides python bindings for libzfs for TrueNAS",
-	-1,
-	pylibzfs2Methods
+	.m_base = PyModuleDef_HEAD_INIT,
+	.m_name = PYLIBZFS_MODULE_NAME,
+	.m_doc = PYLIBZFS_MODULE_NAME " provides python bindings for libzfs for TrueNAS",
+	.m_size = sizeof(pylibzfs_state_t),
+	.m_methods = pylibzfs2Methods,
 };
+
 
 /* Module initialization */
 PyMODINIT_FUNC
@@ -93,19 +110,11 @@ PyInit_truenas_pylibzfs(void)
 {
 	PyObject *zfs_exc;
 
-	if (init_types() < 0)
-		return (NULL);
-
 	PyObject *mlibzfs2 = PyModule_Create(&pylibzfs2);
 	if (mlibzfs2 == NULL)
 		return (NULL);
 
 	if (types_ready(mlibzfs2) < 0) {
-		Py_DECREF(mlibzfs2);
-		return (NULL);
-	}
-
-	if (add_types(mlibzfs2) < 0) {
 		Py_DECREF(mlibzfs2);
 		return (NULL);
 	}
@@ -124,6 +133,11 @@ PyInit_truenas_pylibzfs(void)
 	}
 
 	if (py_add_zfs_enums(mlibzfs2)) {
+		Py_DECREF(mlibzfs2);
+		return (NULL);
+	}
+
+	if (init_py_zfs_state(mlibzfs2) < 0) {
 		Py_DECREF(mlibzfs2);
 		return (NULL);
 	}
