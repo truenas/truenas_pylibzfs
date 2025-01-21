@@ -103,6 +103,11 @@ PyObject *py_zfs_resource_open(PyObject *self,
 		return NULL;
 	}
 
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".open_resource", "s",
+			name) < 0) {
+		return NULL;
+	}
+
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(plz);
 	zfsp = zfs_open(plz->lzh, name, SUPPORTED_RESOURCES);

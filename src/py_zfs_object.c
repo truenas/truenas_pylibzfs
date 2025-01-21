@@ -78,6 +78,12 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 		.forceunmount = forceunmount
 	};
 
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSObject.rename", "OO",
+			obj->name, kwargs) < 0) {
+		return NULL;
+	}
+
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(obj->pylibzfsp);
 	err = zfs_rename(obj->zhp, new_name, flags);

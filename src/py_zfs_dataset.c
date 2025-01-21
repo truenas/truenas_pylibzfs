@@ -115,6 +115,11 @@ PyObject *py_zfs_dataset_iter_filesystems(PyObject *self,
 		return NULL;
 	}
 
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSDataset.iter_filesystems",
+			"OO", RSRC_TO_ZFS(ds)->name, kwargs) < 0) {
+		return NULL;
+	}
+
 	if (simple_handle) {
 		iter_state.iter_config.filesystem.flags |= ZFS_ITER_SIMPLE;
 	}
