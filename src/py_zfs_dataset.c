@@ -201,7 +201,7 @@ py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp)
 		goto error;
 
 	obj->ctype = zfs_type;
-	obj->type = py_get_zfs_type(lzp, zfs_type);
+	obj->type_enum = py_get_zfs_type(lzp, zfs_type, &obj->type);
 	obj->guid = Py_BuildValue("k", guid);
 	if (obj->guid == NULL)
 		goto error;

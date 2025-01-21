@@ -1,7 +1,7 @@
 #ifndef	_PYZFS_STATE_H
 #define _PYZFS_STATE_H
 
-typedef struct { zfs_type_t type; PyObject *obj; } pystate_zfstype_t;
+typedef struct { zfs_type_t type; PyObject *obj; PyObject *name;} pystate_zfstype_t;
 
 typedef struct {
 	/* Per-module instance lookup tables for enum entries */

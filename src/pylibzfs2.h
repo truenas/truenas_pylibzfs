@@ -73,6 +73,7 @@ typedef struct {
 	zfs_handle_t *zhp;
 	zfs_type_t ctype;
 	PyObject *type;
+	PyObject *type_enum;
 	PyObject *name;
 	PyObject *guid;
 	PyObject *createtxg;
@@ -285,10 +286,11 @@ extern int py_add_zfs_enums(PyObject *module);
  * @return	returns pointer to the initialized pylibzfs_state_t struct
  *		for the module instance under which `zfs` was allocated.
  *
- * NOTE: this call asserts on failure.
+ * @note this call asserts on failure.
  *
- * GIL must be held when this is called.
- * Does not require taking mutex in py_zfs_t object.
+ * @note the GIL must be held when calling this function.
+ *
+ * @note does not require taking mutex in py_zfs_t object.
  */
 extern pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs);
 
@@ -302,12 +304,16 @@ extern pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs);
  *
  * @param[in] zfs - pointer to py_zfs_t object.
  * @param[in] type - zfs_type_t type to look up.
+ * @param[out] name - reference to unicode object of zts_type_t name.
  *
- * NOTE: this call asserts on failure.
+ * @note the `name` parameter is optional and will not be retrieved if set to NULL
  *
- * GIL must be held when this is called.
- * Does not require taking mutex in py_zfs_t object.
+ * @note this call asserts on failure.
+ *
+ * @note the GIL must be held when calling this function.
+ *
+ * @note does not require taking mutex in py_zfs_t object.
  */
-extern PyObject *py_get_zfs_type(py_zfs_t *zfs, zfs_type_t type);
+extern PyObject *py_get_zfs_type(py_zfs_t *zfs, zfs_type_t type, PyObject **name);
 
 #endif  /* _PYLIBZFS2_H */

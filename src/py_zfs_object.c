@@ -26,6 +26,7 @@ void py_zfs_obj_dealloc(py_zfs_obj_t *self) {
 	Py_CLEAR(self->name);
 	Py_CLEAR(self->pool_name);
 	Py_CLEAR(self->type);
+	Py_CLEAR(self->type_enum);
 	Py_CLEAR(self->pylibzfsp);
 	Py_CLEAR(self->guid);
 	Py_CLEAR(self->createtxg);
@@ -137,7 +138,7 @@ PyDoc_STRVAR(py_zfs_obj_type__doc__,
 );
 static
 PyObject *py_zfs_obj_get_type(py_zfs_obj_t *self, void *extra) {
-	return py_get_prop(self->type);
+	return py_get_prop(self->type_enum);
 }
 
 PyDoc_STRVAR(py_zfs_obj_guid__doc__,
