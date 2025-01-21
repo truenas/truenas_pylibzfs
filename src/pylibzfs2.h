@@ -117,6 +117,15 @@ typedef struct {
 
 typedef struct {
 	PyObject_HEAD
+	py_zfs_pool_t *pool;
+	nvlist_t *vdev_tree;
+	PyObject *parent;
+	PyObject *type;
+	PyObject *path;
+} py_zfs_vdev_t;
+
+typedef struct {
+	PyObject_HEAD
 	int propid;
 	const char *cname;
 	char cvalue[ZFS_MAXPROPLEN + 1];
@@ -137,6 +146,7 @@ extern PyTypeObject ZFSObject;
 extern PyTypeObject ZFSPool;
 extern PyTypeObject ZFSProperty;
 extern PyTypeObject ZFSResource;
+extern PyTypeObject ZFSVdev;
 
 /*
  * Provided by error.c
@@ -240,6 +250,10 @@ extern py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp);
 
 /* Provided by py_zfs_pool.c */
 extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
+
+/* Provided by py_zfs_vdev.c */
+extern py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
+    PyObject* parent);
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
