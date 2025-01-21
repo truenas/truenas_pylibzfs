@@ -279,7 +279,7 @@ extern int py_add_zfs_enums(PyObject *module);
  * When a module instance is created (for example on module import), a module
  * state struct is allocated and populated with references to commonly-used
  * objects (for instance enum values). This function returns a pointer to the
- * state struct associated with a particul py_zfs_t object.
+ * state struct associated with a particular py_zfs_t object.
  *
  * @param[in]	zfs - pointer to py_zfs_t object.
  * @return	returns pointer to the initialized pylibzfs_state_t struct
