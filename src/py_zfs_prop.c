@@ -1,6 +1,6 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
-#define	ZFS_PROP_STR	"<libzfs2.ZFSProperty name %s value %s>"
+#define ZFS_PROP_STR "<" PYLIBZFS_MODULE_NAME ".ZFSProperty name %s value %s>"
 
 PyObject *py_zfs_prop_str(PyObject *self) {
 	py_zfs_prop_t *prop = (py_zfs_prop_t *)self;

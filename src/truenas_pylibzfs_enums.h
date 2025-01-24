@@ -1,5 +1,5 @@
-#ifndef _PYLIBZFS2_ENUMS_H
-#define _PYLIBZFS2_ENUMS_H
+#ifndef _TRUENAS_PYLIBZFS_ENUMS_H
+#define _TRUENAS_PYLIBZFS_ENUMS_H
 
 static const struct {
 	zfs_error_t error;
@@ -340,4 +340,4 @@ static const struct {
 };
 _Static_assert(ZPOOL_NUM_PROPS -1 == ZPOOL_PROP_LAST_SCRUBBED_TXG);
 
-#endif /* _PYLIBZFS2_ENUMS_H */
+#endif /* _TRUENAS_PYLIBZFS_ENUMS_H */

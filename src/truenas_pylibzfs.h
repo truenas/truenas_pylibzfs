@@ -1,7 +1,7 @@
-#ifndef _PYLIBZFS2_H
-#define _PYLIBZFS2_H
+#ifndef _TRUENAS_PYLIBZFS_H
+#define _TRUENAS_PYLIBZFS_H
 #include "zfs.h"
-#include "pylibzfs2_enums.h"
+#include "truenas_pylibzfs_enums.h"
 #include "py_zfs_state.h"
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
@@ -330,4 +330,4 @@ extern pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs);
  */
 extern PyObject *py_get_zfs_type(py_zfs_t *zfs, zfs_type_t type, PyObject **name);
 
-#endif  /* _PYLIBZFS2_H */
+#endif  /* _TRUENAS_PYLIBZFS_H */

@@ -1,6 +1,6 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
-#define ZFS_POOL_STR "<libzfs2.ZFSPool(name=%U)>"
+#define ZFS_POOL_STR "<" PYLIBZFS_MODULE_NAME ".ZFSPool(name=%U)>"
 
 static
 PyObject *py_repr_zfs_pool(PyObject *self) {

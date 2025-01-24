@@ -1,4 +1,4 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
 #define PYMAXHISTORYLEN 4096
 

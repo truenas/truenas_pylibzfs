@@ -1,7 +1,8 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
 
-#define ZFS_DATASET_STR "<libzfs2.ZFSDataset(name=%U, pool=%U, type=%U)>"
+#define ZFS_DATASET_STR "<" PYLIBZFS_MODULE_NAME \
+    ".ZFSDataset(name=%U, pool=%U, type=%U)>"
 
 static
 PyObject *py_zfs_dataset_new(PyTypeObject *type, PyObject *args,
@@ -56,7 +57,7 @@ PyDoc_STRVAR(py_zfs_dataset_iter_filesystems__doc__,
 "    callback fuction returning False.\n\n"
 "Raises:\n"
 "-------\n"
-"libzfs2.ZFSError:\n"
+"truenas_pylibzfs.ZFSError:\n"
 "    An error occurred during iteration of the dataset. Note that this\n"
 "    exception type may also be raised within the callback function.\n\n"
 "NOTE regarding \"callback\":\n"
