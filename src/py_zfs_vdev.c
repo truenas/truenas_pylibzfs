@@ -41,6 +41,12 @@ PyObject *py_zfs_vdev_asdict(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_vdev_type__doc__,
+"Returns the type of VDEV in string format.\n\n"
+"This can be either of \"root\", \"mirror\", \"replacing\", \"raidz\", \n"
+"\"draid\", \"disk\", \"file\", \"missing\",\"hole\", \"spare\", \"log\", \n"
+"\"l2cache\", \"indirect\" or \"dspare\".\n"
+);
 static
 PyObject *py_zfs_vdev_get_type(py_zfs_vdev_t *self, void *extra) {
 	if (self->type == NULL)
@@ -48,6 +54,11 @@ PyObject *py_zfs_vdev_get_type(py_zfs_vdev_t *self, void *extra) {
 	return (Py_NewRef(self->type));
 }
 
+PyDoc_STRVAR(py_zfs_vdev_path__doc__,
+"Returns the path of VDEV if it exists in nvlist config of VDEV.\n\n"
+"If path does not exist, for example in case of root, mirror, raidz VDEVs,\n"
+"None is returned. Otherwise path of VDEV is returned in string format."
+);
 static
 PyObject *py_zfs_vdev_get_path(py_zfs_vdev_t *self, void *extra) {
 	if (self->path == NULL)
@@ -55,6 +66,23 @@ PyObject *py_zfs_vdev_get_path(py_zfs_vdev_t *self, void *extra) {
 	return (Py_NewRef(self->path));
 }
 
+PyDoc_STRVAR(py_zfs_vdev_get_name__doc__,
+"name(*) -> string\n\n"
+"-----------------\n\n"
+"Returns the name of the VDEV.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"String\n"
+"    Value indicates the name of VDEV used in VDEV nvlist config.\n\n"
+"Raises:\n"
+"-------\n"
+"PyErr_NoMemory:\n"
+"    If libzfs fails to allocate memory for returning the path,\n"
+"    PyErr_NoMemory will be raised.\n"
+);
 static
 PyObject *py_zfs_vdev_get_name(PyObject *self, PyObject *args) {
 	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
@@ -76,6 +104,18 @@ PyObject *py_zfs_vdev_get_name(PyObject *self, PyObject *args) {
 	return (out);
 }
 
+PyDoc_STRVAR(py_zfs_vdev_get_guid__doc__,
+"guid(*) -> Int\n\n"
+"--------------\n\n"
+"Returns current VDEV GUID.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"Int\n"
+"    Value indicates the GUID of VDEV.\n\n"
+);
 static
 PyObject *py_zfs_vdev_get_guid(PyObject *self, PyObject *args) {
 	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
@@ -102,6 +142,19 @@ const char *vdev_get_status_impl(nvlist_t *tree) {
 	return (state);
 }
 
+PyDoc_STRVAR(py_zfs_vdev_get_status__doc__,
+"status(*) -> String\n\n"
+"-------------------\n\n"
+"Returns the status of the VDEV.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"String\n"
+"    Value indicates the state of VDEV used in VDEV nvlist config. If state\n"
+"    of VDEV is not found in nvlist config for VDEV, None is returned.\n\n"
+);
 static
 PyObject *py_zfs_vdev_get_status(PyObject *self, PyObject *args) {
 	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
@@ -111,6 +164,18 @@ PyObject *py_zfs_vdev_get_status(PyObject *self, PyObject *args) {
 	return (PyUnicode_FromString(state));
 }
 
+PyDoc_STRVAR(py_zfs_vdev_get_size__doc__,
+"size(*) -> Int\n\n"
+"--------------\n\n"
+"Returns the size of the VDEV.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"Int\n"
+"    Value indicates the size of VDEV.\n\n"
+);
 static
 PyObject *py_zfs_vdev_get_size(PyObject *self, PyObject *args) {
 	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
@@ -131,6 +196,18 @@ PyObject *py_zfs_vdev_get_size(PyObject *self, PyObject *args) {
 	return (PyLong_FromUnsignedLongLong(size));
 }
 
+PyDoc_STRVAR(py_zfs_vdev_get_children__doc__,
+"children(*) -> Tuple\n\n"
+"--------------------\n\n"
+"Returns ZFSVdev objects for child VDEVs in a Tuple.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"Tuple\n"
+"    Tuple contains ZFSVDev objects for child VDEVs under current VDEV.\n\n"
+);
 static
 PyObject *py_zfs_vdev_get_children(PyObject *self, PyObject *args) {
 	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
@@ -198,6 +275,18 @@ void vdev_get_disks_impl(PyObject *list, nvlist_t *tree) {
 	return;
 }
 
+PyDoc_STRVAR(py_zfs_vdev_get_disks__doc__,
+"disks(*) -> Tuple\n\n"
+"-----------------\n\n"
+"Returns a Tuple containing path for all DISK type VDEVs.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"Tuple\n"
+"    Tuple contains the path of all DISK VDEVs in String format.\n\n"
+);
 static
 PyObject *py_zfs_vdev_get_disks(PyObject *self, PyObject *args) {
 	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
@@ -217,11 +306,13 @@ static
 PyGetSetDef zfs_vdev_getsetters[] = {
 	{
 		.name	= "type",
-		.get	= (getter)py_zfs_vdev_get_type
+		.get	= (getter)py_zfs_vdev_get_type,
+		.doc	= py_zfs_vdev_type__doc__
 	},
 	{
 		.name	= "path",
-		.get	= (getter)py_zfs_vdev_get_path
+		.get	= (getter)py_zfs_vdev_get_path,
+		.doc	= py_zfs_vdev_path__doc__
 	},
 	{ .name = NULL }
 };
@@ -237,31 +328,37 @@ PyMethodDef zfs_vdev_methods[] = {
 		.ml_name = "name",
 		.ml_meth = py_zfs_vdev_get_name,
 		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_get_name__doc__
 	},
 	{
 		.ml_name = "guid",
 		.ml_meth = py_zfs_vdev_get_guid,
 		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_get_guid__doc__
 	},
 	{
 		.ml_name = "status",
 		.ml_meth = py_zfs_vdev_get_status,
 		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_get_status__doc__
 	},
 	{
 		.ml_name = "size",
 		.ml_meth = py_zfs_vdev_get_size,
 		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_get_size__doc__
 	},
 	{
 		.ml_name = "children",
 		.ml_meth = py_zfs_vdev_get_children,
 		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_get_children__doc__
 	},
 	{
 		.ml_name = "disks",
 		.ml_meth = py_zfs_vdev_get_disks,
 		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_get_disks__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
