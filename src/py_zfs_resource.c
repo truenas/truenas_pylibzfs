@@ -1,6 +1,7 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
-#define	ZFS_RESOURCE_STR	"<libzfs2.ZFSResource(name=%U, pool=%U, type=%U)>"
+#define ZFS_RESOURCE_STR "<" PYLIBZFS_MODULE_NAME \
+    ".ZFSResource(name=%U, pool=%U, type=%U)>"
 
 
 static PyObject *py_zfs_resoucre_iter(PyObject *self, PyObject *args) {

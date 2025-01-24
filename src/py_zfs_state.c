@@ -1,4 +1,4 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
 static
 int setup_zfs_type(PyObject *module, pylibzfs_state_t *state)

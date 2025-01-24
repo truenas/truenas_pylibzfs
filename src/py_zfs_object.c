@@ -1,6 +1,7 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
-#define ZFS_OBJECT_STR "<libzfs2.ZFSObject(name=%U, pool=%U, type=%U)>"
+#define ZFS_OBJECT_STR "<" PYLIBZFS_MODULE_NAME \
+    ".ZFSObject(name=%U, pool=%U, type=%U)>"
 
 static
 PyObject *py_zfs_obj_new(PyTypeObject *type, PyObject *args,

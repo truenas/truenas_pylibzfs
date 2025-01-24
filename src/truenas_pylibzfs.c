@@ -1,4 +1,4 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
 static PyTypeObject *alltypes[] = {
 	&ZFS,
@@ -65,7 +65,7 @@ PyDoc_STRVAR(py_get_libzfs_handle__doc__,
 ""
 "Raises:\n"
 "-------\n"
-"libzfs2.ZFSError:\n"
+"truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while trying to open the underlying\n"
 "    libzfs_handle_t handle.\n"
 );
@@ -85,7 +85,7 @@ static PyObject *py_get_libzfs_handle(PyObject *self,
 }
 
 /* Module method table */
-static PyMethodDef pylibzfs2Methods[] = {
+static PyMethodDef TruenasPylibzfsMethods[] = {
 	{
 		.ml_name = "open_handle",
 		.ml_meth = (PyCFunction)py_get_libzfs_handle,
@@ -96,12 +96,12 @@ static PyMethodDef pylibzfs2Methods[] = {
 };
 
 /* Module structure */
-static struct PyModuleDef pylibzfs2 = {
+static struct PyModuleDef truenas_pylibzfs = {
 	.m_base = PyModuleDef_HEAD_INIT,
 	.m_name = PYLIBZFS_MODULE_NAME,
 	.m_doc = PYLIBZFS_MODULE_NAME " provides python bindings for libzfs for TrueNAS",
 	.m_size = sizeof(pylibzfs_state_t),
-	.m_methods = pylibzfs2Methods,
+	.m_methods = TruenasPylibzfsMethods,
 };
 
 
@@ -111,37 +111,37 @@ PyInit_truenas_pylibzfs(void)
 {
 	PyObject *zfs_exc;
 
-	PyObject *mlibzfs2 = PyModule_Create(&pylibzfs2);
-	if (mlibzfs2 == NULL)
+	PyObject *mpylibzfs = PyModule_Create(&truenas_pylibzfs);
+	if (mpylibzfs == NULL)
 		return (NULL);
 
-	if (types_ready(mlibzfs2) < 0) {
-		Py_DECREF(mlibzfs2);
+	if (types_ready(mpylibzfs) < 0) {
+		Py_DECREF(mpylibzfs);
 		return (NULL);
 	}
 
-	add_constants(mlibzfs2);
+	add_constants(mpylibzfs);
 
 	zfs_exc = setup_zfs_exception();
 	if (zfs_exc == NULL) {
-		Py_DECREF(mlibzfs2);
+		Py_DECREF(mpylibzfs);
 		return (NULL);
 	}
 
-	if (PyModule_AddObject(mlibzfs2, "ZFSException", zfs_exc) < 0) {
-		Py_DECREF(mlibzfs2);
+	if (PyModule_AddObject(mpylibzfs, "ZFSException", zfs_exc) < 0) {
+		Py_DECREF(mpylibzfs);
 		return (NULL);
 	}
 
-	if (py_add_zfs_enums(mlibzfs2)) {
-		Py_DECREF(mlibzfs2);
+	if (py_add_zfs_enums(mpylibzfs)) {
+		Py_DECREF(mpylibzfs);
 		return (NULL);
 	}
 
-	if (init_py_zfs_state(mlibzfs2) < 0) {
-		Py_DECREF(mlibzfs2);
+	if (init_py_zfs_state(mpylibzfs) < 0) {
+		Py_DECREF(mpylibzfs);
 		return (NULL);
 	}
 
-	return (mlibzfs2);
+	return (mpylibzfs);
 }

@@ -1,9 +1,9 @@
 #ifndef _PY_ZFS_H
 #define _PY_ZFS_H
 
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
-#define	ZFS_STR	"<libzfs2.ZFS>"
+#define	ZFS_STR	"<" PYLIBZFS_MODULE_NAME ".ZFS>"
 #define	DEFAULT_HISTORY_PREFIX	"truenas-pylibzfs: "
 
 PyObject *py_zfs_str(PyObject *self) {

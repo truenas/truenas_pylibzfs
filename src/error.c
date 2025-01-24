@@ -1,4 +1,4 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
 static
 PyObject *PyExc_ZFSError;

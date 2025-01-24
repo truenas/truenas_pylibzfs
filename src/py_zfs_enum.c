@@ -1,4 +1,4 @@
-#include "pylibzfs2.h"
+#include "truenas_pylibzfs.h"
 
 static
 PyObject *zfs_type_table_to_dict(void)
