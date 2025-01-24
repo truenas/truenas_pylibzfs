@@ -78,6 +78,21 @@ PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 }
 
 static
+PyObject *py_zfs_pool_root_vdev(PyObject *self, PyObject *args) {
+	PyObject *out = NULL;
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	nvlist_t *nvroot;
+
+	Py_BEGIN_ALLOW_THREADS
+	nvroot = fnvlist_lookup_nvlist(zpool_get_config(p->zhp, NULL),
+	    ZPOOL_CONFIG_VDEV_TREE);
+	Py_END_ALLOW_THREADS
+
+	out = (PyObject *)init_zfs_vdev(p, nvroot, NULL);
+	return (out);
+}
+
+static
 PyObject *py_zfs_pool_clear(PyObject *self, PyObject *args) {
 	int ret = 0;
 	nvlist_t *policy = NULL;
@@ -252,6 +267,11 @@ PyMethodDef zfs_pool_methods[] = {
 	{
 		.ml_name = "root_dataset",
 		.ml_meth = py_zfs_pool_root_dataset,
+		.ml_flags = METH_NOARGS
+	},
+	{
+		.ml_name = "root_vdev",
+		.ml_meth = py_zfs_pool_root_vdev,
 		.ml_flags = METH_NOARGS
 	},
 	{
