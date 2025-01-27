@@ -144,7 +144,7 @@ PyDoc_STRVAR(py_zfs_pool_clear__doc__,
 );
 static
 PyObject *py_zfs_pool_clear(PyObject *self, PyObject *args) {
-	int ret = 0;
+	int ret = 0, error;
 	nvlist_t *policy = NULL;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
@@ -173,6 +173,14 @@ PyObject *py_zfs_pool_clear(PyObject *self, PyObject *args) {
 	if (ret) {
 		set_exc_from_libzfs(&err, "zpool_clear() failed");
 		return (NULL);
+	} else {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool clear %s", zpool_get_name(p->zhp));
+		if (error) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
 	}
 
 	Py_RETURN_NONE;
@@ -195,7 +203,7 @@ PyDoc_STRVAR(py_zfs_pool_upgrade__doc__,
 );
 static
 PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
-	int ret = 0;
+	int ret = 0, error;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
 
@@ -216,6 +224,14 @@ PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	if (ret) {
 		set_exc_from_libzfs(&err, "zpool_upgrade() failed");
 		return (NULL);
+	} else {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool upgrade %s", zpool_get_name(p->zhp));
+		if (error) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
 	}
 
 	Py_RETURN_NONE;
@@ -239,7 +255,7 @@ PyDoc_STRVAR(py_zfs_pool_delete__doc__,
 );
 static
 PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args, PyObject *kwargs) {
-	int ret, force;
+	int ret, force, error;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
 	ret = force = 0;
@@ -267,6 +283,15 @@ PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args, PyObject *kwargs) {
 	if (ret) {
 		set_exc_from_libzfs(&err, "zpool_delete() failed");
 		return (NULL);
+	} else {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool destroy %s%s", force ? "-f " : "",
+		    zpool_get_name(p->zhp));
+		if (error) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
 	}
 
 	Py_RETURN_NONE;
@@ -289,7 +314,7 @@ PyDoc_STRVAR(py_zfs_pool_ddt_prefetch__doc__,
 );
 static
 PyObject *py_zfs_pool_ddt_prefetch(PyObject *self, PyObject *args) {
-	int ret = 0;
+	int ret = 0, error;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
 
@@ -309,6 +334,14 @@ PyObject *py_zfs_pool_ddt_prefetch(PyObject *self, PyObject *args) {
 	if (ret) {
 		set_exc_from_libzfs(&err, "zpool_ddt_prefetch() failed");
 		return (NULL);
+	} else {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool prefetch %s", zpool_get_name(p->zhp));
+		if (error) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
 	}
 
 	Py_RETURN_NONE;
@@ -339,7 +372,7 @@ static
 PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 				PyObject *args,
 				PyObject *kwargs) {
-	int ret;
+	int ret, error;
 	unsigned int days, percentage;
 	uint64_t value = 0;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
@@ -389,6 +422,15 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 	if (ret) {
 		set_exc_from_libzfs(&err, "zpool_ddt_prune() failed");
 		return (NULL);
+	} else {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool ddtprune %s%llu %s", days ? "-d ": "-p ", value,
+		    zpool_get_name(p->zhp));
+		if (error) {
+			// exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
 	}
 
 	Py_RETURN_NONE;
