@@ -373,7 +373,7 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 				PyObject *args,
 				PyObject *kwargs) {
 	int ret, error;
-	unsigned int days, percentage;
+	int days, percentage;
 	uint64_t value = 0;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
@@ -381,12 +381,12 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 	char *kwnames[] = {"days", "percentage", NULL};
 	ret = days = percentage = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|II", kwnames, &days,
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ii", kwnames, &days,
 					 &percentage)) {
 		return NULL;
 	}
 
-	if (percentage > 100) {
+	if (days < 0 || percentage < 0 || percentage > 100) {
 		PyErr_SetString(PyExc_ValueError,
 			"days must be >= 1, and percentage must be between 1 "
 			"and 100");
