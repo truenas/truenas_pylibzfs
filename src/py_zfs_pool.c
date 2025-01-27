@@ -35,6 +35,9 @@ void py_zfs_pool_dealloc(py_zfs_pool_t *self) {
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+PyDoc_STRVAR(py_zfs_pool_name__doc__,
+"Returns the name of ZFS Pool.\n"
+);
 static
 PyObject *py_zfs_pool_get_name(py_zfs_pool_t *self, void *extra) {
 	if (self == NULL)
@@ -47,6 +50,17 @@ PyObject *py_zfs_pool_asdict(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_root_dataset__doc__,
+"root_dataset(*) -> ZFSDataset\n\n"
+"-----------------\n\n"
+"Returns the ZFSDataset type object for root Dataset of the pool.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+);
 static
 PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 	PyObject *out = NULL;
@@ -82,6 +96,17 @@ PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 	return (out);
 }
 
+PyDoc_STRVAR(py_zfs_pool_root_vdev__doc__,
+"root_vdev(*) -> ZFSVdev\n\n"
+"-----------------------\n\n"
+"Returns the ZFSVdev type object for root VDEV of the pool.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+);
 static
 PyObject *py_zfs_pool_root_vdev(PyObject *self, PyObject *args) {
 	PyObject *out = NULL;
@@ -102,6 +127,21 @@ PyObject *py_zfs_pool_root_vdev(PyObject *self, PyObject *args) {
 	return (out);
 }
 
+PyDoc_STRVAR(py_zfs_pool_clear__doc__,
+"clear(*) -> None\n\n"
+"----------------\n\n"
+"Clear device errors in the pool.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n"
+);
 static
 PyObject *py_zfs_pool_clear(PyObject *self, PyObject *args) {
 	int ret = 0;
@@ -138,6 +178,21 @@ PyObject *py_zfs_pool_clear(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_upgrade__doc__,
+"upgrade(*) -> None\n\n"
+"------------------\n\n"
+"Enables all supported features on the given pool.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n"
+);
 static
 PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	int ret = 0;
@@ -166,6 +221,22 @@ PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_delete__doc__,
+"delete(*) -> None\n\n"
+"-----------------\n\n"
+"Destroys the given pool, freeing up any devices for other use.\n\n"
+"Parameters\n"
+"----------\n"
+"force: bool, optional\n"
+"    Forecully unmount all active datasets.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n"
+);
 static
 PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args, PyObject *kwargs) {
 	int ret, force;
@@ -201,6 +272,21 @@ PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args, PyObject *kwargs) {
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_ddt_prefetch__doc__,
+"ddt_prefetch(*) -> None\n\n"
+"-----------------------\n\n"
+"Prefetch data of a specific type (DDT) for given pool.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n"
+);
 static
 PyObject *py_zfs_pool_ddt_prefetch(PyObject *self, PyObject *args) {
 	int ret = 0;
@@ -228,6 +314,27 @@ PyObject *py_zfs_pool_ddt_prefetch(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_ddt_prune__doc__,
+"ddt_prune(*, [days], [percentage]) -> None\n\n"
+"------------------------------------------\n\n"
+"Prunes the older entries from single reference dedup table(s) to reclaim\n"
+"space under the quota. Only one of days or percentage should be passed.\n\n"
+"Parameters\n"
+"----------\n"
+"days: Int, optional\n"
+"    Prune the entries based on age, i.e. deletes every entry older than N\n"
+"    days. Must be a +ve Integer. -ve values are not allowed.\n\n"
+"percentage: Int, optional\n"
+"    Target percentage of unique entries to be removed. Value must be between\n"
+"    1 to 100. -ve values are not allowed.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n"
+);
 static
 PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 				PyObject *args,
@@ -248,7 +355,8 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 
 	if (percentage > 100) {
 		PyErr_SetString(PyExc_ValueError,
-			"days must be >= 1, and percentage must be between 1 and 100");
+			"days must be >= 1, and percentage must be between 1 "
+			"and 100");
 	} else if (days > 0 && percentage > 0) {
 		PyErr_SetString(PyExc_ValueError,
 			"Only one of days or percentage should be set");
@@ -289,7 +397,8 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
-		.get	= (getter)py_zfs_pool_get_name
+		.get	= (getter)py_zfs_pool_get_name,
+		.doc	= py_zfs_pool_name__doc__
 	},
 	{ .name = NULL }
 };
@@ -303,37 +412,44 @@ PyMethodDef zfs_pool_methods[] = {
 	{
 		.ml_name = "root_dataset",
 		.ml_meth = py_zfs_pool_root_dataset,
-		.ml_flags = METH_NOARGS
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_root_dataset__doc__
 	},
 	{
 		.ml_name = "root_vdev",
 		.ml_meth = py_zfs_pool_root_vdev,
-		.ml_flags = METH_NOARGS
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_root_vdev__doc__
 	},
 	{
 		.ml_name = "clear",
 		.ml_meth = py_zfs_pool_clear,
-		.ml_flags = METH_NOARGS
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_clear__doc__
 	},
 	{
 		.ml_name = "upgrade",
 		.ml_meth = py_zfs_pool_upgrade,
-		.ml_flags = METH_NOARGS
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_upgrade__doc__
 	},
 	{
 		.ml_name = "delete",
 		.ml_meth = (PyCFunction)py_zfs_pool_delete,
-		.ml_flags = METH_VARARGS | METH_KEYWORDS
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_delete__doc__
 	},
 	{
 		.ml_name = "ddt_prefetch",
 		.ml_meth = py_zfs_pool_ddt_prefetch,
-		.ml_flags = METH_NOARGS
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_ddt_prefetch__doc__
 	},
 	{
 		.ml_name = "ddt_prune",
 		.ml_meth = (PyCFunction)py_zfs_pool_ddt_prune,
-		.ml_flags = METH_VARARGS | METH_KEYWORDS
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_ddt_prune__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
