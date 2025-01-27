@@ -160,6 +160,19 @@ PyObject *py_zfs_pool_open(PyObject *self,
 			return (NULL);
 	}
 
+	if (!name) {
+		PyErr_SetString(PyExc_ValueError,
+				"The name of the pool to open must be "
+				"passed to this method through the "
+				"\"pool_name\" keyword argument.");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".open_pool", "s",
+			name) < 0) {
+		return NULL;
+	}
+
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(plz);
 	zhp = zpool_open(plz->lzh, name);

@@ -55,6 +55,11 @@ PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 	PyObject *fargs = NULL;
 	PyObject *fkwargs = NULL;
 
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.root_dataset", "O",
+	    p->name) < 0) {
+		return NULL;
+	}
+
 	fargs = PyTuple_New(0);
 	if (fargs == NULL)
 		return (NULL);
@@ -83,6 +88,11 @@ PyObject *py_zfs_pool_root_vdev(PyObject *self, PyObject *args) {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	nvlist_t *nvroot;
 
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.root_vdev", "O",
+	    p->name) < 0) {
+		return NULL;
+	}
+
 	Py_BEGIN_ALLOW_THREADS
 	nvroot = fnvlist_lookup_nvlist(zpool_get_config(p->zhp, NULL),
 	    ZPOOL_CONFIG_VDEV_TREE);
@@ -98,6 +108,11 @@ PyObject *py_zfs_pool_clear(PyObject *self, PyObject *args) {
 	nvlist_t *policy = NULL;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.clear", "O",
+	    p->name) < 0) {
+		return NULL;
+	}
 
 	Py_BEGIN_ALLOW_THREADS
 	policy = fnvlist_alloc();
@@ -129,6 +144,12 @@ PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
 
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.upgrade", "O",
+	    p->name) < 0) {
+		return NULL;
+	}
+
+
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
 	ret = zpool_upgrade(p->zhp, SPA_VERSION);
@@ -157,6 +178,11 @@ PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args, PyObject *kwargs) {
 		return NULL;
 	}
 
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.delete", "OO",
+	    p->name, kwargs) < 0) {
+		return NULL;
+	}
+
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
 	ret = zpool_disable_datasets(p->zhp, force);
@@ -180,6 +206,11 @@ PyObject *py_zfs_pool_ddt_prefetch(PyObject *self, PyObject *args) {
 	int ret = 0;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.ddt_prefetch", "O",
+	    p->name) < 0) {
+		return NULL;
+	}
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
@@ -224,6 +255,11 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 	} else if (days == 0 && percentage == 0) {
 		PyErr_SetString(PyExc_ValueError,
 			"Either days or percentage must be set");
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.ddt_prune", "OO",
+	    p->name, kwargs) < 0) {
+		return NULL;
 	}
 
 	if (percentage != 0) {
