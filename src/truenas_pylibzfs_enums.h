@@ -190,6 +190,7 @@ static const struct {
 	{ ZFS_OFFLINE, "ZFS_SPARSE" },
 };
 
+
 /* ZFS property enum. Does not expose ones marked as obsolete or
  * not exposed to the user in the ZFS header file */
 static const struct {
@@ -339,5 +340,19 @@ static const struct {
 	{ ZPOOL_PROP_LAST_SCRUBBED_TXG, "LAST_SCRUBBED_TXG" },
 };
 _Static_assert(ZPOOL_NUM_PROPS -1 == ZPOOL_PROP_LAST_SCRUBBED_TXG);
+
+static const struct {
+	zprop_source_t sourcetype;
+	const char *name;
+} zprop_source_table[] = {
+	{ ZPROP_SRC_NONE, "NONE" },
+	{ ZPROP_SRC_DEFAULT, "DEFAULT" },
+	{ ZPROP_SRC_TEMPORARY, "TEMPORARY" },
+	{ ZPROP_SRC_LOCAL, "LOCAL" },
+	{ ZPROP_SRC_INHERITED, "INHERITED" },
+	{ ZPROP_SRC_RECEIVED, "RECEIVED" },
+};
+/* Verify that potential sources haven't changed */
+_Static_assert(ZPROP_SRC_ALL == 0x3f);
 
 #endif /* _TRUENAS_PYLIBZFS_ENUMS_H */

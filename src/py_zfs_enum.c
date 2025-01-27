@@ -1,5 +1,6 @@
 #include "truenas_pylibzfs.h"
 
+/* Create a dictionary for enum spec for the ZFSType enum */
 static
 PyObject *zfs_type_table_to_dict(void)
 {
@@ -32,6 +33,7 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the ZFSProperty enum */
 static
 PyObject *zfs_prop_table_to_dict(void)
 {
@@ -43,8 +45,17 @@ PyObject *zfs_prop_table_to_dict(void)
 	if (dict_out == NULL)
 		return NULL;
 
-	for (i=0; i < ARRAY_SIZE(zpool_prop_table); i++) {
+	for (i=0; i < ARRAY_SIZE(zfs_prop_table); i++) {
 		PyObject *val = NULL;
+
+		/*
+		 * For now exclude properties that aren't
+		 * marked as "visible". We can adjust in
+		 * future if there is some reason to expose
+		 * these properties to consumers
+		 */
+		if (!zfs_prop_visible(zfs_prop_table[i].prop))
+			continue;
 
 		val = PyLong_FromLong(zfs_prop_table[i].prop);
 		if (val == NULL)
@@ -64,6 +75,7 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the ZPOOLProperty enum */
 static
 PyObject *zpool_prop_table_to_dict(void)
 {
@@ -96,6 +108,7 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the ZFSDOSFlag enum */
 static
 PyObject *zfs_dosflag_table_to_dict(void)
 {
@@ -128,6 +141,40 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the PropertySource enum */
+static
+PyObject *zfs_prop_src_table_to_dict(void)
+{
+	PyObject *dict_out = NULL;
+	int err;
+	uint i;
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (i=0; i < ARRAY_SIZE(zprop_source_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(zprop_source_table[i].sourcetype);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(dict_out,
+					   zprop_source_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return dict_out;
+fail:
+	Py_XDECREF(dict_out);
+	return NULL;
+}
+
+/* Create a dictionary for enum spec for the ZFSError enum */
 static
 PyObject *zfs_err_table_to_dict(void)
 {
@@ -160,6 +207,7 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the ZPOOLStatus enum */
 static
 PyObject *zpool_status_table_to_dict(void)
 {
@@ -296,6 +344,11 @@ py_add_zfs_enums(PyObject *module)
 
 	err = add_enum(module, int_enum, "ZPOOLProperty",
 		       zpool_prop_table_to_dict, kwargs);
+	if (err)
+		goto out;
+
+	err = add_enum(module, intflag_enum, "PropertySource",
+		       zfs_prop_src_table_to_dict, kwargs);
 	if (err)
 		goto out;
 

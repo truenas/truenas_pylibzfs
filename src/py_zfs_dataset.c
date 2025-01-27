@@ -24,11 +24,6 @@ void py_zfs_dataset_dealloc(py_zfs_dataset_t *self) {
 }
 
 static
-PyObject *py_zfs_dataset_as_dict(PyObject *self, PyObject *args) {
-	Py_RETURN_NONE;
-}
-
-static
 PyObject *py_repr_zfs_dataset(PyObject *self)
 {
 	py_zfs_dataset_t *ds = (py_zfs_dataset_t *)self;
@@ -43,11 +38,6 @@ PyGetSetDef zfs_dataset_getsetters[] = {
 
 static
 PyMethodDef zfs_dataset_methods[] = {
-	{
-		.ml_name = "asdict",
-		.ml_meth = py_zfs_dataset_as_dict,
-		.ml_flags = METH_VARARGS
-	},
 	{ NULL, NULL, 0, NULL }
 };
 

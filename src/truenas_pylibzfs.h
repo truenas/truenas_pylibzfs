@@ -62,6 +62,7 @@ typedef struct {
  * zhp: open zfs handle
  * ctype: type of ZFS object (C enum)
  * type: Unicode object for ZFS type
+ * type_enum: truenas_pylibzfs.ZFSType enum for ctype
  * name: Unicode object of dataset name
  * guid: Python Int representing ZFS object GUID
  * createtxg: Python Int TXG in which object created
@@ -144,7 +145,6 @@ extern PyTypeObject ZFS;
 extern PyTypeObject ZFSDataset;
 extern PyTypeObject ZFSObject;
 extern PyTypeObject ZFSPool;
-extern PyTypeObject ZFSProperty;
 extern PyTypeObject ZFSResource;
 extern PyTypeObject ZFSVdev;
 extern PyTypeObject ZFSVolume;
@@ -352,4 +352,38 @@ extern PyObject *py_get_zfs_type(py_zfs_t *zfs, zfs_type_t type, PyObject **name
  * @param[in]	obj - pointer to py_zfs_obj_t object
  */
 extern void free_py_zfs_obj(py_zfs_obj_t *obj);
+
+/*
+ * @brief get a ref for truenas_pylibzfs.PropertySource object
+ *
+ * Return a new reference to a particular truenas_pylibzfs.PropertySource object
+ * associated with the sourcetype. This is an IntEnum object.
+ *
+ * @param[in]	zfs - py_zfs_t handle from which to retrieve source reference
+ * @param[in]	sourcetype - type of source.
+ * @return	returns new reference to the PropertySource
+ */
+extern PyObject *py_get_property_source(py_zfs_t *zfs, zprop_source_t sourcetype);
+
+/* Provided by py_zfs_props.c */
+/*
+ * @brief get the properties specified in prop_set for the ZFS object
+ *
+ * This function may be used to retrieve the set of truenas_pylibzfs.ZFSProperty
+ * properties for a given ZFS filesystem, volume, etc.
+ *
+ * @param[in]	pyzfs - pointer to a py_zfs_obj_t object (filesystem, zvol, snap)
+ * @param[in]	prop_set - PySet object containing properties to retrieve
+ * @param[in]	get_source - boolean indicating whether to retrieve source of prop.
+ * @return	returns pointer to a Struct Sequence Object with specified properties
+ *
+ * @note Properties that were not requested will be set to Py_None.
+ *
+ * @note GIL must be held while calling this function.
+ */
+extern PyObject *py_zfs_get_properties(py_zfs_obj_t *pyzfs,
+				       PyObject *prop_set,
+				       boolean_t get_source);
+
+extern PyObject *py_zfs_props_to_dict(py_zfs_obj_t *pyzfs, PyObject *pyprops);
 #endif  /* _TRUENAS_PYLIBZFS_H */

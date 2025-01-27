@@ -61,6 +61,7 @@ void py_zfs_dealloc(py_zfs_t *self) {
 		Py_END_ALLOW_THREADS
 	}
 
+	Py_CLEAR(self->module);
 	self->lzh = NULL;
 	pthread_mutex_destroy(&self->zfs_lock);
 	Py_TYPE(self)->tp_free((PyObject *)self);
