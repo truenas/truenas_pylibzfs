@@ -16,8 +16,12 @@ int py_zfs_obj_init(PyObject *type, PyObject *args, PyObject *kwds) {
 	return (0);
 }
 
-static
-void py_zfs_obj_dealloc(py_zfs_obj_t *self) {
+/*
+ * This needs to be public so that zfs dataset, volume, etc
+ * types can properly clean up in their destructor functions.
+ */
+void free_py_zfs_obj(py_zfs_obj_t *self)
+{
 	if (self->zhp != NULL) {
 		Py_BEGIN_ALLOW_THREADS
 		zfs_close(self->zhp);
@@ -31,6 +35,11 @@ void py_zfs_obj_dealloc(py_zfs_obj_t *self) {
 	Py_CLEAR(self->pylibzfsp);
 	Py_CLEAR(self->guid);
 	Py_CLEAR(self->createtxg);
+}
+
+static
+void py_zfs_obj_dealloc(py_zfs_obj_t *self) {
+	free_py_zfs_obj(self);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 

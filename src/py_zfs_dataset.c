@@ -19,6 +19,7 @@ int py_zfs_dataset_init(PyObject *type, PyObject *args, PyObject *kwds) {
 
 static
 void py_zfs_dataset_dealloc(py_zfs_dataset_t *self) {
+	free_py_zfs_obj(RSRC_TO_ZFS(self));
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
