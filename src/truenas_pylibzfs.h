@@ -330,4 +330,16 @@ extern pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs);
  */
 extern PyObject *py_get_zfs_type(py_zfs_t *zfs, zfs_type_t type, PyObject **name);
 
+/*
+ * @brief free / decref resources in py_zfs_obj_t object
+ *
+ * This function should _ONLY_ be called within destructor for different top-level
+ * ZFS resources. It calls Py_CLEAR on all python object pointers in the specified
+ * py_zfs_obj_t object and closes the underlying zfs handle.
+ *
+ * A common paradigm can be `free_py_zfs_obj(RSRC_TO_ZFS(self));`
+ *
+ * @param[in]	obj - pointer to py_zfs_obj_t object
+ */
+extern void free_py_zfs_obj(py_zfs_obj_t *obj);
 #endif  /* _TRUENAS_PYLIBZFS_H */
