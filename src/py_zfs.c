@@ -126,7 +126,10 @@ PyObject *py_zfs_resource_open(PyObject *self,
 
 	switch (type) {
 	case ZFS_TYPE_FILESYSTEM:
-		out = (PyObject *)init_zfs_dataset(plz, zfsp);
+		out = (PyObject *)init_zfs_dataset(plz, zfsp, B_FALSE);
+		break;
+	case ZFS_TYPE_VOLUME:
+		out = (PyObject *)init_zfs_volume(plz, zfsp, B_FALSE);
 		break;
 	default:
 		PyErr_SetString(PyExc_RuntimeError,

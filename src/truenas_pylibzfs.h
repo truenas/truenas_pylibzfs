@@ -147,6 +147,7 @@ extern PyTypeObject ZFSPool;
 extern PyTypeObject ZFSProperty;
 extern PyTypeObject ZFSResource;
 extern PyTypeObject ZFSVdev;
+extern PyTypeObject ZFSVolume;
 
 /*
  * Provided by error.c
@@ -240,13 +241,22 @@ extern void _set_exc_from_libzfs(py_zfs_error_t *err,
  *		resulting ZFSDataset object owns the handle and it must not
  *		be closed or manipulated in other ways.
  *
+ * @param[in]	simple - indicates whether the underlying dataset was created
+ *		as a simple handle (properties not available).
+ *
  * @return	returns pointer to new ZFSDataset object. NULL on failure.
  *
  * NOTE: if this call fails, onus is on caller to zfs_close() zfsp if required.
  *
  * GIL must be held when this is called.
  */
-extern py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp);
+extern py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp,
+					  boolean_t simple);
+
+/* Provided by py_zfs_volume.c */
+/* Caveats and parameters are same as init_zfs_dataset() above */
+extern py_zfs_volume_t *init_zfs_volume(py_zfs_t *lzp, zfs_handle_t *zfsp,
+					boolean_t simple);
 
 /* Provided by py_zfs_pool.c */
 extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
