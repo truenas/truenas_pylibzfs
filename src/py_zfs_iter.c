@@ -160,14 +160,27 @@ filesystem_callback(zfs_handle_t *zhp, void *private)
 {
 	int result = ITER_RESULT_ERROR;
 	py_iter_state_t *state = (py_iter_state_t *)private;
-	py_zfs_dataset_t *new_ds = NULL;
+	PyObject *new = NULL;
+	boolean_t simple = B_FALSE;
+
+	if (state->iter_config.filesystem.flags & ZFS_ITER_SIMPLE)
+		simple = B_TRUE;
 
 	// re-enable GIL because we're creating a new python
 	// object and then calling the callback function.
 	ITER_END_ALLOW_THREADS(state);
 
-	new_ds = init_zfs_dataset(state->pylibzfsp, zhp);
-	if (new_ds == NULL) {
+	switch(zfs_get_type(zhp)) {
+	case ZFS_TYPE_FILESYSTEM:
+		new = (PyObject *)init_zfs_dataset(state->pylibzfsp, zhp, simple);
+		break;
+	case ZFS_TYPE_VOLUME:
+		new = (PyObject *)init_zfs_volume(state->pylibzfsp, zhp, simple);
+		break;
+	default:
+		PYZFS_ASSERT(B_FALSE, "Unexpected ZFS type");
+	}
+	if (new == NULL) {
 		// we only explicitly zfs_close() in error
 		// path because new_ds owns it afterwards and
 		// will close in dealloc
@@ -175,11 +188,7 @@ filesystem_callback(zfs_handle_t *zhp, void *private)
 		goto out;
 	}
 
-	if (state->iter_config.filesystem.flags & ZFS_ITER_SIMPLE) {
-		new_ds->rsrc.is_simple = B_TRUE;
-	}
-
-	result = common_callback((PyObject *)new_ds, state);
+	result = common_callback(new, state);
 out:
 	// drop GIL because we're going back to iterating in ZFS
 	ITER_ALLOW_THREADS(state);
