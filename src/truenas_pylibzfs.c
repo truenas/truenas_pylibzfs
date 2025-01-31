@@ -5,7 +5,6 @@ static PyTypeObject *alltypes[] = {
 	&ZFSDataset,
 	&ZFSObject,
 	&ZFSPool,
-	&ZFSProperty,
 	&ZFSVdev,
 	&ZFSVolume,
 	NULL
@@ -96,12 +95,28 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 	{NULL}
 };
 
+static int
+pylibzfs_module_clear(PyObject *module)
+{
+	free_py_zfs_state(module);
+	return 0;
+}
+
+static void
+pylibzfs_module_free(void *module)
+{
+	if (module)
+		pylibzfs_module_clear((PyObject *)module);
+}
+
 /* Module structure */
 static struct PyModuleDef truenas_pylibzfs = {
 	.m_base = PyModuleDef_HEAD_INIT,
 	.m_name = PYLIBZFS_MODULE_NAME,
 	.m_doc = PYLIBZFS_MODULE_NAME " provides python bindings for libzfs for TrueNAS",
 	.m_size = sizeof(pylibzfs_state_t),
+	.m_clear = pylibzfs_module_clear,
+	.m_free = pylibzfs_module_free,
 	.m_methods = TruenasPylibzfsMethods,
 };
 
@@ -112,6 +127,19 @@ static struct PyModuleDef truenas_pylibzfs_constants = {
 	.m_doc = PYLIBZFS_MODULE_NAME ".constants" " provides constants related to libzfs.",
 };
 
+static
+void py_init_libzfs(void)
+{
+	libzfs_handle_t *tmplz = NULL;
+
+	// We need to initialize libzfs handle temporarily so that
+	// zfs and zpool properties get properly initialized so that
+	// we can build our Struct Sequences with correct values
+
+	tmplz = libzfs_init();
+	PYZFS_ASSERT(tmplz, "Failed to initialize libzfs");
+	libzfs_fini(tmplz);
+}
 
 /* Module initialization */
 PyMODINIT_FUNC
@@ -142,6 +170,8 @@ PyInit_truenas_pylibzfs(void)
 		Py_DECREF(mpylibzfs);
 		return (NULL);
 	}
+
+	py_init_libzfs();
 
 	zfs_exc = setup_zfs_exception();
 	if (zfs_exc == NULL) {

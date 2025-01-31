@@ -151,6 +151,201 @@ PyObject *py_zfs_resource_iter_filesystems(PyObject *self,
 	Py_RETURN_FALSE;
 }
 
+PyDoc_STRVAR(py_zfs_resource_get_properties__doc__,
+"asdict(*, properties, get_source=False) -> "
+"truenas_pylibzfs.struct_zfs_property\n\n"
+"-------------------------------------\n\n"
+"Get the specified properties of a given ZFS resource.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"properties: set, required\n"
+"    Set of truenas_pylibzfs.ZFSProperty properties to retrieve.\n\n"
+"get_source: bool, optional, default=False\n"
+"    Non-default option to retrieve the source information for the returned\n"
+"    propeties.\n\n"
+""
+"Returns\n"
+"-------\n"
+"truenas_pylibzfs.struct_zfs_property\n"
+"    Struct sequence object containing the requested property information.\n"
+"    The requested properties will be represented by truenas_pylibzfs.struct_zfs_property_data\n"
+"    objects under the respective attributes. Properties that were not\n"
+"    requested will be set to None type.\n\n"
+""
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    The specified properties is not a python set.\n\n"
+"ValueError:\n"
+"    One of the specified properties is not supported for the ZFS type of the\n"
+"    underlying ZFS resource. For example, requesting a zvol property for a\n"
+"    ZFS filesystem.\n\n"
+"RuntimeError:\n"
+"    An unexpected error occurred while retrieving the value of a ZFS property.\n"
+"    This should not happen and API consumers experiencing this issue should\n"
+"    file a bug report against this python library.\n\n"
+);
+static
+PyObject *py_zfs_resource_get_properties(PyObject *self,
+					 PyObject *args_unused,
+					 PyObject *kwargs)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	PyObject *prop_set = NULL;
+	boolean_t get_source = B_FALSE;
+	char *kwnames [] = {
+		"properties",
+		"get_source",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$Op",
+					 kwnames,
+					 &prop_set,
+					 &get_source)) {
+					 return NULL;
+	}
+	if (prop_set == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"properties keyword is required.");
+		return NULL;
+	}
+	if (!PySet_Check(prop_set)) {
+		PyErr_SetString(PyExc_TypeError,
+				"properties must be a python set.");
+		return NULL;
+	}
+
+	if (res->is_simple) {
+		/*
+		 * We have simple handle that lacks property information.
+		 * This means we _must_ refresh properties before
+		 * generating python object
+		 */
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(res->obj.pylibzfsp);
+		zfs_refresh_properties(res->obj.zhp);
+		PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+		res->is_simple = B_FALSE;
+		Py_END_ALLOW_THREADS
+	}
+
+	return py_zfs_get_properties(&res->obj, prop_set, get_source);
+}
+
+PyDoc_STRVAR(py_zfs_resource_asdict__doc__,
+"asdict(*, properties, get_source=False) -> dict\n\n"
+"-----------------------------------------------\n\n"
+"Get the specified properties of a given ZFS resource.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"properties: set, optional\n"
+"    Set of truenas_pylibzfs.ZFSProperty properties to retrieve.\n\n"
+"get_source: bool, optional, default=False\n"
+"    Non-default option to retrieve the source information for the returned\n"
+"    propeties.\n\n"
+""
+"Returns\n"
+"-------\n"
+"python dictionary containing the following keys:\n"
+"    name: the name of this ZFS resource\n\n"
+"    pool: the name of the pool with which this resource is associated\n\n"
+"    type: the ZFS type of this resource\n\n"
+"    type_enum: the truenas_pylibzfs.ZFSType enum for this resource\n\n"
+"    createtxg: the ZFS transaction group number in which this resource was\n"
+"        created\n\n"
+"    guid: the GUID for this ZFS resource\n"
+"    properties: dictionary containing property information for requested\n"
+"        properties. This will be None type if no properties were requested.\n"
+"\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    The specified properties is not a python set.\n\n"
+"ValueError:\n"
+"    One of the specified properties is not supported for the ZFS type of the\n"
+"    underlying ZFS resource. For example, requesting a zvol property for a\n"
+"    ZFS filesystem.\n\n"
+"RuntimeError:\n"
+"    An unexpected error occurred while retrieving the value of a ZFS property.\n"
+"    This should not happen and API consumers experiencing this issue should\n"
+"    file a bug report against this python library.\n\n"
+);
+static
+PyObject *py_zfs_resource_asdict(PyObject *self,
+				 PyObject *args_unused,
+				 PyObject *kwargs)
+{
+        py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	PyObject *prop_set = NULL;
+	PyObject *props_dict = NULL;
+	PyObject *out = NULL;
+	boolean_t get_source = B_FALSE;
+	char *kwnames [] = {
+		"properties",
+		"get_source",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$Op",
+					 kwnames,
+					 &prop_set,
+					 &get_source)) {
+		return NULL;
+	}
+
+	if (prop_set != NULL) {
+		PyObject *zfsprops = NULL;
+
+		if (!PySet_Check(prop_set)) {
+			PyErr_SetString(PyExc_TypeError,
+					"properties must be a set.");
+			return NULL;
+		}
+
+		if (res->is_simple) {
+			/*
+			 * We have simple handle that lacks property information.
+			 * This means we _must_ refresh properties before
+			 * generating python object
+			 */
+			Py_BEGIN_ALLOW_THREADS
+			PY_ZFS_LOCK(res->obj.pylibzfsp);
+			zfs_refresh_properties(res->obj.zhp);
+			PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+			res->is_simple = B_FALSE;
+			Py_END_ALLOW_THREADS
+		}
+
+		zfsprops = py_zfs_get_properties(&res->obj, prop_set, get_source);
+		if (zfsprops == NULL)
+			return NULL;
+
+		props_dict = py_zfs_props_to_dict(&res->obj, zfsprops);
+		Py_CLEAR(zfsprops);
+		if (props_dict == NULL)
+			return NULL;
+	}
+
+	out = Py_BuildValue(
+		"{s:O,s:O,s:O,s:O,s:O,s:O,s:O}",
+		"name", res->obj.name,
+		"pool", res->obj.pool_name,
+		"type", res->obj.type,
+		"type_enum", res->obj.type_enum,
+		"createtxg", res->obj.createtxg,
+		"guid", res->obj.guid,
+		"properties", props_dict ? props_dict : Py_None
+	);
+
+	Py_XDECREF(props_dict);
+	return out;
+}
+
 static
 PyMethodDef zfs_resource_methods[] = {
 	{
@@ -168,6 +363,18 @@ PyMethodDef zfs_resource_methods[] = {
 		.ml_name = "update_properties",
 		.ml_meth = py_zfs_resource_update_properties,
 		.ml_flags = METH_VARARGS
+	},
+	{
+		.ml_name = "get_properties",
+		.ml_meth = (PyCFunction)py_zfs_resource_get_properties,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_get_properties__doc__
+	},
+	{
+		.ml_name = "asdict",
+		.ml_meth = (PyCFunction)py_zfs_resource_asdict,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_asdict__doc__
 	},
 	{
 		.ml_name = "userspace",
