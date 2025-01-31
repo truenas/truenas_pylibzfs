@@ -1,7 +1,4 @@
-#ifndef _PY_ZFS_H
-#define _PY_ZFS_H
-
-#include "truenas_pylibzfs.h"
+#include "../truenas_pylibzfs.h"
 
 #define	ZFS_STR	"<" PYLIBZFS_MODULE_NAME ".ZFS>"
 #define	DEFAULT_HISTORY_PREFIX	"truenas-pylibzfs: "
@@ -233,5 +230,3 @@ PyTypeObject ZFS = {
 	.tp_repr = py_zfs_str,
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
-
-#endif /* _PY_ZFS_H */
