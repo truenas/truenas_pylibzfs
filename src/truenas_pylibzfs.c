@@ -138,6 +138,7 @@ PyInit_truenas_pylibzfs(void)
 	add_constants(constants);
 
 	if (PyModule_AddObject(mpylibzfs, "constants", constants) < 0) {
+		Py_DECREF(constants);
 		Py_DECREF(mpylibzfs);
 		return (NULL);
 	}
