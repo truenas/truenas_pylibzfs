@@ -105,12 +105,20 @@ static struct PyModuleDef truenas_pylibzfs = {
 	.m_methods = TruenasPylibzfsMethods,
 };
 
+/* Constants module */
+static struct PyModuleDef truenas_pylibzfs_constants = {
+	.m_base = PyModuleDef_HEAD_INIT,
+	.m_name = PYLIBZFS_MODULE_NAME,
+	.m_doc = PYLIBZFS_MODULE_NAME ".constants" " provides constants related to libzfs.",
+};
+
 
 /* Module initialization */
 PyMODINIT_FUNC
 PyInit_truenas_pylibzfs(void)
 {
 	PyObject *zfs_exc;
+	PyObject *constants = NULL;
 
 	PyObject *mpylibzfs = PyModule_Create(&truenas_pylibzfs);
 	if (mpylibzfs == NULL)
@@ -121,7 +129,19 @@ PyInit_truenas_pylibzfs(void)
 		return (NULL);
 	}
 
-	add_constants(mpylibzfs);
+	constants = PyModule_Create(&truenas_pylibzfs_constants);
+	if (constants == NULL) {
+		Py_DECREF(mpylibzfs);
+		return (NULL);
+	}
+
+	add_constants(constants);
+
+	if (PyModule_AddObject(mpylibzfs, "constants", constants) < 0) {
+		Py_DECREF(constants);
+		Py_DECREF(mpylibzfs);
+		return (NULL);
+	}
 
 	zfs_exc = setup_zfs_exception();
 	if (zfs_exc == NULL) {
