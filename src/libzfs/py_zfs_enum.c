@@ -240,6 +240,39 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the VDevAuxState enum */
+static
+PyObject *zfs_vdev_aux_table_to_dict(void)
+{
+	PyObject *zfsaux_dict = NULL;
+	int err;
+	uint i;
+
+	zfsaux_dict = PyDict_New();
+	if (zfsaux_dict == NULL)
+		return (NULL);
+
+	for (i=0; i < ARRAY_SIZE(zfs_vdev_aux_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(zfs_vdev_aux_table[i].aux);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(zfsaux_dict,
+					   zfs_vdev_aux_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return (zfsaux_dict);
+fail:
+	Py_XDECREF(zfsaux_dict);
+	return (NULL);
+}
+
 static
 PyObject *build_args_tuple_enum(const char *class_name,
 				PyObject *(*get_dict)(void))
@@ -341,7 +374,6 @@ py_add_zfs_enums(PyObject *module)
 	if (err)
 		goto out;
 
-
 	err = add_enum(module, int_enum, "ZPOOLProperty",
 		       zpool_prop_table_to_dict, kwargs);
 	if (err)
@@ -349,6 +381,11 @@ py_add_zfs_enums(PyObject *module)
 
 	err = add_enum(module, intflag_enum, "PropertySource",
 		       zfs_prop_src_table_to_dict, kwargs);
+	if (err)
+		goto out;
+
+	err = add_enum(module, int_enum, "VDevAuxState",
+			zfs_vdev_aux_table_to_dict, kwargs);
 	if (err)
 		goto out;
 
