@@ -1,6 +1,6 @@
 #ifndef _PY_ZFS_ITER_H
 #define _PY_ZFS_ITER_H
-#include "truenas_pylibzfs.h"
+#include "../truenas_pylibzfs.h"
 
 /*
  * The following are return codes for our internal iterators

@@ -147,6 +147,7 @@ PyInit_truenas_pylibzfs(void)
 {
 	PyObject *zfs_exc;
 	PyObject *constants = NULL;
+	PyObject *lzc = NULL;
 
 	PyObject *mpylibzfs = PyModule_Create(&truenas_pylibzfs);
 	if (mpylibzfs == NULL)
@@ -172,6 +173,18 @@ PyInit_truenas_pylibzfs(void)
 	}
 
 	py_init_libzfs();
+
+	lzc = py_setup_lzc_module();
+	if (lzc == NULL) {
+		Py_DECREF(mpylibzfs);
+		return (NULL);
+	}
+
+	if (PyModule_AddObject(mpylibzfs, "lzc", lzc) < 0) {
+		Py_DECREF(lzc);
+		Py_DECREF(mpylibzfs);
+		return (NULL);
+	}
 
 	zfs_exc = setup_zfs_exception();
 	if (zfs_exc == NULL) {
