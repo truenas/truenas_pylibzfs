@@ -1,7 +1,20 @@
 #include "../truenas_pylibzfs.h"
+typedef struct {
+	PyObject *zc_exc;
+	PyObject *errorcode;
+} pylibzfs_core_state_t;
+
 
 static
-PyObject *PyExc_ZFSCoreError;
+pylibzfs_core_state_t *get_lzc_mod_state(PyObject *module)
+{
+	pylibzfs_core_state_t *state = NULL;
+
+	state = (pylibzfs_core_state_t *)PyModule_GetState(module);
+	PYZFS_ASSERT(state, "Failed to get libzfs core module state.");
+
+	return state;
+}
 
 PyDoc_STRVAR(py_zfs_core_exception__doc__,
 "ZFSCoreException(exception)\n"
@@ -20,47 +33,90 @@ PyDoc_STRVAR(py_zfs_core_exception__doc__,
 "libzfs errno will be set to EZFS_UNKNOWN and strerror output written to\n"
 "the error description field.\n"
 );
-PyObject *setup_zfs_core_exception(void)
+static
+void setup_zfs_core_exception(PyObject *module)
 {
 	PyObject *dict = NULL;
+	PyObject *errno_mod = NULL;
+	pylibzfs_core_state_t *state = get_lzc_mod_state(module);
 
 	dict = Py_BuildValue("{s:i,s:s,s:s,s:O}",
 			     "code", EZFS_UNKNOWN,
 			     "msg", "",
 			     "name", "",
 			     "errors", Py_None);
-	if (dict == NULL)
-		return NULL;
+	PYZFS_ASSERT(dict, "Failed to set up ZFSCoreException");
 
-	PyExc_ZFSCoreError = PyErr_NewExceptionWithDoc(PYLIBZFS_MODULE_NAME
-						       "lzc.ZFSCoreException",
-						       py_zfs_core_exception__doc__,
-						       PyExc_RuntimeError,
-						       dict);
+	state->zc_exc = PyErr_NewExceptionWithDoc(PYLIBZFS_MODULE_NAME
+						  "lzc.ZFSCoreException",
+						  py_zfs_core_exception__doc__,
+						  PyExc_RuntimeError,
+						  dict);
 
 	Py_DECREF(dict);
-	return PyExc_ZFSCoreError;
+	PYZFS_ASSERT(state->zc_exc, "Failed to set up ZFSCoreException");
+
+	/* Get reference to errno.errorcode to convert errno to name */
+	errno_mod = PyImport_ImportModule("errno");
+	PYZFS_ASSERT(errno_mod, "Failed to import errno module.");
+
+	state->errorcode = PyObject_GetAttrString(errno_mod, "errorcode");
+	PYZFS_ASSERT(state->errorcode, "Failed to retrieve errorcode dict.");
+	Py_DECREF(errno_mod);
 }
 
 static
-void set_zfscore_exc(const char *msg, int code, PyObject *errors_tuple)
+void set_zfscore_exc(PyObject *module,
+		     const char *msg,
+		     int code,
+		     PyObject *errors_tuple)
 {
+	pylibzfs_core_state_t *state = get_lzc_mod_state(module);
 	PyObject *v = NULL;
 	PyObject *attrs = NULL;
 	const char *name = NULL;
+	PyObject *error_name = NULL;
+	PyObject *pycode = NULL;
 	int err;
 
-	name = zfs_error_name(code);
+	pycode = Py_BuildValue("i", code);
+	if (pycode == NULL)
+		return;
 
-	v = PyObject_CallFunction(PyExc_ZFSCoreError, "s", msg);
+	name = zfs_error_name(code);
+	if (strcmp(name, "UNKNOWN") == 0) {
+		error_name = PyDict_GetItem(state->errorcode, pycode);
+		if ((error_name == NULL) && PyErr_Occurred()) {
+			Py_DECREF(pycode);
+			return;
+		} else if (error_name != NULL) {
+			Py_INCREF(error_name);
+		}
+	}
+
+	/*
+	 * NULL is possible in following scenarios
+	 * 1. errorcode lacks an entry for the errno
+	 * 2. ZFS errno was encoded in nvlist
+	 */
+	if (error_name == NULL) {
+		error_name = PyUnicode_FromString(name);
+		if (error_name == NULL) {
+			Py_DECREF(pycode);
+			return;
+		}
+	}
+
+	v = PyObject_CallFunction(state->zc_exc, "s", msg);
 	if (v == NULL)
 		return;
 
+	/* This steals references to pycode and error_name */
 	attrs = Py_BuildValue(
-		"(issO)",
-		code,
+		"(NsNO)",
+		pycode,
 		msg,
-		name,
+		error_name,
 		errors_tuple
         );
 
@@ -388,7 +444,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		if (py_errors == NULL)
 			return NULL;
 
-		set_zfscore_exc("lzc_snapshot() failed", err, py_errors);
+		set_zfscore_exc(self, "lzc_snapshot() failed", err, py_errors);
 		return NULL;
 	}
 
@@ -489,13 +545,28 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 		if (py_errors == NULL)
 			return NULL;
 
-		set_zfscore_exc("lzc_destroy_snaps() failed", err, py_errors);
+		set_zfscore_exc(self, "lzc_destroy_snaps() failed", err, py_errors);
 		return NULL;
 	}
 
 	Py_RETURN_NONE;
 }
 
+static int
+py_zfs_core_module_clear(PyObject *module)
+{
+	pylibzfs_core_state_t *state = get_lzc_mod_state(module);
+	Py_CLEAR(state->zc_exc);
+	Py_CLEAR(state->errorcode);
+	return 0;
+}
+
+static void
+py_zfs_core_module_free(void *module)
+{
+	if (module)
+		py_zfs_core_module_clear((PyObject *)module);
+}
 
 /* Module method table */
 static PyMethodDef TruenasPylibzfsCoreMethods[] = {
@@ -525,27 +596,26 @@ static struct PyModuleDef truenas_pylibzfs_core = {
 	.m_base = PyModuleDef_HEAD_INIT,
 	.m_name = PYLIBZFS_MODULE_NAME,
 	.m_doc = py_zfs_core_module__doc__,
+	.m_size = sizeof(pylibzfs_core_state_t),
 	.m_methods = TruenasPylibzfsCoreMethods,
+	.m_clear = py_zfs_core_module_clear,
+	.m_free = py_zfs_core_module_free,
 };
-
-
 
 PyObject *py_setup_lzc_module(void)
 {
-	PyObject *zfs_exc;
+	pylibzfs_core_state_t *state = NULL;
 	PyObject *mlzc = PyModule_Create(&truenas_pylibzfs_core);
 	if (mlzc == NULL)
 		return NULL;
 
-	zfs_exc = setup_zfs_core_exception();
-	if (zfs_exc == NULL) {
-		Py_DECREF(mlzc);
-		return NULL;
-	}
+	setup_zfs_core_exception(mlzc);
 
 	PYZFS_ASSERT((libzfs_core_init() == 0), "Failed to open libzfs_core fd");
 
-	if (PyModule_AddObject(mlzc, "ZFSCoreException", zfs_exc) < 0) {
+	state = get_lzc_mod_state(mlzc);
+
+	if (PyModule_AddObjectRef(mlzc, "ZFSCoreException", state->zc_exc) < 0) {
 		Py_DECREF(mlzc);
 		return NULL;
 	}
