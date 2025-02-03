@@ -46,7 +46,6 @@ static
 void set_zfscore_exc(const char *msg, int code, PyObject *errors_tuple)
 {
 	PyObject *v = NULL;
-	PyObject *args = NULL;
 	PyObject *attrs = NULL;
 	const char *name = NULL;
 	int err;
@@ -66,38 +65,34 @@ void set_zfscore_exc(const char *msg, int code, PyObject *errors_tuple)
         );
 
 	if (attrs == NULL) {
-		Py_XDECREF(v);
-		goto simple_err;
+		Py_DECREF(v);
+		return;
 	}
 
 	err = PyObject_SetAttrString(v, "code", PyTuple_GetItem(attrs, 0));
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
+		Py_DECREF(v);
 		Py_DECREF(attrs);
 		return;
 	}
 
 	err = PyObject_SetAttrString(v, "msg", PyTuple_GetItem(attrs, 1));
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
+		Py_DECREF(v);
 		Py_DECREF(attrs);
 		return;
 	}
 
 	err = PyObject_SetAttrString(v, "name", PyTuple_GetItem(attrs, 2));
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
+		Py_DECREF(v);
 		Py_DECREF(attrs);
 		return;
 	}
 
 	err = PyObject_SetAttrString(v, "errors", PyTuple_GetItem(attrs, 3));
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
+		Py_DECREF(v);
 		Py_DECREF(attrs);
 		return;
 	}
@@ -106,9 +101,6 @@ void set_zfscore_exc(const char *msg, int code, PyObject *errors_tuple)
 	Py_DECREF(v);
 	Py_DECREF(attrs);
 	return;
-
-simple_err:
-	PyErr_SetString(PyExc_ZFSCoreError, msg);
 }
 
 static
