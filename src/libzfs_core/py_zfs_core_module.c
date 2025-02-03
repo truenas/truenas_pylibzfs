@@ -57,6 +57,7 @@ boolean_t py_zfs_core_log_snap_history(const char *op,
 	msg = PyUnicode_AsUTF8(logmsg);
 	if (msg == NULL) {
 		libzfs_fini(lz);
+		Py_DECREF(logmsg);
 		return B_FALSE;
 	}
 
