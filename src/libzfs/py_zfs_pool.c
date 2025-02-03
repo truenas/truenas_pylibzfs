@@ -238,7 +238,7 @@ PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 }
 
 PyDoc_STRVAR(py_zfs_pool_delete__doc__,
-"delete(*) -> None\n\n"
+"delete(*, force=False) -> None\n\n"
 "-----------------\n\n"
 "Destroys the given pool, freeing up any devices for other use.\n\n"
 "Parameters\n"
@@ -255,18 +255,18 @@ PyDoc_STRVAR(py_zfs_pool_delete__doc__,
 );
 static
 PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args, PyObject *kwargs) {
-	int ret, force, error;
+	int ret, force = 0, error;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
 	ret = force = 0;
 	char *kwnames[] = {"force", NULL};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|p", kwnames, &force)) {
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$p", kwnames, &force)) {
 		return NULL;
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.delete", "OO",
-	    p->name, kwargs) < 0) {
+	    p->name, kwargs ? kwargs : Py_None) < 0) {
 		return NULL;
 	}
 
@@ -373,7 +373,7 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 				PyObject *args,
 				PyObject *kwargs) {
 	int ret, error;
-	int days, percentage;
+	int days = 0, percentage = 0;
 	uint64_t value = 0;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
@@ -381,26 +381,29 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 	char *kwnames[] = {"days", "percentage", NULL};
 	ret = days = percentage = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ii", kwnames, &days,
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$ii", kwnames, &days,
 					 &percentage)) {
-		return NULL;
+		return (NULL);
 	}
 
 	if (days < 0 || percentage < 0 || percentage > 100) {
 		PyErr_SetString(PyExc_ValueError,
 			"days must be >= 1, and percentage must be between 1 "
 			"and 100");
+		return (NULL);
 	} else if (days > 0 && percentage > 0) {
 		PyErr_SetString(PyExc_ValueError,
 			"Only one of days or percentage should be set");
+		return (NULL);
 	} else if (days == 0 && percentage == 0) {
 		PyErr_SetString(PyExc_ValueError,
 			"Either days or percentage must be set");
+		return (NULL);
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.ddt_prune", "OO",
 	    p->name, kwargs) < 0) {
-		return NULL;
+		return (NULL);
 	}
 
 	if (percentage != 0) {

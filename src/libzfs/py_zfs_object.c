@@ -73,13 +73,19 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	recursive = nounmount = forceunmount = 0;
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "s|$ppp",
+					 "|$sppp",
 					 kwnames,
 					 &new_name,
 					 &recursive,
 					 &nounmount,
 					 &forceunmount)) {
 		return NULL;
+	}
+
+	if (new_name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+			"new_name keyword argument is required.");
+		return (NULL);
 	}
 
 	flags = (renameflags_t) {
