@@ -235,6 +235,128 @@ PyObject *py_zfs_resource_get_properties(PyObject *self,
 	return py_zfs_get_properties(&res->obj, prop_set, get_source);
 }
 
+static
+PyObject *py_get_userprops(py_zfs_resource_t *res)
+{
+	PyObject *out = NULL;
+	nvlist_t *nvl = NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+
+	if (res->is_simple) {
+		zfs_refresh_properties(res->obj.zhp);
+		res->is_simple = B_FALSE;
+	}
+
+	nvl = zfs_get_user_props(res->obj.zhp);
+
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	out = user_props_nvlist_to_py_dict(nvl);
+	return out;
+}
+
+PyDoc_STRVAR(py_zfs_resource_get_user_properties__doc__,
+"get_user_properties() -> dict\n"
+"-------------------------------------\n\n"
+"Get the user properties of the ZFS resource.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"None\n\n"
+""
+"Returns\n"
+"-------\n"
+"Dictionary containing user properties as key-value pairs.\n"
+);
+static
+PyObject *py_zfs_resource_get_user_properties(PyObject *self,
+					      PyObject *args_unused)
+{
+	return py_get_userprops((py_zfs_resource_t *)self);
+}
+
+PyDoc_STRVAR(py_zfs_resource_set_user_properties__doc__,
+"set_user_properties(*, user_properties) -> None\n"
+"-----------------------------------------------\n\n"
+"Set the user properties of the ZFS resource.\n\n"
+""
+"Parameters\n"
+"user_properties: dict, required\n"
+"        Dictionary containing user properties as key-value pairs.\n"
+"\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"NOTE: user properties may be created and updated through this method.\n"
+"Remove requires inheriting the property from the parent dataset."
+);
+static
+PyObject *py_zfs_resource_set_user_properties(PyObject *self,
+					      PyObject *args_unused,
+					      PyObject *kwargs)
+{
+        py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	py_zfs_error_t zfs_err;
+	PyObject *props_dict = NULL;
+	nvlist_t *nvl;
+	int err;
+
+	char *kwnames [] = {
+		"user_properties",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$O",
+					 kwnames,
+					 &props_dict)) {
+		return NULL;
+	}
+
+	if (props_dict == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"user_properties dict is a required "
+				"keyword argument.");
+		return NULL;
+	}
+
+	if (!PyDict_Check(props_dict)) {
+		PyErr_SetString(PyExc_TypeError,
+				"user_properties must be a dictionary.");
+		return NULL;
+	}
+
+	nvl = py_userprops_dict_to_nvlist(props_dict);
+	if (nvl == NULL)
+		return NULL;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSObject.set_user_propeties",
+			"OO", res->obj.name, kwargs) < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	err = zfs_prop_set_list(res->obj.zhp, nvl);
+	fnvlist_free(nvl);
+	if (err)
+		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
+
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_set_user_properties() failed");
+		return NULL;
+	}
+
+	Py_RETURN_NONE;
+}
+
 PyDoc_STRVAR(py_zfs_resource_asdict__doc__,
 "asdict(*, properties, get_source=False) -> dict\n\n"
 "-----------------------------------------------\n\n"
@@ -282,19 +404,23 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
         py_zfs_resource_t *res = (py_zfs_resource_t *)self;
 	PyObject *prop_set = NULL;
 	PyObject *props_dict = NULL;
+	PyObject *userprops = NULL;
 	PyObject *out = NULL;
 	boolean_t get_source = B_FALSE;
+	boolean_t get_userprops = B_FALSE;
 	char *kwnames [] = {
 		"properties",
 		"get_source",
+		"get_user_properties",
 		NULL
 	};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$Op",
+					 "|$Opp",
 					 kwnames,
 					 &prop_set,
-					 &get_source)) {
+					 &get_source,
+					 &get_userprops)) {
 		return NULL;
 	}
 
@@ -331,15 +457,24 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 			return NULL;
 	}
 
+	if (get_userprops) {
+		userprops = py_get_userprops(res);
+		if (userprops == NULL) {
+			Py_CLEAR(props_dict);
+			return NULL;
+		}
+	}
+
 	out = Py_BuildValue(
-		"{s:O,s:O,s:O,s:O,s:O,s:O,s:O}",
+		"{s:O,s:O,s:O,s:O,s:O,s:O,s:O,s:O}",
 		"name", res->obj.name,
 		"pool", res->obj.pool_name,
 		"type", res->obj.type,
 		"type_enum", res->obj.type_enum,
 		"createtxg", res->obj.createtxg,
 		"guid", res->obj.guid,
-		"properties", props_dict ? props_dict : Py_None
+		"properties", props_dict ? props_dict : Py_None,
+		"user_properties", userprops ? userprops : Py_None
 	);
 
 	Py_XDECREF(props_dict);
@@ -369,6 +504,18 @@ PyMethodDef zfs_resource_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_resource_get_properties,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_resource_get_properties__doc__
+	},
+	{
+		.ml_name = "get_user_properties",
+		.ml_meth = (PyCFunction)py_zfs_resource_get_user_properties,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_resource_get_user_properties__doc__
+	},
+	{
+		.ml_name = "set_user_properties",
+		.ml_meth = (PyCFunction)py_zfs_resource_set_user_properties,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_set_user_properties__doc__
 	},
 	{
 		.ml_name = "asdict",
