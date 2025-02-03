@@ -226,7 +226,6 @@ static const struct {
 	const char *name;
 } zfs_prop_table[] = {
 	// { ZPROP_CONT, "ZPROP_CONT" },
-	{ ZPROP_INVAL, "ZPROP_INVAL" },
 	{ ZFS_PROP_TYPE, "TYPE" },
 	{ ZFS_PROP_CREATION, "CREATION" },
 	{ ZFS_PROP_USED, "USED" },
