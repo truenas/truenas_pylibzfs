@@ -16,6 +16,60 @@ pylibzfs_core_state_t *get_lzc_mod_state(PyObject *module)
 	return state;
 }
 
+static
+PyObject *py_snap_history_msg(const char *op,
+			      const char *target,
+			      PyObject *snaps)
+{
+	PyObject *out = NULL;
+	Py_ssize_t sz = PyObject_Length(snaps);
+
+	if (sz == -1)
+		return NULL;
+
+	out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
+				   "of datasets within pool \"%s\"",
+				   op, sz, target);
+	return out;
+}
+
+static
+boolean_t py_zfs_core_log_snap_history(const char *op,
+				       const char *target,
+				       PyObject *snaplist)
+{
+	libzfs_handle_t *lz = NULL;
+	PyObject *logmsg = py_snap_history_msg(op, target, snaplist);
+	const char *msg;
+	int err;
+
+	if (logmsg == NULL)
+		return B_FALSE;
+
+	Py_BEGIN_ALLOW_THREADS
+	lz = libzfs_init();
+	Py_END_ALLOW_THREADS
+	if (lz == NULL) {
+		Py_DECREF(logmsg);
+		return B_FALSE;
+	}
+
+	msg = PyUnicode_AsUTF8(logmsg);
+	if (msg == NULL) {
+		libzfs_fini(lz);
+		return B_FALSE;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	err = zpool_log_history(lz, msg);
+	libzfs_fini(lz);
+	Py_END_ALLOW_THREADS
+
+	Py_DECREF(logmsg);
+	return err ? B_FALSE : B_TRUE;
+}
+
+
 PyDoc_STRVAR(py_zfs_core_exception__doc__,
 "ZFSCoreException(exception)\n"
 "-----------------------\n\n"
@@ -245,13 +299,12 @@ boolean_t py_snapname_to_nvpair(nvlist_t *list,
 
 
 static
-nvlist_t *py_iter_to_snaps(PyObject *obj)
+nvlist_t *py_iter_to_snaps(PyObject *obj, char *pool, size_t pool_size)
 {
 	nvlist_t *out = NULL;
 	PyObject *item = NULL;
 	PyObject *iterator = NULL;
 	PyObject *dsname_set = NULL;
-	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 
 	iterator = PyObject_GetIter(obj);
 	if (iterator == NULL)
@@ -275,7 +328,7 @@ nvlist_t *py_iter_to_snaps(PyObject *obj)
 					   item,
 					   dsname_set,
 					   pool,
-					   sizeof(pool));
+					   pool_size);
 
 		Py_DECREF(item);
 		if (!ok) {
@@ -394,6 +447,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	PyObject *py_errors;
 	nvlist_t *snaps = NULL;
 	nvlist_t *errors = NULL;
+	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 	int err;
 
 	char *kwnames [] = { "snapshot_names", NULL };
@@ -411,7 +465,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		return NULL;
 	}
 
-	snaps = py_iter_to_snaps(py_snaps);
+	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool));
 	if (snaps == NULL)
 		return NULL;
 
@@ -447,6 +501,9 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		set_zfscore_exc(self, "lzc_snapshot() failed", err, py_errors);
 		return NULL;
 	}
+
+	if (!py_zfs_core_log_snap_history("lzc_snapshot()", pool, py_snaps))
+		return NULL;
 
 	Py_RETURN_NONE;
 }
@@ -494,6 +551,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 	nvlist_t *snaps = NULL;
 	nvlist_t *errors = NULL;
 	boolean_t defer = B_FALSE;
+	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 	int err;
 
 	char *kwnames [] = {"snapshot_names", "defer_destroy", NULL};
@@ -512,7 +570,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 		return NULL;
 	}
 
-	snaps = py_iter_to_snaps(py_snaps);
+	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool));
 	if (snaps == NULL)
 		return NULL;
 
@@ -548,6 +606,9 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 		set_zfscore_exc(self, "lzc_destroy_snaps() failed", err, py_errors);
 		return NULL;
 	}
+
+	if (!py_zfs_core_log_snap_history("lzc_destroy_snaps()", pool, py_snaps))
+		return NULL;
 
 	Py_RETURN_NONE;
 }
