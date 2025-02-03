@@ -57,7 +57,6 @@ PyObject *setup_zfs_exception(void)
 	return PyExc_ZFSError;
 }
 
-static
 const char *zfs_error_name(zfs_error_t error)
 {
 	uint i;

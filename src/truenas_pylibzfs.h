@@ -181,6 +181,8 @@ typedef struct {
 	char action[1024];
 } py_zfs_error_t;
 
+extern const char *zfs_error_name(zfs_error_t error);
+
 /*
  * @brief extract error information from libzfs handle
  *
