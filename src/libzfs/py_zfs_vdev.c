@@ -302,6 +302,585 @@ PyObject *py_zfs_vdev_get_disks(PyObject *self, PyObject *args) {
 	return (tuple);
 }
 
+PyDoc_STRVAR(py_zfs_vdev_add_ashift__doc__,
+"set_ashift(*, Int) -> None\n\n"
+"--------------------------\n\n"
+"Add ashift with given value to nvlist config.\n\n"
+"Parameters\n"
+"----------\n"
+"Int: ASHIFT value to set\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If argument is not a positive Integer, Type Error will be raised.\n\n"
+"PyErr_NoMemory:\n"
+"    If we fail to allocate memory for adding into nvlist,\n"
+"    PyErr_NoMemory will be raised.\n\n"
+);
+static
+PyObject *py_zfs_vdev_add_ashift(PyObject *self, PyObject *arg) {
+	int ret = 0;
+	uint64_t value = 0;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+
+	if (!PyLong_Check(arg)) {
+		PyErr_SetString(PyExc_TypeError, "Argument must be an Integer");
+		return (NULL);
+	}
+
+	value = PyLong_AsUnsignedLong(arg);
+	if (PyErr_Occurred()) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Failed to convert the argument to unsigned int");
+		return (NULL);
+	}
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.add_ashift", "OO",
+	    v->path ? v->path : v->type, arg) < 0) {
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	ret = nvlist_add_uint64(v->vdev_tree, ZPOOL_CONFIG_ASHIFT, value);
+	Py_END_ALLOW_THREADS
+
+	if (ret)
+		return (PyErr_NoMemory());
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_vdev_get_vdev_stats__doc__,
+"vdev_state(*) -> dict\n\n"
+"---------------------\n\n"
+"Returns the VDEV Stats in a Python Dictionary.\n\n"
+"Parameters\n"
+"----------\n"
+"None.\n\n"
+"Returns\n"
+"-------\n"
+"Python dictionary containing following keys:\n"
+"    timestamp: time since VDEV load\n\n"
+"    size: total capacity\n\n"
+"    allocated: space allocated\n\n"
+"    read_errors: read errors in VDEV\n\n"
+"    write_errors: write errors in VDEV\n\n"
+"    checksum_errors: checksum error in VDEV\n\n"
+"    ops: operation count\n\n"
+"    bytes: bytes read/written\n\n"
+"    configured_ashift: TLV VDEV ashift\n\n"
+"    logical_ashift: VDEV logical ashift\n\n"
+"    physical_ashift: VDEV physical ashift\n\n"
+"    fragmentation: device fragmentation\n\n"
+"    self_healed: self-healed bytes\n\n"
+"Raises:\n"
+"-------\n"
+"None.\n\n"
+);
+static
+PyObject *py_zfs_vdev_get_vdev_stats(PyObject *self, PyObject *args) {
+	vdev_stat_t *vs;
+	uint_t vsc;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	PyObject *stats = NULL;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.vdev_stats", "O",
+	    v->path ? v->path : v->type) < 0) {
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	vs = (vdev_stat_t *)fnvlist_lookup_uint64_array(v->vdev_tree,
+	    ZPOOL_CONFIG_VDEV_STATS, &vsc);
+	Py_END_ALLOW_THREADS
+
+	// Skip cheking for vs for success since we used fnvlist_* wrapper
+	stats = Py_BuildValue(
+		"{s:K,s:K,s:K,s:K,s:K,s:K,s:K,s:K,s:K,s:K,s:K,s:K,s:K}",
+		"timestamp", vs->vs_timestamp,
+		"size", vs->vs_space,
+		"allocated", vs->vs_alloc,
+		"read_errors", vs->vs_read_errors,
+		"write_errors", vs->vs_write_errors,
+		"checksum_errors", vs->vs_checksum_errors,
+		"ops", vs->vs_ops,
+		"bytes", vs->vs_bytes,
+		"configured_ashift", vs->vs_configured_ashift,
+		"logical_ashift", vs->vs_logical_ashift,
+		"physical_ashift", vs->vs_physical_ashift,
+		"fragmentation", vs->vs_fragmentation,
+		"self_healed", vs->vs_self_healed);
+
+	if (stats == NULL)
+		return (NULL);
+	return (stats);
+}
+
+PyDoc_STRVAR(py_zfs_vdev_degrade__doc__,
+"degrade(*, truenas_pylibzfs.VDevAuxState) -> None\n\n"
+"-------------------------------------------------\n\n"
+"Mark the VDEV degraded with given AUX state.\n\n"
+"Parameters\n"
+"----------\n"
+"truenas_pylibzfs.VdevAuxState: Enum that desribes VDEV AUX state.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If argument is not truenas_pylibzfs.VDevAuxState, Type Error will be\n"
+"    raised.\n\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while trying to set the state to degraded.\n\n"
+);
+static
+PyObject *py_zfs_vdev_degrade(PyObject *self, PyObject *arg) {
+	int ret;
+	PyObject *value;
+	vdev_aux_t state;
+	py_zfs_error_t err;
+	uint64_t guid;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	PyObject *mod = (PyObject *)v->pool->pylibzfsp->module;
+
+	PyObject *etype = PyObject_GetAttrString(mod, "VDevAuxState");
+	if (etype == NULL)
+		return (NULL);
+
+	if (!PyObject_IsInstance(arg, etype)) {
+		Py_DECREF(etype);
+		PyErr_SetString(PyExc_TypeError,
+		    "Expected VDevAuxState Enum type");
+		return (NULL);
+	}
+	Py_DECREF(etype);
+
+	value = PyObject_GetAttrString(arg, "value");
+	if (value == NULL) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Not able to retrieve value from Enum");
+		return (NULL);
+	}
+	state = PyLong_AsUnsignedLong(value);
+	Py_DECREF(value);
+	if (PyErr_Occurred()) {
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.degrade", "OO",
+	    v->path ? v->path : v->type, arg) < 0) {
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	guid = fnvlist_lookup_uint64(v->vdev_tree, ZPOOL_CONFIG_GUID);
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_degrade(v->pool->zhp, guid, state);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool_vdev_degrade failed");
+		return (NULL);
+	} else {
+		const char *vdev;
+		if (v->path)
+			vdev = PyUnicode_AsUTF8(v->path);
+		else
+			vdev = PyUnicode_AsUTF8(v->type);
+		if (vdev == NULL)
+			return (NULL);
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool_vdev_degrade %s %s", zpool_get_name(v->pool->zhp),
+		    vdev);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
+	}
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_vdev_fault__doc__,
+"fault(*, truenas_pylibzfs.VDevAuxState) -> None\n\n"
+"-----------------------------------------------\n\n"
+"Mark the VDEV faulted with given AUX state.\n\n"
+"Parameters\n"
+"----------\n"
+"truenas_pylibzfs.VdevAuxState: Enum that desribes VDEV AUX state.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If argument is not truenas_pylibzfs.VDevAuxState, Type Error will be\n"
+"    raised.\n\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while trying to set the state to faulted.\n\n"
+);
+static
+PyObject *py_zfs_vdev_fault(PyObject *self, PyObject *arg) {
+	int ret;
+	PyObject *value;
+	vdev_aux_t state;
+	py_zfs_error_t err;
+	uint64_t guid;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	PyObject *mod = (PyObject *)v->pool->pylibzfsp->module;
+
+	PyObject *etype = PyObject_GetAttrString(mod, "VDevAuxState");
+	if (etype == NULL)
+		return (NULL);
+
+	if (!PyObject_IsInstance(arg, etype)) {
+		Py_DECREF(etype);
+		PyErr_SetString(PyExc_TypeError,
+		    "Expected VDevAuxState Enum type");
+		return (NULL);
+	}
+	Py_DECREF(etype);
+
+	value = PyObject_GetAttrString(arg, "value");
+	if (value == NULL) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Not able to retrieve value from Enum");
+		return (NULL);
+	}
+	state = PyLong_AsUnsignedLong(value);
+	Py_DECREF(value);
+	if (PyErr_Occurred()) {
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.fault", "OO",
+	    v->path ? v->path : v->type, arg) < 0) {
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	guid = fnvlist_lookup_uint64(v->vdev_tree, ZPOOL_CONFIG_GUID);
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_fault(v->pool->zhp, guid, state);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool_vdev_fault failed");
+		return (NULL);
+	} else {
+		const char *vdev;
+		if (v->path)
+			vdev = PyUnicode_AsUTF8(v->path);
+		else
+			vdev = PyUnicode_AsUTF8(v->type);
+		if (vdev == NULL)
+			return (NULL);
+	
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool_vdev_fault %s %s", zpool_get_name(v->pool->zhp),
+		    vdev);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
+	}
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_vdev_online__doc__,
+"online(*, expand=False) -> None\n\n"
+"-------------------------------\n\n"
+"Set the VDEV stats to ONLINE.\n\n"
+"Parameters\n"
+"----------\n"
+"expand: bool, optional, default=False\n"
+"    Expand the VDEV to use all available space.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If the operation is invoked on VDEV that is not of type DISK or FILE,\n"
+"    TypeError will be raised.\n\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while trying to set the state to faulted.\n\n"
+);
+static
+PyObject *py_zfs_vdev_online(PyObject *self, PyObject *args, PyObject *kwargs) {
+	int flags = 0, expand = 0, ret;
+	vdev_state_t vstate;
+	py_zfs_error_t err;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	const char *cpath;
+	const char *ctype = PyUnicode_AsUTF8(v->type);
+
+	if (ctype == NULL)
+		return (NULL);
+	if (strcmp(ctype, VDEV_TYPE_DISK) != 0 &&
+	    strcmp(ctype, VDEV_TYPE_FILE) != 0) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Only disk/file vdev can be set to online");
+		return (NULL);
+	}
+
+	char *kwnames[] = {"expand", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|p", kwnames,
+	    &expand)) {
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.online", "OO",
+	    v->path ? v->path : v->type, kwargs ? kwargs : args) < 0) {
+		return (NULL);
+	}
+	if (expand)
+		flags |= ZFS_ONLINE_EXPAND;
+
+	cpath = PyUnicode_AsUTF8(v->path);
+	if (cpath == NULL)
+		return (NULL);
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_online(v->pool->zhp, cpath, flags, &vstate);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool online failed");
+		return (NULL);
+	} else {
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool online %s%s %s", expand ? "-e " : "",
+		    zpool_get_name(v->pool->zhp), cpath);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
+	}
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_vdev_offline__doc__,
+"offline(*, temporary=False) -> None\n\n"
+"-----------------------------------\n\n"
+"Set the VDEV stats to OFFLINE.\n\n"
+"Parameters\n"
+"----------\n"
+"temporary: bool, optional, default=False\n"
+"    If set, the VDEV will revert to it's previous state on reboot.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If the operation is invoked on VDEV that is not of type DISK or FILE,\n"
+"    TypeError will be raised.\n\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while trying to set the state to faulted.\n\n"
+);
+static
+PyObject *py_zfs_vdev_offline(PyObject *self, PyObject *args,
+    PyObject *kwargs) {
+	int temp = 0, ret;
+	py_zfs_error_t err;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	const char *cpath;
+	const char *ctype = PyUnicode_AsUTF8(v->type);
+
+	if (ctype == NULL)
+		return (NULL);
+	if (strcmp(ctype, VDEV_TYPE_DISK) != 0 &&
+	    strcmp(ctype, VDEV_TYPE_FILE) != 0) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Only disk/file vdev can be set to offline");
+		return (NULL);
+	}
+
+	char *kwnames[] = {"temporary", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|p", kwnames,
+	    &temp)) {
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.offline", "OO",
+	    v->path ? v->path : v->type, kwargs ? kwargs : args) < 0) {
+		return (NULL);
+	}
+
+	cpath = PyUnicode_AsUTF8(v->path);
+	if (cpath == NULL)
+		return (NULL);
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_offline(v->pool->zhp, cpath, temp);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool offline failed");
+		return (NULL);
+	} else {
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool offline %s%s %s", temp ? "-t " : "",
+		    zpool_get_name(v->pool->zhp), cpath);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
+	}
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_vdev_remove__doc__,
+"remove(*) -> None\n\n"
+"-----------------\n\n"
+"Remove the VDEV from pool.\n\n"
+"Parameters\n"
+"----------\n"
+"None.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while trying to set the state to faulted.\n\n"
+);
+static
+PyObject *py_zfs_vdev_remove(PyObject *self, PyObject *arg) {
+	int ret;
+	uint64_t guid;
+	char sguid[22];
+	py_zfs_error_t err;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+
+	Py_BEGIN_ALLOW_THREADS
+	guid = fnvlist_lookup_uint64(v->vdev_tree, ZPOOL_CONFIG_GUID);
+	Py_END_ALLOW_THREADS
+	snprintf(sguid, sizeof(sguid), "%" PRIu64, guid);
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.remove", "s",
+	    sguid) < 0) {
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_remove(v->pool->zhp, sguid);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool remove failed");
+		return (NULL);
+	} else {
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool remove %s %s", zpool_get_name(v->pool->zhp), sguid);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
+	}
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_vdev_detach__doc__,
+"detach(*) -> None\n\n"
+"-----------------\n\n"
+"Detach the VDEV (from mirror).\n\n"
+"Parameters\n"
+"----------\n"
+"None.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If the operation is invoked on VDEV that is not of type DISK or FILE,\n"
+"    TypeError will be raised.\n\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while trying to set the state to faulted.\n\n"
+);
+static
+PyObject *py_zfs_vdev_detach(PyObject *self, PyObject *arg) {
+	int ret;
+	py_zfs_error_t err;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	const char *cpath = NULL;
+	const char *ctype = PyUnicode_AsUTF8(v->type);
+
+	if (ctype == NULL)
+		return (NULL);
+	if (strcmp(ctype, VDEV_TYPE_DISK) != 0 &&
+	    strcmp(ctype, VDEV_TYPE_FILE) != 0) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Only disk/file vdev can be detached");
+		return (NULL);
+	}
+	if (v->path)
+		cpath = PyUnicode_AsUTF8(v->path);
+	else {
+		PyErr_SetString(PyExc_TypeError,
+		    "Cannot find vdev path");
+		return (NULL);
+	}
+	if (cpath == NULL)
+		return (NULL);
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.detach", "O",
+	    v->path) < 0) {
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_detach(v->pool->zhp, cpath);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool detach failed");
+		return (NULL);
+	} else {
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool detach %s %s", zpool_get_name(v->pool->zhp), cpath);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
+	}
+
+	Py_RETURN_NONE;
+}
+
 static
 PyGetSetDef zfs_vdev_getsetters[] = {
 	{
@@ -359,6 +938,54 @@ PyMethodDef zfs_vdev_methods[] = {
 		.ml_meth = py_zfs_vdev_get_disks,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_vdev_get_disks__doc__
+	},
+	{
+		.ml_name = "add_ashift",
+		.ml_meth = py_zfs_vdev_add_ashift,
+		.ml_flags = METH_O,
+		.ml_doc = py_zfs_vdev_add_ashift__doc__
+	},
+	{
+		.ml_name = "vdev_stats",
+		.ml_meth = py_zfs_vdev_get_vdev_stats,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_get_vdev_stats__doc__
+	},
+	{
+		.ml_name = "degrade",
+		.ml_meth = py_zfs_vdev_degrade,
+		.ml_flags = METH_O,
+		.ml_doc = py_zfs_vdev_degrade__doc__
+	},
+	{
+		.ml_name = "fault",
+		.ml_meth = py_zfs_vdev_fault,
+		.ml_flags = METH_O,
+		.ml_doc = py_zfs_vdev_fault__doc__
+	},
+	{
+		.ml_name = "online",
+		.ml_meth = (PyCFunction)py_zfs_vdev_online,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_vdev_online__doc__
+	},
+	{
+		.ml_name = "offline",
+		.ml_meth = (PyCFunction)py_zfs_vdev_offline,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_vdev_offline__doc__
+	},
+	{
+		.ml_name = "remove",
+		.ml_meth = py_zfs_vdev_remove,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_remove__doc__
+	},
+	{
+		.ml_name = "detach",
+		.ml_meth = py_zfs_vdev_detach,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_vdev_detach__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
