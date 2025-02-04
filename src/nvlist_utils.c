@@ -97,3 +97,34 @@ nvlist_t *py_userprops_dict_to_nvlist(PyObject *pyprops)
 
 	return nvl;
 }
+
+PyObject *py_nvlist_names_tuple(nvlist_t *nvl)
+{
+	PyObject *l = NULL;
+	PyObject *out = NULL;
+	nvpair_t *elem;
+
+	l = PyList_New(0);
+	if (l == NULL)
+		return NULL;
+
+	for (elem = nvlist_next_nvpair(nvl, NULL); elem != NULL;
+	    elem = nvlist_next_nvpair(nvl, elem)) {
+		PyObject *name = PyUnicode_FromString(nvpair_name(elem));
+		if (name == NULL) {
+			Py_DECREF(l);
+			return NULL;
+		}
+
+		if (PyList_Append(l, name) < 0) {
+			Py_DECREF(name);
+			Py_DECREF(l);
+			return NULL;
+		}
+		Py_DECREF(name);
+	}
+
+	out = PyList_AsTuple(l);
+	Py_DECREF(l);
+	return out;
+}
