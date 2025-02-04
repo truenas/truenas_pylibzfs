@@ -61,6 +61,7 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	char *new_name = NULL;
 	py_zfs_error_t zfs_err;
 	renameflags_t flags;
+	zfs_handle_t *new = NULL;
 
 	char *kwnames [] = {
 		"new_name",
@@ -86,6 +87,14 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 		PyErr_SetString(PyExc_ValueError,
 			"new_name keyword argument is required.");
 		return (NULL);
+	} else if (strcmp(zfs_get_name(obj->zhp), new_name) == 0) {
+		PyErr_SetString(PyExc_ValueError,
+			"new_name must differ from current name.");
+		return NULL;
+	} else if (!zfs_name_valid(new_name, obj->ctype)) {
+		PyErr_SetString(PyExc_ValueError,
+			"new_name is not valid for the ZFS type.");
+		return NULL;
 	}
 
 	flags = (renameflags_t) {
@@ -94,7 +103,6 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 		.forceunmount = forceunmount
 	};
 
-
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSObject.rename", "OO",
 			obj->name, kwargs) < 0) {
 		return NULL;
@@ -102,10 +110,31 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(obj->pylibzfsp);
+
 	err = zfs_rename(obj->zhp, new_name, flags);
 	if (err) {
 		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
+	} else {
+		/*
+		 * We need to create a new zfs_handle_t handle
+		 * due to a libzfs bug that fails to rewrite
+		 * zhp->zfs_name. We intentionally ignore errors
+		 * on re-opening the handle because the actual
+		 * rename succeeded. Unfortunately, this means that
+		 * future handle ops will fail. In practice, this
+		 * should be very unlikely to occur.
+		 */
+		new = zfs_open(obj->pylibzfsp->lzh, new_name, SUPPORTED_RESOURCES);
+		if (new != NULL) {
+			/*
+			 * We can safely swap out the handles here because
+			 * of the libzfs handle mutex being held.
+			 */
+			zfs_close(obj->zhp);
+			obj->zhp = new;
+		}
 	}
+
 	PY_ZFS_UNLOCK(obj->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
