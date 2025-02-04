@@ -19,7 +19,7 @@ typedef struct {
 
 typedef struct {
 	int flags;
-	int sorted;
+	boolean_t sorted;
 	uint64_t min_txg;
 	uint64_t max_txg;
 } iter_conf_snapshot_t;
@@ -63,8 +63,6 @@ typedef struct {
 } py_iter_state_t;
 
 extern int py_iter_filesystems(py_iter_state_t *state);
-#if 0
 extern int py_iter_snapshots(py_iter_state_t *state);
-#endif
 
 #endif  /* _PY_ZFS_ITER_H */

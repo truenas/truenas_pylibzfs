@@ -195,27 +195,27 @@ out:
 	return result;
 }
 
-#if 0
 static int
 snapshot_callback(zfs_handle_t *zhp, void *private)
 {
 	int result = ITER_RESULT_ERROR;
 	py_iter_state_t *state = (py_iter_state_t *)private;
 	py_zfs_snapshot_t *new_snap = NULL;
+	boolean_t simple = state->iter_config.snapshot.flags & ZFS_ITER_SIMPLE;
 
-	new_snap = init_zfs_snapshot(state->pylibzfsp, zhp);
+	ITER_END_ALLOW_THREADS(state);
+
+	new_snap = init_zfs_snapshot(state->pylibzfsp, zhp, simple);
 	if (new_snap == NULL) {
 		zfs_close(zhp);
 		goto out;
 	}
 
-	result = common_callback((PyObject *)new_ds, state);
+	result = common_callback((PyObject *)new_snap, state);
 out:
 	ITER_ALLOW_THREADS(state);
 	return result;
 }
-
-#endif
 
 /**
  * @brief iterate ZFS filesystems and zvols from python
@@ -264,8 +264,6 @@ py_iter_filesystems(py_iter_state_t *state)
 	return iter_ret;
 }
 
-#if 0
-
 int
 py_iter_snapshots(py_iter_state_t *state)
 {
@@ -276,7 +274,7 @@ py_iter_snapshots(py_iter_state_t *state)
 	ITER_ALLOW_THREADS(state);
 	PY_ZFS_LOCK(state->pylibzfsp);
 
-	if (conf->sorted) {
+	if (conf.sorted) {
 		iter_ret = zfs_iter_snapshots_sorted_v2(state->target,
 							conf.flags,
 							snapshot_callback,
@@ -299,10 +297,8 @@ py_iter_snapshots(py_iter_state_t *state)
 	ITER_END_ALLOW_THREADS(state);
 
 	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
-		set_exc_from_libzfs(&zfs_err, "zfs_iter_filesystems_v2() failed");
+		set_exc_from_libzfs(&zfs_err, "zfs_iter_snapshots() failed");
 	}
 
 	return iter_ret;
 }
-
-#endif
