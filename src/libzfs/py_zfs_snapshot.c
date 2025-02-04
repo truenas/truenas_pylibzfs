@@ -31,6 +31,40 @@ PyObject *py_repr_zfs_snapshot(PyObject *self)
 	return py_repr_zfs_obj_impl(RSRC_TO_ZFS(ds), ZFS_SNAP_STR);
 }
 
+PyDoc_STRVAR(py_zfs_snapshot_get_clones__doc__,
+"get_clones() -> tuple\n"
+"---------------------\n"
+"Retrieve tuple of names of ZFS clones. See man 7 zfsconcepts.\n\n"
+"A clone is a writable volume or file system whose initial contents are the\n"
+"same as another dataset. Snapshot clones have an implicit dependency between\n"
+"the parent and the child. This snapshot cannot be destroyed as long as one or\n"
+"more clones of it exist. The \"origin\" property exposes this dependency.\n"
+"\n"
+"parameters:\n"
+"-----------\n"
+"None\n\n"
+"returns:\n"
+"--------\n"
+"tuple: tuple containing names of ZFS datasets that are clones of this snapshot\n"
+);
+static
+PyObject *py_zfs_snapshot_get_clones(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_snapshot_t *ds = (py_zfs_snapshot_t *)self;
+	nvlist_t *clones = NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(ds->rsrc.obj.pylibzfsp);
+	clones = zfs_get_clones_nvl(ds->rsrc.obj.zhp);
+	PY_ZFS_UNLOCK(ds->rsrc.obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (clones == NULL)
+		return PyTuple_New(0);
+
+	return py_nvlist_names_tuple(clones);
+}
+
 static
 PyGetSetDef zfs_snapshot_getsetters[] = {
 	{ .name = NULL }
@@ -38,6 +72,12 @@ PyGetSetDef zfs_snapshot_getsetters[] = {
 
 static
 PyMethodDef zfs_snapshot_methods[] = {
+	{
+		.ml_name = "get_clones",
+		.ml_meth = (PyCFunction)py_zfs_snapshot_get_clones,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_snapshot_get_clones__doc__
+	},
 	{ NULL, NULL, 0, NULL }
 };
 
