@@ -64,10 +64,6 @@ void py_zfs_dealloc(py_zfs_t *self) {
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-PyObject *py_zfs_get_proptypes(py_zfs_prop_t *self, void *extra) {
-	Py_RETURN_NONE;
-}
-
 PyObject *py_zfs_asdict(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
@@ -128,6 +124,9 @@ PyObject *py_zfs_resource_open(PyObject *self,
 		break;
 	case ZFS_TYPE_VOLUME:
 		out = (PyObject *)init_zfs_volume(plz, zfsp, B_FALSE);
+		break;
+	case ZFS_TYPE_SNAPSHOT:
+		out = (PyObject *)init_zfs_snapshot(plz, zfsp, B_FALSE);
 		break;
 	default:
 		PyErr_SetString(PyExc_RuntimeError,
@@ -196,10 +195,6 @@ PyObject *py_zfs_pool_open(PyObject *self,
 }
 
 PyGetSetDef zfs_getsetters[] = {
-	{
-		.name	= "proptypes",
-		.get	= (getter)py_zfs_get_proptypes
-	},
 	{ .name = NULL }
 };
 

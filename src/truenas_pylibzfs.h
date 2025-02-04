@@ -6,7 +6,8 @@
 #include "truenas_pylibzfs_core.h"
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
-#define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM
+#define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
+	ZFS_TYPE_SNAPSHOT
 #define MAX_HISTORY_PREFIX_LEN 25
 
 /*
@@ -104,7 +105,6 @@ typedef struct {
 
 typedef struct {
 	py_zfs_resource_t rsrc;
-	PyObject *snapshot_name;
 } py_zfs_snapshot_t;
 
 /* Macro to get pointer to base ZFS object from various ZFS resource types */
@@ -126,27 +126,12 @@ typedef struct {
 	PyObject *path;
 } py_zfs_vdev_t;
 
-typedef struct {
-	PyObject_HEAD
-	int propid;
-	const char *cname;
-	char cvalue[ZFS_MAXPROPLEN + 1];
-	char crawvalue[ZFS_MAXPROPLEN + 1];
-	char csrcstr[ZFS_MAXPROPLEN + 1];
-	zprop_source_t csource;
-} py_zfs_prop_t;
-
-typedef struct {
-	py_zfs_prop_t super;
-	PyObject *values;
-	const char *name;
-} py_zfs_user_prop_t;
-
 extern PyTypeObject ZFS;
 extern PyTypeObject ZFSDataset;
 extern PyTypeObject ZFSObject;
 extern PyTypeObject ZFSPool;
 extern PyTypeObject ZFSResource;
+extern PyTypeObject ZFSSnapshot;
 extern PyTypeObject ZFSVdev;
 extern PyTypeObject ZFSVolume;
 
@@ -260,6 +245,11 @@ extern py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp,
 /* Caveats and parameters are same as init_zfs_dataset() above */
 extern py_zfs_volume_t *init_zfs_volume(py_zfs_t *lzp, zfs_handle_t *zfsp,
 					boolean_t simple);
+
+/* Provided by py_zfs_snapshot.c */
+/* Caveats and parameters are same as init_zfs_dataset() above */
+extern py_zfs_snapshot_t *init_zfs_snapshot(py_zfs_t *lzp, zfs_handle_t *zfsp,
+					    boolean_t simple);
 
 /* Provided by py_zfs_pool.c */
 extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
