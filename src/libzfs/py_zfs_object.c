@@ -118,21 +118,14 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 		/*
 		 * We need to create a new zfs_handle_t handle
 		 * due to a libzfs bug that fails to rewrite
-		 * zhp->zfs_name
+		 * zhp->zfs_name. We intentionally ignore errors
+		 * on re-opening the handle because the actual
+		 * rename succeeded. Unfortunately, this means that
+		 * future handle ops will fail. In practice, this
+		 * should be very unlikely to occur.
 		 */
 		new = zfs_open(obj->pylibzfsp->lzh, new_name, SUPPORTED_RESOURCES);
-		if (new == NULL) {
-			/*
-			 * Failed, but there's not much we can do other
-			 * than raise the exception to the caller.
-			 * We intentionally keep the old handle. This
-			 * just means zfs ops will safely fail with EZFS_NOENT
-			 * on it (which would be same as if someone
-			 * deleted the handle out from under us
-			 */
-			py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
-			err = -1;
-		} else {
+		if (new != NULL) {
 			/*
 			 * We can safely swap out the handles here because
 			 * of the libzfs handle mutex being held.
