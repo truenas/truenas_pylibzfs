@@ -216,6 +216,12 @@ void set_zfscore_exc(PyObject *module,
 	return;
 }
 
+typedef boolean_t (*py_lzc_parse_f)(nvlist_t *list,
+				    PyObject *item,
+				    PyObject *dsname_set,
+				    char *pool_name,
+				    size_t pool_name_sz);
+
 static
 boolean_t py_snapname_to_nvpair(nvlist_t *list,
 				PyObject *item,
@@ -302,9 +308,171 @@ boolean_t py_snapname_to_nvpair(nvlist_t *list,
 	return B_TRUE;
 }
 
+static
+boolean_t py_entry_to_hold_nvpair(nvlist_t *list,
+				  PyObject *item,
+				  PyObject *snap_set,
+				  char *pool_name,
+				  size_t pool_name_sz)
+{
+	const char *snap, *tag;
+	PyObject *py_snap = NULL;
+	int err;
+
+	if (!PyTuple_Check(item) || PyTuple_Size(item) != 2) {
+		PyErr_SetString(PyExc_TypeError,
+				"Expected tuple containing the"
+				"snapshot name and hold tag.");
+		return B_FALSE;
+	}
+
+	py_snap = PyTuple_GetItem(item, 0);
+	if (py_snap == NULL)
+		return B_FALSE;
+
+	snap = PyUnicode_AsUTF8(py_snap);
+	if (snap == NULL)
+		return B_FALSE;
+
+	tag = PyUnicode_AsUTF8(PyTuple_GET_ITEM(item, 1));
+	if (tag == NULL)
+		return B_FALSE;
+
+	if (!zfs_name_valid(snap, ZFS_TYPE_SNAPSHOT)) {
+		PyErr_Format(PyExc_TypeError,
+			     "%s: not a valid snapshot name",
+			     snap);
+		return B_FALSE;
+	}
+
+	if (strlen(tag) > ZFS_MAX_DATASET_NAME_LEN) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: hold tag is longer than "
+			     "%d bytes.", tag,
+			     ZFS_MAX_DATASET_NAME_LEN);
+		return B_FALSE;
+	}
+
+	if (*pool_name == '\0') {
+		/* pool name hasn't been set yet */
+		strlcpy(pool_name, snap, pool_name_sz);
+		pool_name[strcspn(pool_name, "/@")] = '\0';
+	}
+
+	if (strncmp(snap, pool_name, strlen(pool_name)) != 0) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: snapshot is not within "
+			     "expected pool [%s]. All "
+			     "snapshots must reside in the "
+			     "same pool.",
+			     snap, pool_name);
+		return B_FALSE;
+	}
+
+	if (PySet_Contains(snap_set, py_snap)) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: multiple holds of the same "
+			     "snapshot is not permitted in same call.",
+			     snap);
+		return B_FALSE;
+	}
+
+	err = PySet_Add(snap_set, py_snap);
+	if (err)
+		return B_FALSE;
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_add_string(list, snap, tag);
+	Py_END_ALLOW_THREADS
+
+	return B_TRUE;
+}
 
 static
-nvlist_t *py_iter_to_snaps(PyObject *obj, char *pool, size_t pool_size)
+boolean_t py_entry_to_rel_nvpair(nvlist_t *list,
+				 PyObject *item,
+				 PyObject *snap_set,
+				 char *pool_name,
+				 size_t pool_name_sz)
+{
+	const char *snap, *tag;
+	PyObject *py_snap = NULL;
+	nvlist_t *target;
+	int err;
+
+	if (!PyTuple_Check(item) || PyTuple_Size(item) != 2) {
+		PyErr_SetString(PyExc_TypeError,
+				"Expected tuple containing the"
+				"snapshot name and hold tag.");
+		return B_FALSE;
+	}
+
+	py_snap = PyTuple_GetItem(item, 0);
+	if (py_snap == NULL)
+		return B_FALSE;
+
+	snap = PyUnicode_AsUTF8(py_snap);
+	if (snap == NULL)
+		return B_FALSE;
+
+	tag = PyUnicode_AsUTF8(PyTuple_GET_ITEM(item, 1));
+	if (tag == NULL)
+		return B_FALSE;
+
+	if (!zfs_name_valid(snap, ZFS_TYPE_SNAPSHOT)) {
+		PyErr_Format(PyExc_TypeError,
+			     "%s: not a valid snapshot name",
+			     snap);
+		return B_FALSE;
+	}
+
+	if (strlen(tag) > ZFS_MAX_DATASET_NAME_LEN) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: hold tag is longer than "
+			     "%d bytes.", tag,
+			     ZFS_MAX_DATASET_NAME_LEN);
+		return B_FALSE;
+	}
+
+	if (*pool_name == '\0') {
+		/* pool name hasn't been set yet */
+		strlcpy(pool_name, snap, pool_name_sz);
+		pool_name[strcspn(pool_name, "/@")] = '\0';
+	}
+
+	if (strncmp(snap, pool_name, strlen(pool_name)) != 0) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: snapshot is not within "
+			     "expected pool [%s]. All "
+			     "snapshots must reside in the "
+			     "same pool.",
+			     snap, pool_name);
+		return B_FALSE;
+	}
+
+	err = PySet_Add(snap_set, py_snap);
+	if (err)
+		return B_FALSE;
+
+	Py_BEGIN_ALLOW_THREADS
+	if (nvlist_lookup_nvlist(list, snap, &target) == 0) {
+		fnvlist_add_boolean(target, tag);
+	} else {
+		nvlist_t *target = fnvlist_alloc();
+		fnvlist_add_boolean(target, tag);
+		fnvlist_add_nvlist(list, snap, target);
+		fnvlist_free(target);
+	}
+
+	Py_END_ALLOW_THREADS
+
+	return B_TRUE;
+}
+static
+nvlist_t *py_iter_to_snaps(PyObject *obj,
+			   char *pool,
+			   size_t pool_size,
+			   py_lzc_parse_f fn)
 {
 	nvlist_t *out = NULL;
 	PyObject *item = NULL;
@@ -329,12 +497,8 @@ nvlist_t *py_iter_to_snaps(PyObject *obj, char *pool, size_t pool_size)
 
 	while ((item = PyIter_Next(iterator))) {
 		boolean_t ok;
-		ok = py_snapname_to_nvpair(out,
-					   item,
-					   dsname_set,
-					   pool,
-					   pool_size);
 
+		ok = fn(out, item, dsname_set, pool, pool_size);
 		Py_DECREF(item);
 		if (!ok) {
 			fnvlist_free(out);
@@ -396,7 +560,7 @@ PyObject *nvlist_errors_to_err_tuple(nvlist_t *errors, int error)
 	}
 
 	if (PyList_Size(err) == 0) {
-		entry = Py_BuildValue("(%s, %i)", "Operation failed", error);
+		entry = Py_BuildValue("(si)", "Operation failed", error);
 		if (entry == NULL) {
 			Py_XDECREF(err);
 			return NULL;
@@ -412,6 +576,138 @@ PyObject *nvlist_errors_to_err_tuple(nvlist_t *errors, int error)
 	out = PyList_AsTuple(err);
 	Py_XDECREF(err);
 	return out;
+}
+
+static PyObject *py_lzc_create_holds(PyObject *self,
+				     PyObject *args_unused,
+				     PyObject *kwargs)
+{
+	PyObject *py_holds = NULL;
+	PyObject *py_errors;
+	nvlist_t *holds = NULL;
+	nvlist_t *errors = NULL;
+	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
+	int err;
+
+	char *kwnames [] = { "holds", NULL };
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$O",
+					 kwnames,
+					 &py_holds)) {
+		return NULL;
+	}
+
+	if (py_holds == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"holds keyword argument is required.");
+		return NULL;
+	}
+
+	holds = py_iter_to_snaps(py_holds, pool, sizeof(pool),
+				 py_entry_to_hold_nvpair);
+	if (holds == NULL)
+		return NULL;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.create_holds", "O",
+			kwargs) < 0) {
+		return NULL;
+	}
+
+	/* For now we're not exposing nvlist of properties to set */
+	Py_BEGIN_ALLOW_THREADS
+	err = lzc_hold(holds, -1, &errors);
+	fnvlist_free(holds);
+	Py_END_ALLOW_THREADS
+
+	if (err || !nvlist_empty(errors)) {
+		py_errors = nvlist_errors_to_err_tuple(errors, err);
+
+		Py_BEGIN_ALLOW_THREADS
+		fnvlist_free(errors);
+		Py_END_ALLOW_THREADS
+
+		if (py_errors == NULL)
+			return NULL;
+
+		set_zfscore_exc(self, "lzc_hold() failed", err, py_errors);
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(errors);
+	Py_END_ALLOW_THREADS
+
+	if (!py_zfs_core_log_snap_history("lzc_hold()", pool, py_holds))
+		return NULL;
+
+	Py_RETURN_NONE;
+}
+
+static PyObject *py_lzc_release_holds(PyObject *self,
+				      PyObject *args_unused,
+				      PyObject *kwargs)
+{
+	PyObject *py_holds = NULL;
+	PyObject *py_errors;
+	nvlist_t *holds = NULL;
+	nvlist_t *errors = NULL;
+	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
+	int err;
+
+	char *kwnames [] = { "holds", NULL };
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$O",
+					 kwnames,
+					 &py_holds)) {
+		return NULL;
+	}
+
+	if (py_holds == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"holds keyword argument is required.");
+		return NULL;
+	}
+
+	holds = py_iter_to_snaps(py_holds, pool, sizeof(pool),
+				 py_entry_to_rel_nvpair);
+	if (holds == NULL)
+		return NULL;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.release_holds", "O",
+			kwargs) < 0) {
+		return NULL;
+	}
+
+	/* For now we're not exposing nvlist of properties to set */
+	Py_BEGIN_ALLOW_THREADS
+	err = lzc_release(holds, &errors);
+	fnvlist_free(holds);
+	Py_END_ALLOW_THREADS
+
+	if (err || !nvlist_empty(errors)) {
+		py_errors = nvlist_errors_to_err_tuple(errors, err);
+
+		Py_BEGIN_ALLOW_THREADS
+		fnvlist_free(errors);
+		Py_END_ALLOW_THREADS
+
+		if (py_errors == NULL)
+			return NULL;
+
+		set_zfscore_exc(self, "lzc_release() failed", err, py_errors);
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(errors);
+	Py_END_ALLOW_THREADS
+
+	if (!py_zfs_core_log_snap_history("lzc_release()", pool, py_holds))
+		return NULL;
+
+	Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(py_zfs_core_create_snaps__doc__,
@@ -470,7 +766,8 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		return NULL;
 	}
 
-	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool));
+	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool),
+				 py_snapname_to_nvpair);
 	if (snaps == NULL)
 		return NULL;
 
@@ -493,7 +790,6 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		 * of tuples (snapshot name, error code) so that API
 		 * consumer can do something about it.
 		 */
-		nvlist_errors_to_err_tuple(errors, err);
 		py_errors = nvlist_errors_to_err_tuple(errors, err);
 
 		Py_BEGIN_ALLOW_THREADS
@@ -506,6 +802,10 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		set_zfscore_exc(self, "lzc_snapshot() failed", err, py_errors);
 		return NULL;
 	}
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(errors);
+	Py_END_ALLOW_THREADS
 
 	if (!py_zfs_core_log_snap_history("lzc_snapshot()", pool, py_snaps))
 		return NULL;
@@ -575,7 +875,8 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 		return NULL;
 	}
 
-	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool));
+	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool),
+				 py_snapname_to_nvpair);
 	if (snaps == NULL)
 		return NULL;
 
@@ -598,7 +899,6 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 		 * of tuples (snapshot name, error code) so that API
 		 * consumer can do something about it.
 		 */
-		nvlist_errors_to_err_tuple(errors, err);
 		py_errors = nvlist_errors_to_err_tuple(errors, err);
 
 		Py_BEGIN_ALLOW_THREADS
@@ -611,6 +911,10 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 		set_zfscore_exc(self, "lzc_destroy_snaps() failed", err, py_errors);
 		return NULL;
 	}
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(errors);
+	Py_END_ALLOW_THREADS
 
 	if (!py_zfs_core_log_snap_history("lzc_destroy_snaps()", pool, py_snaps))
 		return NULL;
@@ -645,6 +949,18 @@ static PyMethodDef TruenasPylibzfsCoreMethods[] = {
 	{
 		.ml_name = "destroy_snapshots",
 		.ml_meth = (PyCFunction)py_lzc_destroy_snaps,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_core_destroy_snaps__doc__
+	},
+	{
+		.ml_name = "create_holds",
+		.ml_meth = (PyCFunction)py_lzc_create_holds,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_core_destroy_snaps__doc__
+	},
+	{
+		.ml_name = "release_holds",
+		.ml_meth = (PyCFunction)py_lzc_release_holds,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_core_destroy_snaps__doc__
 	},
