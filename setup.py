@@ -16,6 +16,7 @@ truenas_pylibzfs = Extension(
         'src/libzfs/py_zfs_pool.c',
         'src/libzfs/py_zfs_prop.c',
         'src/libzfs/py_zfs_resource.c',
+        'src/libzfs/py_zfs_snapshot.c',
         'src/libzfs/py_zfs_vdev.c',
         'src/libzfs/py_zfs_volume.c',
         'src/libzfs_core/py_zfs_core_module.c',
