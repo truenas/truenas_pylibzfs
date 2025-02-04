@@ -177,6 +177,8 @@ void set_zfscore_exc(PyObject *module,
 
 	if (attrs == NULL) {
 		Py_DECREF(v);
+		Py_XDECREF(pcode);
+		Py_XDECREF(error_name);
 		return;
 	}
 
@@ -293,7 +295,9 @@ boolean_t py_snapname_to_nvpair(nvlist_t *list,
 	if (err)
 		return B_FALSE;
 
+	Py_BEGIN_ALLOW_THREADS
 	fnvlist_add_boolean(list, snap);
+	Py_END_ALLOW_THREADS
 
 	return B_TRUE;
 }
