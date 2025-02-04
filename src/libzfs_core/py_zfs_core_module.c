@@ -177,7 +177,7 @@ void set_zfscore_exc(PyObject *module,
 
 	if (attrs == NULL) {
 		Py_DECREF(v);
-		Py_XDECREF(pcode);
+		Py_XDECREF(pycode);
 		Py_XDECREF(error_name);
 		return;
 	}
