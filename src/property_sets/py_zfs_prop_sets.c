@@ -13,7 +13,7 @@ pylibzfs_propset_t *get_propset_state(PyObject *module)
 	pylibzfs_propset_t *state = NULL;
 
 	state = (pylibzfs_propset_t *)PyModule_GetState(module);
-	PYZFS_ASSERT(state, "Failed to get propeset module state.");
+	PYZFS_ASSERT(state, "Failed to get propset module state.");
 
 	return state;
 }
