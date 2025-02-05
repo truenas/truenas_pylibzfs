@@ -601,7 +601,7 @@ PyDoc_STRVAR(py_zfs_core_create_holds__doc__,
 "    released. If the system is shut down uncleanly, the holds will be released\n"
 "    when the pool is next opened or imported.\n"
 "\n"
-"    If -1 is specifed (the default) then the hold is persists until it is\n"
+"    If -1 is specifed (the default), then the hold persists until it is\n"
 "    explicitly removed.\n"
 "\n"
 "Returns\n"
