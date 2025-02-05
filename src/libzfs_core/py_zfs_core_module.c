@@ -103,7 +103,7 @@ void setup_zfs_core_exception(PyObject *module)
 	PYZFS_ASSERT(dict, "Failed to set up ZFSCoreException");
 
 	state->zc_exc = PyErr_NewExceptionWithDoc(PYLIBZFS_MODULE_NAME
-						  "lzc.ZFSCoreException",
+						  ".lzc.ZFSCoreException",
 						  py_zfs_core_exception__doc__,
 						  PyExc_RuntimeError,
 						  dict);
@@ -641,7 +641,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 	char *kwnames [] = { "holds", "cleanup_fd", NULL };
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$O",
+					 "|$Oi",
 					 kwnames,
 					 &py_holds,
 					 &cleanup_fd)) {
@@ -1079,7 +1079,7 @@ PYLIBZFS_MODULE_NAME " provides python bindings for libzfs_core for TrueNAS.\n"
 /* Module structure */
 static struct PyModuleDef truenas_pylibzfs_core = {
 	.m_base = PyModuleDef_HEAD_INIT,
-	.m_name = PYLIBZFS_MODULE_NAME,
+	.m_name = PYLIBZFS_MODULE_NAME ".lzc",
 	.m_doc = py_zfs_core_module__doc__,
 	.m_size = sizeof(pylibzfs_core_state_t),
 	.m_methods = TruenasPylibzfsCoreMethods,

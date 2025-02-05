@@ -28,11 +28,11 @@ def temporary_holds(holds):
 
 
 lz = truenas_pylibzfs.open_handle()
-assert not lz.open_resouce(name='dozer/share@now').get_holds()
+assert not lz.open_resource(name='dozer/share@now').get_holds()
 
-with temporary_holds({('dozer/share@now', 'temp_hold'}) as missing:
-    assert lz.open_resouce(name='dozer/share@now').get_holds()
+with temporary_holds({('dozer/share@now', 'temp_hold')}) as missing:
+    assert lz.open_resource(name='dozer/share@now').get_holds()
 
     os.listdir('/mnt/dozer/share/.zfs/snapshot/now')
 
-assert not lz.open_resouce(name='dozer/share@now').get_holds()
+assert not lz.open_resource(name='dozer/share@now').get_holds()
