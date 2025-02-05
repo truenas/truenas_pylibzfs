@@ -71,19 +71,19 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 
 	state->readonly_zfs_props = PyFrozenSet_New(NULL);
 	if (state->readonly_zfs_props == NULL)
-		return B_FALSE;
+		goto error;
 
 	state->zfs_volume_props = PyFrozenSet_New(NULL);
 	if (state->zfs_volume_props == NULL)
-		return B_FALSE;
+		goto error;
 
 	state->zfs_filesystem_props = PyFrozenSet_New(NULL);
 	if (state->zfs_filesystem_props == NULL)
-		return B_FALSE;
+		goto error;
 
 	state->zfs_space_props = PyFrozenSet_New(NULL);
 	if (state->zfs_space_props == NULL)
-		return B_FALSE;
+		goto error;
 
 	/*
 	 * Iterate the ZFS propset enum and build out frozenset
@@ -95,53 +95,48 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 		PYZFS_ASSERT((val < ZFS_NUM_PROPS), "Value exceeds known ZFS props");
 
 		if (zfs_prop_readonly(val) &&
-		    (PySet_Add(state->readonly_zfs_props, item))) {
-			Py_DECREF(item);
-			return B_FALSE;
-		}
+		    (PySet_Add(state->readonly_zfs_props, item)))
+			goto error;
 
 		if (zfs_prop_valid_for_type(val, ZFS_TYPE_VOLUME, B_FALSE) &&
-		    (PySet_Add(state->zfs_volume_props, item))) {
-			Py_DECREF(item);
-			return B_FALSE;
-		}
+		    (PySet_Add(state->zfs_volume_props, item)))
+			goto error;
 
 		if (zfs_prop_valid_for_type(val, ZFS_TYPE_FILESYSTEM, B_FALSE) &&
-		    (PySet_Add(state->zfs_filesystem_props, item))) {
-			Py_DECREF(item);
-			return B_FALSE;
-		}
+		    (PySet_Add(state->zfs_filesystem_props, item)))
+			goto error;
 
 		if (is_space_zfs_prop(val) &&
-		    (PySet_Add(state->zfs_space_props, item))) {
-			Py_DECREF(item);
-			return B_FALSE;
-		}
+		    (PySet_Add(state->zfs_space_props, item)))
+			goto error;
 
 		Py_DECREF(item);
 	}
 
 	if (PyModule_AddObjectRef(module, "READONLY_ZFS_PROPERTIES",
-	    state->readonly_zfs_props) < 0) {
-		return B_FALSE;
-	}
+	    state->readonly_zfs_props) < 0)
+		goto error;
 
 	if (PyModule_AddObjectRef(module, "ZFS_VOLUME_PROPERTIES",
-	    state->zfs_volume_props) < 0) {
-		return B_FALSE;
-	}
+	    state->zfs_volume_props) < 0)
+		goto error;
 
 	if (PyModule_AddObjectRef(module, "ZFS_FILESYSTEM_PROPERTIES",
-	    state->zfs_filesystem_props) < 0) {
-		return B_FALSE;
-	}
+	    state->zfs_filesystem_props) < 0)
+		goto error;
 
 	if (PyModule_AddObjectRef(module, "ZFS_SPACE_PROPERTIES",
-	    state->zfs_space_props) < 0) {
-		return B_FALSE;
-	}
+	    state->zfs_space_props) < 0)
+		goto error;
 
 	return B_TRUE;
+error:
+	// NOTE: allocated frozen sets within the state struct are freed
+	// when the module is freed on error
+
+	Py_DECREF(iterator);
+	Py_XDECREF(item);
+	return B_FALSE;
 }
 
 static
