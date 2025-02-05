@@ -9,6 +9,11 @@
 # WARNING: this just provides examples of how to use iterators.
 # Counting snapshots after the create_snapshots() call is neither
 # required nor desirable.
+#
+# NOTE: callback functions must return a boolean value indicating
+# whether libzfs should halt iteration. In the following examples
+# True is always returned because we're performing operations on
+# all filesystems and snapshots.
 
 import truenas_pylibzfs
 
