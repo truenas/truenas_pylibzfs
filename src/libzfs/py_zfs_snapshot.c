@@ -82,6 +82,7 @@ PyObject *py_zfs_snapshot_get_holds(PyObject *self, PyObject *args_unused)
 	py_zfs_snapshot_t *ds = (py_zfs_snapshot_t *)self;
 	nvlist_t *holds = NULL;
 	py_zfs_error_t zfs_err;
+	PyObject *out = NULL;
 	int err;
 
 	Py_BEGIN_ALLOW_THREADS
@@ -100,7 +101,9 @@ PyObject *py_zfs_snapshot_get_holds(PyObject *self, PyObject *args_unused)
 	if (holds == NULL)
 		return PyTuple_New(0);
 
-	return py_nvlist_names_tuple(holds);
+	out = py_nvlist_names_tuple(holds);
+	fnvlist_free(holds);
+	return out;
 }
 
 static
