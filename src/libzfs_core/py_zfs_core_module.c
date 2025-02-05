@@ -581,7 +581,7 @@ PyObject *nvlist_errors_to_err_tuple(nvlist_t *errors, int error)
 PyDoc_STRVAR(py_zfs_core_create_holds__doc__,
 "create_holds(*, holds, cleanup_fd=False) -> tuple\n"
 "-------------------------------------------------\n\n"
-"Bulk create \"user holds\" on snapshots. If there a hold on a snapshot, the\n"
+"Bulk create \"user holds\" on snapshots. If there is a hold on a snapshot, the\n"
 "snapshot can not be destroyed; however, it may be marked for deletion by\n"
 "destroy_snapshots(snapshot_names={<snapshot_name>}, defer=True)\n"
 "\n"
