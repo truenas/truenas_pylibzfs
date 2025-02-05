@@ -150,63 +150,63 @@ PyInit_truenas_pylibzfs(void)
 	PyObject *zfs_exc;
 	PyObject *constants = NULL;
 	PyObject *lzc = NULL;
+	PyObject *propsets = NULL;
+	int err;
 
 	PyObject *mpylibzfs = PyModule_Create(&truenas_pylibzfs);
 	if (mpylibzfs == NULL)
-		return (NULL);
+		return NULL;
 
 	if (types_ready(mpylibzfs) < 0) {
 		Py_DECREF(mpylibzfs);
-		return (NULL);
+		return NULL;
 	}
 
 	constants = PyModule_Create(&truenas_pylibzfs_constants);
-	if (constants == NULL) {
-		Py_DECREF(mpylibzfs);
-		return (NULL);
-	}
+	if (constants != NULL)
+		add_constants(constants);
 
-	add_constants(constants);
-
-	if (PyModule_AddObject(mpylibzfs, "constants", constants) < 0) {
-		Py_DECREF(constants);
+	err = PyModule_AddObjectRef(mpylibzfs, "constants", constants);
+	Py_XDECREF(constants);
+	if (err) {
 		Py_DECREF(mpylibzfs);
-		return (NULL);
+		return NULL;
 	}
 
 	py_init_libzfs();
 
 	lzc = py_setup_lzc_module();
-	if (lzc == NULL) {
+	err = PyModule_AddObjectRef(mpylibzfs, "lzc", lzc);
+	Py_XDECREF(lzc);
+	if (err) {
 		Py_DECREF(mpylibzfs);
-		return (NULL);
-	}
-
-	if (PyModule_AddObject(mpylibzfs, "lzc", lzc) < 0) {
-		Py_DECREF(lzc);
-		Py_DECREF(mpylibzfs);
-		return (NULL);
+		return NULL;
 	}
 
 	zfs_exc = setup_zfs_exception();
-	if (zfs_exc == NULL) {
+	err = PyModule_AddObjectRef(mpylibzfs, "ZFSException", zfs_exc);
+	Py_XDECREF(zfs_exc);
+	if (err) {
 		Py_DECREF(mpylibzfs);
-		return (NULL);
-	}
-
-	if (PyModule_AddObject(mpylibzfs, "ZFSException", zfs_exc) < 0) {
-		Py_DECREF(mpylibzfs);
-		return (NULL);
+		return NULL;
 	}
 
 	if (py_add_zfs_enums(mpylibzfs)) {
 		Py_DECREF(mpylibzfs);
-		return (NULL);
+		return NULL;
 	}
 
 	if (init_py_zfs_state(mpylibzfs) < 0) {
 		Py_DECREF(mpylibzfs);
-		return (NULL);
+		return NULL;
+	}
+
+	propsets = py_setup_propset_module(mpylibzfs);
+	err = PyModule_AddObjectRef(mpylibzfs, "property_sets", propsets);
+	Py_XDECREF(propsets);
+	if (err) {
+		Py_DECREF(mpylibzfs);
+		return NULL;
 	}
 
 	return (mpylibzfs);

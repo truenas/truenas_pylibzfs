@@ -330,7 +330,7 @@ PyObject *py_zfs_resource_get_properties(PyObject *self,
 				"properties keyword is required.");
 		return NULL;
 	}
-	if (!PySet_Check(prop_set)) {
+	if (!PyAnySet_Check(prop_set)) {
 		PyErr_SetString(PyExc_TypeError,
 				"properties must be a python set.");
 		return NULL;
@@ -545,7 +545,7 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 	if (prop_set != NULL) {
 		PyObject *zfsprops = NULL;
 
-		if (!PySet_Check(prop_set)) {
+		if (!PyAnySet_Check(prop_set)) {
 			PyErr_SetString(PyExc_TypeError,
 					"properties must be a set.");
 			return NULL;
