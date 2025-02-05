@@ -24,6 +24,7 @@ static void add_constants(PyObject *m) {
 
 	ADD_STR_CONSTANT(ZPOOL_CACHE_BOOT);
 	ADD_STR_CONSTANT(ZPOOL_CACHE);
+	ADD_STR_CONSTANT(ZFS_DEV);
 }
 
 static int types_ready(PyObject *m) {

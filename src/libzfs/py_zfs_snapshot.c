@@ -65,6 +65,44 @@ PyObject *py_zfs_snapshot_get_clones(PyObject *self, PyObject *args_unused)
 	return py_nvlist_names_tuple(clones);
 }
 
+PyDoc_STRVAR(py_zfs_snapshot_get_holds__doc__,
+"get_holds() -> tuple\n"
+"--------------------\n"
+"Retrieve tuple of names of ZFS holds on snapshot.\n\n"
+"parameters:\n"
+"-----------\n"
+"None\n\n"
+"returns:\n"
+"--------\n"
+"tuple: tuple containing names of ZFS holds for this snapshot\n"
+);
+static
+PyObject *py_zfs_snapshot_get_holds(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_snapshot_t *ds = (py_zfs_snapshot_t *)self;
+	nvlist_t *holds = NULL;
+	py_zfs_error_t zfs_err;
+	int err;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(ds->rsrc.obj.pylibzfsp);
+	err = zfs_get_holds(ds->rsrc.obj.zhp, &holds);
+	if (err) {
+		py_get_zfs_error(ds->rsrc.obj.pylibzfsp->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(ds->rsrc.obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_get_holds() failed");
+		return NULL;
+	}
+	if (holds == NULL)
+		return PyTuple_New(0);
+
+	return py_nvlist_names_tuple(holds);
+}
+
 static
 PyGetSetDef zfs_snapshot_getsetters[] = {
 	{ .name = NULL }
@@ -72,6 +110,12 @@ PyGetSetDef zfs_snapshot_getsetters[] = {
 
 static
 PyMethodDef zfs_snapshot_methods[] = {
+	{
+		.ml_name = "get_holds",
+		.ml_meth = (PyCFunction)py_zfs_snapshot_get_holds,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_snapshot_get_holds__doc__
+	},
 	{
 		.ml_name = "get_clones",
 		.ml_meth = (PyCFunction)py_zfs_snapshot_get_clones,
