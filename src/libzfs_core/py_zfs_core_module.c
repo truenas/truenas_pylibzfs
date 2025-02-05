@@ -578,6 +578,54 @@ PyObject *nvlist_errors_to_err_tuple(nvlist_t *errors, int error)
 	return out;
 }
 
+PyDoc_STRVAR(py_zfs_core_create_holds__doc__,
+"create_holds(*, holds, cleanup_fd=False) -> tuple\n"
+"-------------------------------------------------\n\n"
+"Bulk create \"user holds\" on snapshots. If there a hold on a snapshot, the\n"
+"snapshot can not be destroyed; however, it may be marked for deletion by\n"
+"destroy_snapshots(snapshot_names={<snapshot_name>}, defer=True)\n"
+"\n"
+"Multiple holds in the same operation for the same snapshot are not permitted.\n"
+"\n"
+"Parameters\n"
+"----------\n"
+"holds: iterable, required\n"
+"    Iterable (set, list, tuple, etc) containing hold tuples to create.\n"
+"    Each hold tuple is of the form (<snapshot_name>, <hold_key>) where\n"
+"    snapshot_name: str: name of the snapshot to hold\n"
+"    hold_key: str: name of the hold\n"
+"\n"
+"cleanup_fd: int, optional, default=-1\n"
+"    The cleanup_fd must be the result of open(ZFS_DEV, O_EXCL). When the\n"
+"    cleanup_fd is closed (including on process termination), the holds will be\n"
+"    released. If the system is shut down uncleanly, the holds will be released\n"
+"    when the pool is next opened or imported.\n"
+"\n"
+"    If -1 is specifed (the default) then the hold is persists until it is\n"
+"    explicitly removed.\n"
+"\n"
+"Returns\n"
+"-------\n"
+"tuple of snapshots that could not be held because they no longer exist.\n"
+"    The libzfs_core library does not consider this to be a failure\n"
+"    condition.\n"
+"\n"
+"Raises\n"
+"------\n"
+"TypeError:\n"
+"- \"holds\" is not iterable.\n"
+"- \"holds\" contains an entry that is a tuple.\n"
+"- The first item in the hold tuple is not a valid snapshot name.\n"
+"\n"
+"ValueError:\n"
+"- \"holds\" was omitted or is empty\n"
+"- \"holds\" contains entries for multiple pools\n"
+"\n"
+"ZFSCoreException:\n"
+"- Failed to create one or more of the specified holds.\n"
+"  The snapshot name of failed hold and error numbers are reported by the\n"
+"  exception's \"errors\" attribute.\n"
+);
 static PyObject *py_lzc_create_holds(PyObject *self,
 				     PyObject *args_unused,
 				     PyObject *kwargs)
@@ -588,13 +636,15 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 	nvlist_t *errors = NULL;
 	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 	int err;
+	int cleanup_fd = -1;
 
-	char *kwnames [] = { "holds", NULL };
+	char *kwnames [] = { "holds", "cleanup_fd", NULL };
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
 					 "|$O",
 					 kwnames,
-					 &py_holds)) {
+					 &py_holds,
+					 &cleanup_fd)) {
 		return NULL;
 	}
 
@@ -616,11 +666,11 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 
 	/* For now we're not exposing nvlist of properties to set */
 	Py_BEGIN_ALLOW_THREADS
-	err = lzc_hold(holds, -1, &errors);
+	err = lzc_hold(holds, cleanup_fd, &errors);
 	fnvlist_free(holds);
 	Py_END_ALLOW_THREADS
 
-	if (err || !nvlist_empty(errors)) {
+	if (err) {
 		py_errors = nvlist_errors_to_err_tuple(errors, err);
 
 		Py_BEGIN_ALLOW_THREADS
@@ -634,6 +684,12 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 		return NULL;
 	}
 
+	if (nvlist_empty(errors)) {
+		py_errors = PyTuple_New(0);
+	} else {
+		py_errors = nvlist_errors_to_err_tuple(errors, err);
+	}
+
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(errors);
 	Py_END_ALLOW_THREADS
@@ -641,9 +697,56 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 	if (!py_zfs_core_log_snap_history("lzc_hold()", pool, py_holds))
 		return NULL;
 
-	Py_RETURN_NONE;
+	return py_errors;
 }
 
+PyDoc_STRVAR(py_zfs_core_release_holds__doc__,
+"release_holds(*, holds) -> tuple\n"
+"--------------------------------\n\n"
+"Bulk release \"user holds\" on snapshots. If the snapshot has been marked\n"
+"for deferred destroy, it does not have any clones, and all the user holds\n"
+"are removed, then the snapshot will be destroyed.\n"
+"\n"
+"Parameters\n"
+"----------\n"
+"holds: iterable, required\n"
+"    Iterable (set, list, tuple, etc) containing hold tuples to release.\n"
+"    Each hold tuple is of the form (<snapshot_name>, <hold_key>) where\n"
+"    snapshot_name: str: name of the snapshot to hold\n"
+"    hold_key: str: name of the hold\n"
+"\n"
+"cleanup_fd: int, optional, default=-1\n"
+"    The cleanup_fd must be the result of open(ZFS_DEV, O_EXCL). When the\n"
+"    cleanup_fd is closed (including on process termination), the holds will be\n"
+"    released. If the system is shut down uncleanly, the holds will be released\n"
+"    when the pool is next opened or imported.\n"
+"\n"
+"Returns\n"
+"-------\n"
+"tuple of holds that could not be released because they no longer exist.\n"
+"    The libzfs_core library does not consider this to be a failure\n"
+"    condition.\n"
+"\n"
+"Raises\n"
+"------\n"
+"TypeError:\n"
+"- \"holds\" is not iterable.\n"
+"- \"holds\" contains an entry that is a tuple.\n"
+"- The first item in the hold tuple is not a valid snapshot name.\n"
+"\n"
+"ValueError:\n"
+"- \"holds\" was omitted or is empty\n"
+"- \"holds\" contains entries for multiple pools\n"
+"\n"
+"ZFSCoreException:\n"
+"- Failed to release one or more of the specified holds.\n"
+"  The hold name and error numbers are reported by the exception's \"errors\" \n"
+"  attribute.\n"
+"\n"
+"Example\n"
+"-------\n"
+"release_holds(holds={(\"d/myzv@now\", \"foo4\"), (\"d/myzv@now\", \"foo3\")})\n"
+);
 static PyObject *py_lzc_release_holds(PyObject *self,
 				      PyObject *args_unused,
 				      PyObject *kwargs)
@@ -956,13 +1059,13 @@ static PyMethodDef TruenasPylibzfsCoreMethods[] = {
 		.ml_name = "create_holds",
 		.ml_meth = (PyCFunction)py_lzc_create_holds,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
-		.ml_doc = py_zfs_core_destroy_snaps__doc__
+		.ml_doc = py_zfs_core_create_holds__doc__
 	},
 	{
 		.ml_name = "release_holds",
 		.ml_meth = (PyCFunction)py_lzc_release_holds,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
-		.ml_doc = py_zfs_core_destroy_snaps__doc__
+		.ml_doc = py_zfs_core_release_holds__doc__
 	},
 	{NULL}
 };
