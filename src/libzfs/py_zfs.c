@@ -283,6 +283,71 @@ PyObject *py_zfs_resource_open(PyObject *self,
 	return out;
 }
 
+PyObject *py_zfs_resource_destroy(PyObject *self,
+				  PyObject *args_unused,
+				  PyObject *kwargs)
+{
+	py_zfs_t *plz = (py_zfs_t *)self;
+	char *name = NULL;
+	zfs_handle_t *zfsp = NULL;
+	py_zfs_error_t zfs_err;
+	boolean_t defer = B_FALSE;
+	boolean_t destroyed = B_FALSE;
+	int err;
+
+	char *kwnames [] = { "name", "defer", NULL };
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$sp",
+					 kwnames,
+					 &name,
+					 &defer)) {
+		return NULL;
+	}
+
+	if (!name) {
+		PyErr_SetString(PyExc_ValueError,
+				"The name of the resource to destroy must be "
+				"passed to this method through the "
+				"\"name\" keyword argument.");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".destroy_resource", "s",
+			name) < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	zfsp = zfs_open(plz->lzh, name, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+	if (zfsp == NULL) {
+		py_get_zfs_error(plz->lzh, &zfs_err);
+	} else {
+		err = zfs_destroy(zfsp, defer);
+		if (err) {
+			py_get_zfs_error(plz->lzh, &zfs_err);
+		} else {
+			destroyed = B_TRUE;
+		}
+		zfs_close(zfsp);
+	}
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	if (!destroyed) {
+		set_exc_from_libzfs(&zfs_err, "zfs_destroy() failed");
+		return NULL;
+	}
+
+	err = py_log_history_fmt(plz, "zfs destroy %s", name);
+	if (err) {
+		return NULL;
+	}
+
+	Py_RETURN_NONE;
+}
+
 PyObject *py_zfs_pool_open(PyObject *self,
                              PyObject *args_unused,
                              PyObject *kwargs)
@@ -349,6 +414,11 @@ PyMethodDef zfs_methods[] = {
 	{
 		.ml_name = "open_resource",
 		.ml_meth = (PyCFunction)py_zfs_resource_open,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS
+	},
+	{
+		.ml_name = "destroy_resource",
+		.ml_meth = (PyCFunction)py_zfs_resource_destroy,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS
 	},
 	{
