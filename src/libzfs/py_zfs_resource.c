@@ -35,16 +35,6 @@ PyObject *py_repr_zfs_resource(PyObject *self)
 }
 
 static
-PyObject *py_zfs_resource_get_dependents(PyObject *self, PyObject *args) {
-	Py_RETURN_NONE;
-}
-
-static
-PyObject *py_zfs_resource_update_properties(PyObject *self, PyObject *args) {
-	Py_RETURN_NONE;
-}
-
-static
 PyObject *py_zfs_resource_userspace(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
@@ -353,6 +343,127 @@ PyObject *py_zfs_resource_get_properties(PyObject *self,
 	return py_zfs_get_properties(&res->obj, prop_set, get_source);
 }
 
+PyDoc_STRVAR(py_zfs_resource_set_properties__doc__,
+"set_properties(*, properties, remount=True) -> None\n\n"
+"----------------------------------------------------\n\n"
+"Set the specified properties on a given ZFS resource.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"properties: dict | truenas_pylibzfs.struct_zfs_props\n"
+"    Properties and values to set. This can be formatted as either\n\n"
+"    a dictionary with the form: \n"
+"    `{key: value}`\n"
+"    or the form: \n"
+"    `{key: {"raw": value, "value": value}}`\n"
+"    in this case preference is given to the raw value\n"
+"\n"
+"    Alternatively the properties may also be provided in the form\n"
+"    of a struct_zfs_props instance as returned by get_properties()\n"
+"\n"
+"remount bool, optional, default=True\n"
+"    Non-default option to automatically remount the dataset on\n"
+"    change of the mountpoint, sharenfs, or sharesmb properties.\n\n"
+""
+"Returns\n"
+"-------\n"
+"None\n"
+"\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    Properties is not one of supported types listed above.\n\n"
+"ValueError:\n"
+"    One of the specified properties is not supported for the ZFS type of the\n"
+"    underlying ZFS resource. For example, setting a zvol property for a\n"
+"    ZFS filesystem.\n\n"
+"ZFSError:\n"
+"    The ZFS operation failed. This can happen for a variety of reasons.\n"
+);
+static
+PyObject *py_zfs_resource_set_properties(PyObject *self,
+					 PyObject *args_unused,
+					 PyObject *kwargs)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	nvlist_t *nvl = NULL;
+	PyObject *propsdict = NULL;
+	pylibzfs_state_t *state = NULL;
+	boolean_t remount = B_TRUE;
+	py_zfs_error_t zfs_err;
+	int err;
+
+	char *kwnames [] = {
+		"properties",
+		"remount",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$Op",
+					 kwnames,
+					 &propsdict,
+					 &remount)) {
+					 return NULL;
+	}
+
+	if (propsdict == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"properties keyword argument is "
+				"required.");
+		return NULL;
+	}
+
+	state = py_get_module_state(res->obj.pylibzfsp);
+
+	nvl = py_zfsprops_to_nvlist(state,
+				    propsdict,
+				    res->obj.ctype,
+				    B_FALSE);
+	if (nvl == NULL)
+		return NULL;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME
+			".ZFSResource.set_properties", "OO",
+			res->obj.name, kwargs) < 0) {
+		fnvlist_free(nvl);
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	err = zfs_prop_set_list_flags(res->obj.zhp,
+				      nvl,
+				      remount ? 0 : ZFS_SET_NOMOUNT);
+	if (err) {
+		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
+	}
+	fnvlist_free(nvl);
+
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_set_properties() failed");
+	} else {
+		const char *props = NULL;
+		PyObject *dictstr = PyObject_Str(propsdict);
+		if (dictstr != NULL) {
+			props = PyUnicode_AsUTF8(dictstr);
+		}
+
+                err = py_log_history_fmt(res->obj.pylibzfsp,
+                                         "zfs set properties %s: %s",
+                                         zfs_get_name(res->obj.zhp),
+                                         props ? props : "UNKNOWN");
+		Py_XDECREF(dictstr);
+	}
+
+	if (err)
+		return NULL;
+
+	Py_RETURN_NONE;
+}
 static
 PyObject *py_get_userprops(py_zfs_resource_t *res)
 {
@@ -602,11 +713,6 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 static
 PyMethodDef zfs_resource_methods[] = {
 	{
-		.ml_name = "get_dependents",
-		.ml_meth = py_zfs_resource_get_dependents,
-		.ml_flags = METH_VARARGS
-	},
-	{
 		.ml_name = "iter_filesystems",
 		.ml_meth = (PyCFunction)py_zfs_resource_iter_filesystems,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
@@ -619,15 +725,16 @@ PyMethodDef zfs_resource_methods[] = {
 		.ml_doc = py_zfs_resource_iter_snapshots__doc__
 	},
 	{
-		.ml_name = "update_properties",
-		.ml_meth = py_zfs_resource_update_properties,
-		.ml_flags = METH_VARARGS
-	},
-	{
 		.ml_name = "get_properties",
 		.ml_meth = (PyCFunction)py_zfs_resource_get_properties,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_resource_get_properties__doc__
+	},
+	{
+		.ml_name = "set_properties",
+		.ml_meth = (PyCFunction)py_zfs_resource_set_properties,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_set_properties__doc__
 	},
 	{
 		.ml_name = "get_user_properties",
