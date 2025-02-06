@@ -83,7 +83,7 @@ int setup_zfs_prop_type(PyObject *module, pylibzfs_state_t *state)
 		state->zfs_prop_enum_tbl[i].name = name;
 	}
 
-	state->zfs_type_enum = pyenum;
+	state->zfs_property_enum = pyenum;
 	return 0;
 
 fail:
@@ -154,18 +154,6 @@ pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs)
 	return state;
 }
 
-static
-void py_get_enum_instances(PyObject *module, pylibzfs_state_t *state)
-{
-	PyObject *pyenum;
-
-	pyenum = PyObject_GetAttrString(module, "ZFSProperty");
-	PYZFS_ASSERT(pyenum, "Failed to get instance of ZFSProperty enum");
-
-	state->zfs_property_enum = pyenum;
-
-}
-
 int init_py_zfs_state(PyObject *module)
 {
 	int err;
@@ -185,8 +173,6 @@ int init_py_zfs_state(PyObject *module)
 
 	err = setup_zfs_prop_type(module, state);
 	PYZFS_ASSERT(err == 0, "Failed to setup Property type in module state.");
-
-	py_get_enum_instances(module, state);
 
 	init_py_struct_prop_state(state);
 	return 0;

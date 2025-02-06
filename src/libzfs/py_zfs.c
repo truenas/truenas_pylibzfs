@@ -68,6 +68,148 @@ PyObject *py_zfs_asdict(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
+static
+boolean_t py_zfs_create(py_zfs_t *self,
+			const char *name,
+			zfs_type_t allowed_types,
+			PyObject *pyzfstype,
+			PyObject *pyprops,
+			PyObject *pyuserprops)
+{
+	long ztype;
+	nvlist_t *props = NULL;
+	nvlist_t *userprops = NULL;
+	pylibzfs_state_t *state = NULL;
+	py_zfs_error_t zfs_err;
+	int err;
+
+	state = py_get_module_state(self);
+
+	if (!PyObject_IsInstance(pyzfstype, state->zfs_type_enum)) {
+		PyObject *repr = PyObject_Repr(pyzfstype);
+		PyErr_Format(PyExc_TypeError,
+			     "%V: not a valid ZFSType",
+			     repr, "UNKNOWN");
+		Py_XDECREF(repr);
+		return B_FALSE;
+	}
+
+	ztype = PyLong_AsLong(pyzfstype);
+	PYZFS_ASSERT(
+		((ztype > ZFS_TYPE_INVALID) && (ztype <= ZFS_TYPE_VDEV)),
+		"Unexpected ZFSType enum value"
+	);
+
+	if ((ztype & allowed_types) == 0) {
+		PyErr_Format(PyExc_TypeError,
+			     "%s: not a permitted ZFS type.",
+			     get_dataset_type(ztype));
+		return B_FALSE;
+	}
+
+	if (pyprops != NULL) {
+		props = py_zfsprops_to_nvlist(state,
+					      pyprops,
+					      ztype,
+					      B_TRUE);
+		if (props == NULL)
+			return B_FALSE;
+
+	}
+	if (pyuserprops != NULL) {
+		userprops = py_userprops_dict_to_nvlist(pyuserprops);
+		if (userprops == NULL) {
+			fnvlist_free(props);
+			return B_FALSE;
+		}
+
+		if (props == NULL) {
+			props = userprops;
+		} else {
+			/*
+			 * Merge the two nvlists for the ZFS
+			 * create operation
+			 */
+			fnvlist_merge(props, userprops);
+			fnvlist_free(userprops);
+		}
+
+	}
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_resource", "s",
+			name) < 0) {
+		fnvlist_free(props);
+		return B_FALSE;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(self);
+	err = zfs_create(self->lzh, name, ztype, props);
+	if (err) {
+		py_get_zfs_error(self->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(self);
+	Py_END_ALLOW_THREADS
+
+	fnvlist_free(props);
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_open() failed");
+		return B_FALSE;
+	}
+
+	return B_TRUE;
+}
+
+static
+PyObject *py_zfs_resource_create(PyObject *self,
+				 PyObject *args_unused,
+				 PyObject *kwargs)
+{
+	py_zfs_t *plz = (py_zfs_t *)self;
+	char *name = NULL;
+	PyObject *pyprops = NULL;
+	PyObject *pyuprops = NULL;
+	PyObject *pyzfstype = NULL;
+	boolean_t created;
+
+	char *kwnames [] = {
+		"name",
+		"type",
+		"properties",
+		"user_properties",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$sOOO",
+					 kwnames,
+					 &name,
+					 &pyzfstype,
+					 &pyprops,
+					 &pyuprops)) {
+		return NULL;
+
+	}
+
+	if (name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"The name of the resource to create must be "
+				"passed to this method through the "
+				"\"name\" keyword argument.");
+		return NULL;
+	} else if (pyzfstype == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"The \"type\" keyword argument is required.");
+		return NULL;
+	}
+
+	created = py_zfs_create(plz, name, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    pyzfstype, pyprops, pyuprops);
+	if (!created)
+		return NULL;
+
+	Py_RETURN_NONE;
+}
 
 PyObject *py_zfs_resource_open(PyObject *self,
 			       PyObject *args_unused,
@@ -199,6 +341,11 @@ PyGetSetDef zfs_getsetters[] = {
 };
 
 PyMethodDef zfs_methods[] = {
+	{
+		.ml_name = "create_resource",
+		.ml_meth = (PyCFunction)py_zfs_resource_create,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS
+	},
 	{
 		.ml_name = "open_resource",
 		.ml_meth = (PyCFunction)py_zfs_resource_open,
