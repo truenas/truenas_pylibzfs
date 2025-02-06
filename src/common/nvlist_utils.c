@@ -58,6 +58,13 @@ nvlist_t *py_userprops_dict_to_nvlist(PyObject *pyprops)
 	PyObject *key, *value;
 	Py_ssize_t pos = 0;
 
+	if (!PyDict_Check(pyprops)) {
+		PyErr_SetString(PyExc_TypeError,
+				"Not a dictionary.");
+		fnvlist_free(nvl);
+		return NULL;
+	}
+
 	while (PyDict_Next(pyprops, &pos, &key, &value)) {
 		const char *name = NULL;
 		const char *cval = NULL;
