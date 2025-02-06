@@ -17,6 +17,8 @@ lz.create_resource(
     properties=props
 )
 
+lz.destroy_resource(name='dozer/nfs_export')
+
 # Example 2:
 # creating dataset with certain properties mirroring another dataset's
 propset = {
@@ -31,6 +33,7 @@ lz.create_resource(
     properties=props
 )
 
+lz.destroy_resource(name='dozer/test_write')
 
 # Example 3:
 # creating dataset with certain props and a user property
@@ -40,3 +43,5 @@ lz.create_resource(
     properties=props,
     user_properties={"org.truenas:canary": "test"}
 )
+
+lz.destroy_resource(name='dozer/test_userprops')
