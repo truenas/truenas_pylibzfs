@@ -2,6 +2,7 @@
 typedef struct {
 	PyObject *zc_exc;
 	PyObject *errorcode;
+	PyObject *parent_module;
 } pylibzfs_core_state_t;
 
 
@@ -1031,6 +1032,7 @@ py_zfs_core_module_clear(PyObject *module)
 	pylibzfs_core_state_t *state = get_lzc_mod_state(module);
 	Py_CLEAR(state->zc_exc);
 	Py_CLEAR(state->errorcode);
+	Py_CLEAR(state->parent_module);
 	return 0;
 }
 
@@ -1087,7 +1089,7 @@ static struct PyModuleDef truenas_pylibzfs_core = {
 	.m_free = py_zfs_core_module_free,
 };
 
-PyObject *py_setup_lzc_module(void)
+PyObject *py_setup_lzc_module(PyObject *parent)
 {
 	pylibzfs_core_state_t *state = NULL;
 	PyObject *mlzc = PyModule_Create(&truenas_pylibzfs_core);
@@ -1099,6 +1101,8 @@ PyObject *py_setup_lzc_module(void)
 	PYZFS_ASSERT((libzfs_core_init() == 0), "Failed to open libzfs_core fd");
 
 	state = get_lzc_mod_state(mlzc);
+
+	state->parent_module = Py_NewRef(parent);
 
 	if (PyModule_AddObjectRef(mlzc, "ZFSCoreException", state->zc_exc) < 0) {
 		Py_DECREF(mlzc);

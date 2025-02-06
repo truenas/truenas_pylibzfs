@@ -38,8 +38,6 @@
  *     is opened (which initializes the ZFS properties structs).
  */
 
-#define LIBZFS_NONE_VALUE "none"
-
 PyStructSequence_Field struct_zfs_prop [] = {
 	{"value", "Parsed value of the ZFS property"},
 	{"raw", "Raw value of the ZFS property (string)"},
@@ -170,8 +168,7 @@ void init_py_struct_prop_state(pylibzfs_state_t *state)
 	state->struct_zfs_prop_src_type = obj;
 }
 
-static int
-py_zfs_prop_valid_for_type(zfs_prop_t prop, zfs_type_t zfs_type)
+boolean_t py_zfs_prop_valid_for_type(zfs_prop_t prop, zfs_type_t zfs_type)
 {
 	if (zfs_prop_valid_for_type(prop, zfs_type, B_FALSE))
 		return B_TRUE;

@@ -9,6 +9,7 @@
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
 	ZFS_TYPE_SNAPSHOT
 #define MAX_HISTORY_PREFIX_LEN 25
+#define LIBZFS_NONE_VALUE "none"
 
 /*
  * Macro to handle extreme error case in module. This should only be invoked
@@ -379,6 +380,7 @@ extern PyObject *py_zfs_get_properties(py_zfs_obj_t *pyzfs,
 				       boolean_t get_source);
 
 extern PyObject *py_zfs_props_to_dict(py_zfs_obj_t *pyzfs, PyObject *pyprops);
+extern boolean_t py_zfs_prop_valid_for_type(zfs_prop_t prop, zfs_type_t zfs_type);
 
 /* Set up propset module with frozensets */
 extern PyObject *py_setup_propset_module(PyObject *parent);
@@ -387,4 +389,8 @@ extern PyObject *py_setup_propset_module(PyObject *parent);
 extern PyObject *user_props_nvlist_to_py_dict(nvlist_t *userprops);
 extern nvlist_t *py_userprops_dict_to_nvlist(PyObject *pyprops);
 extern PyObject *py_nvlist_names_tuple(nvlist_t *nvl);
+extern nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
+				       PyObject *pydict,
+				       zfs_type_t type,
+				       boolean_t allow_ro);
 #endif  /* _TRUENAS_PYLIBZFS_H */

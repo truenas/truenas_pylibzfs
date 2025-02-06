@@ -175,7 +175,7 @@ PyInit_truenas_pylibzfs(void)
 
 	py_init_libzfs();
 
-	lzc = py_setup_lzc_module();
+	lzc = py_setup_lzc_module(mpylibzfs);
 	err = PyModule_AddObjectRef(mpylibzfs, "lzc", lzc);
 	Py_XDECREF(lzc);
 	if (err) {

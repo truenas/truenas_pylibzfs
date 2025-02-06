@@ -3,11 +3,12 @@ from setuptools import setup, Extension
 truenas_pylibzfs = Extension(
     name='truenas_pylibzfs',
     sources=[
-        'src/error.c',
         'src/truenas_pylibzfs.c',
         'src/truenas_pylibzfs_state.c',
-        'src/utils.c',
-        'src/nvlist_utils.c',
+        'src/common/error.c',
+        'src/common/utils.c',
+        'src/common/nvlist_utils.c',
+        'src/common/py_zfs_prop_sets.c',
         'src/libzfs/py_zfs.c',
         'src/libzfs/py_zfs_dataset.c',
         'src/libzfs/py_zfs_enum.c',
@@ -20,7 +21,6 @@ truenas_pylibzfs = Extension(
         'src/libzfs/py_zfs_vdev.c',
         'src/libzfs/py_zfs_volume.c',
         'src/libzfs_core/py_zfs_core_module.c',
-        'src/property_sets/py_zfs_prop_sets.c',
     ],
     libraries = [
         'zfs',
