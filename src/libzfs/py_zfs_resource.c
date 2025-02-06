@@ -355,7 +355,7 @@ PyDoc_STRVAR(py_zfs_resource_set_properties__doc__,
 "    a dictionary with the form: \n"
 "    `{key: value}`\n"
 "    or the form: \n"
-"    `{key: {"raw": value, "value": value}}`\n"
+"    `{key: {\"raw\": value, \"value\": value}}`\n"
 "    in this case preference is given to the raw value\n"
 "\n"
 "    Alternatively the properties may also be provided in the form\n"
