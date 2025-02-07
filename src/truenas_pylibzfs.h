@@ -393,4 +393,5 @@ extern nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
 				       PyObject *pydict,
 				       zfs_type_t type,
 				       boolean_t allow_ro);
+extern PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json);
 #endif  /* _TRUENAS_PYLIBZFS_H */
