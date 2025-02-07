@@ -29,9 +29,9 @@ void py_zfs_resource_dealloc(py_zfs_resource_t *self) {
 
 PyObject *py_repr_zfs_resource(PyObject *self)
 {
-        py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
 
-        return py_repr_zfs_obj_impl(&res->obj, ZFS_RESOURCE_STR);
+	return py_repr_zfs_obj_impl(&res->obj, ZFS_RESOURCE_STR);
 }
 
 static
@@ -388,6 +388,7 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
 	nvlist_t *nvl = NULL;
 	PyObject *propsdict = NULL;
+	PyObject *conv_str = NULL;
 	pylibzfs_state_t *state = NULL;
 	boolean_t remount = B_TRUE;
 	py_zfs_error_t zfs_err;
@@ -438,27 +439,38 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 	if (err) {
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
 	}
-	fnvlist_free(nvl);
 
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
 	if (err) {
 		set_exc_from_libzfs(&zfs_err, "zfs_set_properties() failed");
-	} else {
-		const char *props = NULL;
-		PyObject *dictstr = PyObject_Str(propsdict);
-		if (dictstr != NULL) {
-			props = PyUnicode_AsUTF8(dictstr);
-		}
-
-                err = py_log_history_fmt(res->obj.pylibzfsp,
-                                         "zfs set properties %s: %s",
-                                         zfs_get_name(res->obj.zhp),
-                                         props ? props : "UNKNOWN");
-		Py_XDECREF(dictstr);
+		fnvlist_free(nvl);
+		return NULL;
 	}
 
+	/* Update operation succeeded. Write history */
+	conv_str = py_dump_nvlist(nvl, B_TRUE);
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(nvl);
+	Py_END_ALLOW_THREADS
+
+	if (conv_str) {
+		const char *json = PyUnicode_AsUTF8(conv_str);
+		err = py_log_history_fmt(res->obj.pylibzfsp,
+					 "zfs update %s with properties: %s",
+					 zfs_get_name(res->obj.zhp),
+					 json ? json : "UNKNOWN");
+	} else {
+		err = py_log_history_fmt(res->obj.pylibzfsp,
+					 "zfs update %s",
+					 zfs_get_name(res->obj.zhp));
+	}
+
+	Py_XDECREF(conv_str);
+
+	// We may have encountered an error generating history message
 	if (err)
 		return NULL;
 
@@ -527,9 +539,10 @@ PyObject *py_zfs_resource_set_user_properties(PyObject *self,
 					      PyObject *args_unused,
 					      PyObject *kwargs)
 {
-        py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
 	py_zfs_error_t zfs_err;
 	PyObject *props_dict = NULL;
+	PyObject *conv_str = NULL;
 	nvlist_t *nvl;
 	int err;
 
@@ -570,18 +583,42 @@ PyObject *py_zfs_resource_set_user_properties(PyObject *self,
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
 	err = zfs_prop_set_list(res->obj.zhp, nvl);
-	fnvlist_free(nvl);
 	if (err)
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
 
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-
 	if (err) {
 		set_exc_from_libzfs(&zfs_err, "zfs_set_user_properties() failed");
+		fnvlist_free(nvl);
 		return NULL;
 	}
+
+	/* Update operation succeeded. Write history */
+	conv_str = py_dump_nvlist(nvl, B_TRUE);
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(nvl);
+	Py_END_ALLOW_THREADS
+
+	if (conv_str) {
+		const char *json = PyUnicode_AsUTF8(conv_str);
+		err = py_log_history_fmt(res->obj.pylibzfsp,
+					 "zfs update %s with user properties: %s",
+					 zfs_get_name(res->obj.zhp),
+					 json ? json : "UNKNOWN");
+	} else {
+		err = py_log_history_fmt(res->obj.pylibzfsp,
+					 "zfs update %s",
+					 zfs_get_name(res->obj.zhp));
+	}
+
+	Py_XDECREF(conv_str);
+
+	// We may have encountered an error generating history message
+	if (err)
+		return NULL;
 
 	Py_RETURN_NONE;
 }
@@ -630,7 +667,7 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 				 PyObject *args_unused,
 				 PyObject *kwargs)
 {
-        py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
 	PyObject *prop_set = NULL;
 	PyObject *props_dict = NULL;
 	PyObject *userprops = NULL;

@@ -394,3 +394,42 @@ nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
 	Py_XDECREF(repr);
 	return NULL;
 }
+
+PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json)
+{
+	PyObject *out = NULL;
+	FILE *target = NULL;
+	char *buf;
+	size_t bufsz;
+	boolean_t success = B_FALSE;
+
+	Py_BEGIN_ALLOW_THREADS
+	target = open_memstream(&buf, &bufsz);
+	if (target != NULL) {
+		if (json) {
+			if (nvlist_print_json(target, nvl) == 0)
+				success = B_TRUE;
+		} else {
+			nvlist_print(target, nvl);
+			success = B_TRUE;
+		}
+		fflush(target);
+	}
+	Py_END_ALLOW_THREADS
+
+	if (!success) {
+		PyErr_Format(PyExc_RuntimeError,
+			     "Failed to dump nvlist: %s",
+			     strerror(errno));
+		if (target)
+			fclose(target);
+
+		return NULL;
+	}
+
+	out = PyUnicode_FromStringAndSize(buf, bufsz);
+	Py_BEGIN_ALLOW_THREADS
+	fclose(target);
+	Py_END_ALLOW_THREADS
+	return out;
+}

@@ -150,6 +150,27 @@ boolean_t py_zfs_create(py_zfs_t *self,
 	PY_ZFS_UNLOCK(self);
 	Py_END_ALLOW_THREADS
 
+	if (props) {
+		const char *json_str = NULL;
+		PyObject *dump = py_dump_nvlist(props, B_TRUE);
+		if (dump != NULL) {
+			json_str = PyUnicode_AsUTF8(dump);
+		}
+		err = py_log_history_fmt(self, "zfs create %s with properties: %s",
+					 name, json_str ? json_str: "UNKNOWN");
+		Py_XDECREF(dump);
+		if (err) {
+			fnvlist_free(props);
+			return B_FALSE;
+		}
+	} else {
+		err = py_log_history_fmt(self, "zfs create %s", name);
+		if (err) {
+			fnvlist_free(props);
+			return B_FALSE;
+		}
+	}
+
 	fnvlist_free(props);
 
 	if (err) {
