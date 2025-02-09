@@ -28,7 +28,7 @@ def add_to_snapset(hdl, snap_spec):
     return True
 
 
-def take_recursive_snapshots(lz_hdl, datasets, snapshot_name):
+def take_recursive_snapshots(lz_hdl, datasets, snapshot_name, user_props=None):
     snap_spec = {
         'snapshot_name': snapshot_name,
         'snapshots': set()
@@ -41,7 +41,10 @@ def take_recursive_snapshots(lz_hdl, datasets, snapshot_name):
             fast=True
         )
 
-    truenas_pylibzfs.lzc.create_snapshots(snapshot_names=snap_spec['snapshots'])
+    truenas_pylibzfs.lzc.create_snapshots(
+        snapshot_names=snap_spec['snapshots'],
+        user_properties=user_props
+    )
     return snap_spec['snapshots']
 
 
@@ -89,3 +92,8 @@ truenas_pylibzfs.lzc.destroy_snapshots(snapshot_names=snaps)
 
 count = count_snapshots(lz, DATASETS)
 print(f'snapshot_count after snapshot deletion: {count}')
+
+# take recursive snapshot with user properties
+props = {"org.truenas:canary": "something"}
+snaps = take_recursive_snapshots(lz, DATASETS, SNAPSHOT_NAME, props)
+truenas_pylibzfs.lzc.destroy_snapshots(snapshot_names=snaps)

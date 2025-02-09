@@ -20,7 +20,8 @@ pylibzfs_core_state_t *get_lzc_mod_state(PyObject *module)
 static
 PyObject *py_snap_history_msg(const char *op,
 			      const char *target,
-			      PyObject *snaps)
+			      PyObject *snaps,
+			      PyObject *user_props)
 {
 	PyObject *out = NULL;
 	Py_ssize_t sz = PyObject_Length(snaps);
@@ -28,22 +29,32 @@ PyObject *py_snap_history_msg(const char *op,
 	if (sz == -1)
 		return NULL;
 
-	out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
-				   "of datasets within pool \"%s\"",
-				   op, sz, target);
+	if (user_props) {
+		out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
+					   "of datasets within pool \"%s\" "
+					   "with user properties: %U",
+					   op, sz, target, user_props);
+	} else {
+		out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
+					   "of datasets within pool \"%s\"",
+					   op, sz, target);
+	}
+
 	return out;
 }
 
 static
 boolean_t py_zfs_core_log_snap_history(const char *op,
 				       const char *target,
-				       PyObject *snaplist)
+				       PyObject *snaplist,
+				       PyObject *user_props)
 {
 	libzfs_handle_t *lz = NULL;
-	PyObject *logmsg = py_snap_history_msg(op, target, snaplist);
+	PyObject *logmsg;
 	const char *msg;
 	int err;
 
+	logmsg = py_snap_history_msg(op, target, snaplist, user_props);
 	if (logmsg == NULL)
 		return B_FALSE;
 
@@ -695,7 +706,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 	fnvlist_free(errors);
 	Py_END_ALLOW_THREADS
 
-	if (!py_zfs_core_log_snap_history("lzc_hold()", pool, py_holds))
+	if (!py_zfs_core_log_snap_history("lzc_hold()", pool, py_holds, NULL))
 		return NULL;
 
 	return py_errors;
@@ -808,14 +819,14 @@ static PyObject *py_lzc_release_holds(PyObject *self,
 	fnvlist_free(errors);
 	Py_END_ALLOW_THREADS
 
-	if (!py_zfs_core_log_snap_history("lzc_release()", pool, py_holds))
+	if (!py_zfs_core_log_snap_history("lzc_release()", pool, py_holds, NULL))
 		return NULL;
 
 	Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(py_zfs_core_create_snaps__doc__,
-"create_snapshots(*, snapshot_names) -> None\n"
+"create_snapshots(*, snapshot_names, user_properties=None) -> None\n"
 "-------------------------------------------\n\n"
 "Bulk create ZFS snapshots. Arguments are keyword-only.\n\n"
 ""
@@ -823,6 +834,12 @@ PyDoc_STRVAR(py_zfs_core_create_snaps__doc__,
 "----------\n"
 "snapshot_names: iterable\n"
 "    Iterable (set, list, tuple, etc) containing names of snapshots to create.\n\n"
+"user_properties: dict, optional\n"
+"    Optional user properties to set on the newly-created snapshots.\n"
+"    The user properties are specified as key value pairs in a python dictionary.\n"
+"    The key specifies the name of the ZFS user property and must meet the \n"
+"    requirements for a valid user property name. See man 7 zfsprops for details.\n"
+"    The value for the user property must be a string.\n\n"
 ""
 "Returns\n"
 "-------\n"
@@ -850,17 +867,25 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 {
 	PyObject *py_snaps = NULL;
 	PyObject *py_errors;
+	PyObject *py_props_dict = NULL;
+	PyObject *user_props_json = NULL;
 	nvlist_t *snaps = NULL;
 	nvlist_t *errors = NULL;
+	nvlist_t *user_props = NULL;
 	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
-	int err;
+	int rv;
 
-	char *kwnames [] = { "snapshot_names", NULL };
+	char *kwnames [] = {
+		"snapshot_names",
+		"user_properties",
+		NULL
+	};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$O",
+					 "|$OO",
 					 kwnames,
-					 &py_snaps)) {
+					 &py_snaps,
+					 &py_props_dict)) {
 		return NULL;
 	}
 
@@ -875,6 +900,14 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	if (snaps == NULL)
 		return NULL;
 
+	if (py_props_dict && py_props_dict != Py_None) {
+		user_props = py_userprops_dict_to_nvlist(py_props_dict);
+		if (user_props == NULL) {
+			Py_DECREF(snaps);
+			return NULL;
+		}
+	}
+
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.create_snapshots", "O",
 			kwargs) < 0) {
 		return NULL;
@@ -882,11 +915,11 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 
 	/* For now we're not exposing nvlist of properties to set */
 	Py_BEGIN_ALLOW_THREADS
-	err = lzc_snapshot(snaps, NULL, &errors);
+	rv = lzc_snapshot(snaps, user_props, &errors);
 	fnvlist_free(snaps);
 	Py_END_ALLOW_THREADS
 
-	if (err) {
+	if (rv != 0) {
 		/*
 		 * lzc_snapshot will create an nvlist of snapshot names
 		 * that failed and the error code for each of them.
@@ -894,24 +927,34 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		 * of tuples (snapshot name, error code) so that API
 		 * consumer can do something about it.
 		 */
-		py_errors = nvlist_errors_to_err_tuple(errors, err);
+		py_errors = nvlist_errors_to_err_tuple(errors, rv);
 
 		Py_BEGIN_ALLOW_THREADS
 		fnvlist_free(errors);
+		fnvlist_free(user_props);
 		Py_END_ALLOW_THREADS
 
 		if (py_errors == NULL)
 			return NULL;
 
-		set_zfscore_exc(self, "lzc_snapshot() failed", err, py_errors);
+		set_zfscore_exc(self, "lzc_snapshot() failed", rv, py_errors);
 		return NULL;
 	}
 
+	if (user_props)
+		user_props_json = py_dump_nvlist(user_props, B_TRUE);
+
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(errors);
+	fnvlist_free(user_props);
 	Py_END_ALLOW_THREADS
 
-	if (!py_zfs_core_log_snap_history("lzc_snapshot()", pool, py_snaps))
+	rv = py_zfs_core_log_snap_history("lzc_snapshot()",
+					  pool, py_snaps,
+					  user_props_json);
+	Py_XDECREF(user_props_json);
+
+	if (rv != B_TRUE)
 		return NULL;
 
 	Py_RETURN_NONE;
@@ -1020,7 +1063,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 	fnvlist_free(errors);
 	Py_END_ALLOW_THREADS
 
-	if (!py_zfs_core_log_snap_history("lzc_destroy_snaps()", pool, py_snaps))
+	if (!py_zfs_core_log_snap_history("lzc_destroy_snaps()", pool, py_snaps, NULL))
 		return NULL;
 
 	Py_RETURN_NONE;
