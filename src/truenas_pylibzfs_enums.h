@@ -382,4 +382,25 @@ static const struct {
 /* Verify that potential sources haven't changed */
 _Static_assert(ZPROP_SRC_ALL == 0x3f);
 
+
+static const struct {
+	zfs_userquota_prop_t uquota_type;
+	const char *name;
+} zfs_uquota_table[] = {
+	{ ZFS_PROP_USERUSED, "USER_USED" },
+	{ ZFS_PROP_USERQUOTA, "USER_QUOTA" },
+	{ ZFS_PROP_GROUPUSED, "GROUP_USED" },
+	{ ZFS_PROP_GROUPQUOTA, "GROUP_QUOTA" },
+	{ ZFS_PROP_USEROBJUSED, "USEROBJ_USED" },
+	{ ZFS_PROP_USEROBJQUOTA, "USEROBJ_QUOTA" },
+	{ ZFS_PROP_GROUPOBJUSED, "GROUPOBJ_USED" },
+	{ ZFS_PROP_GROUPOBJQUOTA, "GROUPOBJ_QUOTA" },
+	{ ZFS_PROP_PROJECTUSED, "PROJECT_USED" },
+	{ ZFS_PROP_PROJECTQUOTA, "PROJECT_QUOTA" },
+	{ ZFS_PROP_PROJECTOBJUSED, "PROJECTOBJ_USED" },
+	{ ZFS_PROP_PROJECTOBJQUOTA, "PROJECTOBJ_QUOTA" },
+};
+_Static_assert(ZFS_NUM_USERQUOTA_PROPS -1 == ZFS_PROP_PROJECTOBJQUOTA);
+
+
 #endif /* _TRUENAS_PYLIBZFS_ENUMS_H */

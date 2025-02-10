@@ -57,6 +57,7 @@ typedef struct {
 	PyObject *zfs_property_src_enum;
 	PyObject *zfs_property_enum;
 	PyObject *zfs_type_enum;
+	PyObject *zfs_uquota_enum;
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);
