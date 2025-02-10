@@ -690,7 +690,7 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 		return NULL;
 	}
 
-	if (prop_set != NULL) {
+	if ((prop_set != NULL) && (prop_set != Py_None)) {
 		PyObject *zfsprops = NULL;
 
 		if (!PyAnySet_Check(prop_set)) {
