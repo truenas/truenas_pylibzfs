@@ -421,8 +421,10 @@ PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json)
 		PyErr_Format(PyExc_RuntimeError,
 			     "Failed to dump nvlist: %s",
 			     strerror(errno));
-		if (target)
+		if (target) {
 			fclose(target);
+			free(buf);
+		}
 
 		return NULL;
 	}
@@ -430,6 +432,7 @@ PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json)
 	out = PyUnicode_FromStringAndSize(buf, bufsz);
 	Py_BEGIN_ALLOW_THREADS
 	fclose(target);
+	free(buf);
 	Py_END_ALLOW_THREADS
 	return out;
 }
