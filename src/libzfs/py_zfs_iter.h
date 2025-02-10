@@ -28,10 +28,17 @@ typedef struct {
 	int flags;
 } iter_conf_bookmark_t;
 
+typedef struct {
+	zfs_userquota_prop_t qtype;
+	PyObject *pyqtype;
+	PyTypeObject *pyuserquota_struct;
+} iter_conf_userspace_t;
+
 union iter_config {
 	iter_conf_filesystem_t filesystem;
 	iter_conf_snapshot_t snapshot;
 	iter_conf_bookmark_t bookmark;
+	iter_conf_userspace_t userspace;
 };
 
 /*
@@ -64,5 +71,6 @@ typedef struct {
 
 extern int py_iter_filesystems(py_iter_state_t *state);
 extern int py_iter_snapshots(py_iter_state_t *state);
+extern int py_iter_userspace(py_iter_state_t *state);
 
 #endif  /* _PY_ZFS_ITER_H */

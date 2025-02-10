@@ -217,6 +217,28 @@ out:
 	return result;
 }
 
+static int
+userspace_callback(void *private, const char *dom, uid_t xid, uint64_t val)
+{
+	int result = ITER_RESULT_ERROR;
+	py_iter_state_t *state = (py_iter_state_t *)private;
+	iter_conf_userspace_t conf = state->iter_config.userspace;
+	PyObject *pyquota = NULL;
+
+	ITER_END_ALLOW_THREADS(state);
+
+	// intentionally omit domain from python layer
+	pyquota = py_zfs_userquota(conf.pyuserquota_struct,
+				   conf.pyqtype, xid, val);
+	if (pyquota == NULL)
+		goto out;
+
+	result = common_callback(pyquota, state);
+out:
+	ITER_ALLOW_THREADS(state);
+	return result;
+}
+
 /**
  * @brief iterate ZFS filesystems and zvols from python
  *
@@ -298,6 +320,35 @@ py_iter_snapshots(py_iter_state_t *state)
 
 	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
 		set_exc_from_libzfs(&zfs_err, "zfs_iter_snapshots() failed");
+	}
+
+	return iter_ret;
+}
+
+int
+py_iter_userspace(py_iter_state_t *state)
+{
+	int iter_ret;
+	py_zfs_error_t zfs_err;
+	iter_conf_userspace_t conf = state->iter_config.userspace;
+
+	ITER_ALLOW_THREADS(state);
+	PY_ZFS_LOCK(state->pylibzfsp);
+
+	iter_ret = zfs_userspace(state->target,
+				 conf.qtype,
+				 userspace_callback,
+				 (void *)state);
+
+	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
+	}
+
+	PY_ZFS_UNLOCK(state->pylibzfsp);
+	ITER_END_ALLOW_THREADS(state);
+
+	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		set_exc_from_libzfs(&zfs_err, "zfs_iter_userspace() failed");
 	}
 
 	return iter_ret;

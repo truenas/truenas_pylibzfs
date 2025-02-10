@@ -4,11 +4,7 @@ static
 int setup_zfs_type(PyObject *module, pylibzfs_state_t *state)
 {
 	uint i, j;
-	PyObject *pyenum;
-
-	pyenum = PyObject_GetAttrString(module, "ZFSType");
-	if (pyenum == NULL)
-		return -1;
+	PyObject *pyenum = state->zfs_type_enum;
 
 	for (i = 0; i < ARRAY_SIZE(state->zfs_type_enum_tbl); i++) {
 		PyObject *enum_val, *enum_key, *name;
@@ -33,7 +29,6 @@ int setup_zfs_type(PyObject *module, pylibzfs_state_t *state)
 		state->zfs_type_enum_tbl[i].name = name;
 	}
 
-	state->zfs_type_enum = pyenum;
 	return 0;
 
 fail:
@@ -42,7 +37,6 @@ fail:
 		Py_CLEAR(state->zfs_type_enum_tbl[j].name);
 	}
 
-	Py_DECREF(pyenum);
 	return -1;
 }
 
@@ -50,11 +44,7 @@ static
 int setup_zfs_prop_type(PyObject *module, pylibzfs_state_t *state)
 {
 	uint i, j;
-	PyObject *pyenum;
-
-	pyenum = PyObject_GetAttrString(module, "ZFSProperty");
-	if (pyenum == NULL)
-		return -1;
+	PyObject *pyenum = state->zfs_property_enum;
 
 	for (i = 0; i < ARRAY_SIZE(state->zfs_prop_enum_tbl); i++) {
 		PyObject *enum_val, *enum_key, *name;
@@ -83,7 +73,6 @@ int setup_zfs_prop_type(PyObject *module, pylibzfs_state_t *state)
 		state->zfs_prop_enum_tbl[i].name = name;
 	}
 
-	state->zfs_property_enum = pyenum;
 	return 0;
 
 fail:
@@ -92,7 +81,6 @@ fail:
 		Py_CLEAR(state->zfs_prop_enum_tbl[j].name);
 	}
 
-	Py_DECREF(pyenum);
 	return -1;
 }
 
@@ -100,11 +88,7 @@ static
 int setup_property_source_type(PyObject *module, pylibzfs_state_t *state)
 {
 	uint i, j;
-	PyObject *pyenum;
-
-	pyenum = PyObject_GetAttrString(module, "PropertySource");
-	if (pyenum == NULL)
-		return -1;
+	PyObject *pyenum = state->zfs_property_src_enum;
 
 	for (i = 0; i < ARRAY_SIZE(state->zfs_prop_src_enum_tbl); i++) {
 		PyObject *enum_val, *enum_key, *name;
@@ -130,7 +114,6 @@ int setup_property_source_type(PyObject *module, pylibzfs_state_t *state)
 		state->zfs_prop_src_enum_tbl[i].name = name;
 	}
 
-	state->zfs_property_src_enum = pyenum;
 	return 0;
 
 fail:
@@ -139,7 +122,6 @@ fail:
 		Py_CLEAR(state->zfs_prop_src_enum_tbl[j].name);
 	}
 
-	Py_DECREF(pyenum);
 	return -1;
 
 }
@@ -175,6 +157,8 @@ int init_py_zfs_state(PyObject *module)
 	PYZFS_ASSERT(err == 0, "Failed to setup Property type in module state.");
 
 	init_py_struct_prop_state(state);
+	init_py_struct_userquota_state(state);
+
 	return 0;
 }
 
@@ -263,7 +247,9 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->struct_zfs_props_type);
 	Py_CLEAR(state->struct_zfs_prop_type);
 	Py_CLEAR(state->struct_zfs_prop_src_type);
+
 	Py_CLEAR(state->zfs_property_src_enum);
 	Py_CLEAR(state->zfs_property_enum);
 	Py_CLEAR(state->zfs_type_enum);
+	Py_CLEAR(state->zfs_uquota_enum);
 }

@@ -273,6 +273,39 @@ fail:
 	return (NULL);
 }
 
+/* Create a dictionary for enum spec for the USERQuota enum */
+static
+PyObject *uquota_table_to_dict(void)
+{
+	PyObject *uquota_dict = NULL;
+	int err;
+	uint i;
+
+	uquota_dict = PyDict_New();
+	if (uquota_dict == NULL)
+		return NULL;
+
+	for (i=0; i < ARRAY_SIZE(zfs_uquota_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(zfs_uquota_table[i].uquota_type);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(uquota_dict,
+					   zfs_uquota_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return uquota_dict;
+fail:
+	Py_XDECREF(uquota_dict);
+	return NULL;
+}
+
 static
 PyObject *build_args_tuple_enum(const char *class_name,
 				PyObject *(*get_dict)(void))
@@ -302,7 +335,8 @@ int add_enum(PyObject *module,
 	     PyObject *enum_type,
 	     const char *class_name,
 	     PyObject *(*get_dict)(void),
-	     PyObject *kwargs)
+	     PyObject *kwargs,
+	     PyObject **penum_out)
 {
 	PyObject *args = NULL;
 	PyObject *enum_obj = NULL;
@@ -316,8 +350,17 @@ int add_enum(PyObject *module,
 	enum_obj = PyObject_Call(enum_type, args, kwargs);
 	Py_DECREF(args);
 
-	// steals reference to enum_obj
-	return PyModule_AddObject(module, class_name, enum_obj);
+	if (PyModule_AddObjectRef(module, class_name, enum_obj) == -1) {
+		Py_XDECREF(enum_obj);
+		return -1;
+	}
+
+	if (penum_out == NULL) {
+		Py_XDECREF(enum_obj);
+	} else {
+		*penum_out = enum_obj;
+	}
+	return 0;
 }
 
 /*
@@ -332,6 +375,11 @@ py_add_zfs_enums(PyObject *module)
 	PyObject *int_enum = NULL;
 	PyObject *intflag_enum = NULL;
 	PyObject *kwargs = NULL;
+        pylibzfs_state_t *state = NULL;
+
+	state = (pylibzfs_state_t *)PyModule_GetState(module);
+	if (state == NULL)
+		goto out;
 
 	kwargs = Py_BuildValue("{s:s}", "module", PYLIBZFS_MODULE_NAME);
 	if (kwargs == NULL)
@@ -350,42 +398,51 @@ py_add_zfs_enums(PyObject *module)
 		goto out;
 
 	err = add_enum(module, int_enum, "ZFSError",
-		       zfs_err_table_to_dict, kwargs);
+		       zfs_err_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
 	err = add_enum(module, int_enum, "ZPOOLStatus",
-		       zpool_status_table_to_dict, kwargs);
+		       zpool_status_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
 	err = add_enum(module, int_enum, "ZFSType",
-		       zfs_type_table_to_dict, kwargs);
+		       zfs_type_table_to_dict, kwargs,
+		       &state->zfs_type_enum);
 	if (err)
 		goto out;
 
 	err = add_enum(module, intflag_enum, "ZFSDOSFlag",
-		       zfs_dosflag_table_to_dict, kwargs);
+		       zfs_dosflag_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
 	err = add_enum(module, int_enum, "ZFSProperty",
-		       zfs_prop_table_to_dict, kwargs);
+		       zfs_prop_table_to_dict, kwargs,
+		       &state->zfs_property_enum);
 	if (err)
 		goto out;
 
 	err = add_enum(module, int_enum, "ZPOOLProperty",
-		       zpool_prop_table_to_dict, kwargs);
+		       zpool_prop_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
 	err = add_enum(module, intflag_enum, "PropertySource",
-		       zfs_prop_src_table_to_dict, kwargs);
+		       zfs_prop_src_table_to_dict, kwargs,
+		       &state->zfs_property_src_enum);
 	if (err)
 		goto out;
 
 	err = add_enum(module, int_enum, "VDevAuxState",
-			zfs_vdev_aux_table_to_dict, kwargs);
+			zfs_vdev_aux_table_to_dict, kwargs, NULL);
+	if (err)
+		goto out;
+
+	err = add_enum(module, int_enum, "ZFSUserQuota",
+		       uquota_table_to_dict, kwargs,
+		       &state->zfs_uquota_enum);
 	if (err)
 		goto out;
 
