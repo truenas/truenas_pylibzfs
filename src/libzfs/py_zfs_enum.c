@@ -375,7 +375,7 @@ py_add_zfs_enums(PyObject *module)
 	PyObject *int_enum = NULL;
 	PyObject *intflag_enum = NULL;
 	PyObject *kwargs = NULL;
-        pylibzfs_state_t *state = NULL;
+	pylibzfs_state_t *state = NULL;
 
 	state = (pylibzfs_state_t *)PyModule_GetState(module);
 	if (state == NULL)

@@ -72,12 +72,12 @@ boolean_t add_quota_to_nvlist(nvlist_t *nvl,
 	char quota[ZFS_MAXPROPLEN];
 	const char *prefix = NULL;
 
-        prefix = zfs_userquota_prop_prefixes[qtype];
-        snprintf(prop, sizeof(prop), "%s%lu", prefix, xid);
-        if (value)
-                snprintf(quota, sizeof(quota), "%lu", value);
-        else
-                strlcpy(quota, LIBZFS_NONE_VALUE, sizeof(quota));
+	prefix = zfs_userquota_prop_prefixes[qtype];
+	snprintf(prop, sizeof(prop), "%s%lu", prefix, xid);
+	if (value)
+		snprintf(quota, sizeof(quota), "%lu", value);
+	else
+		strlcpy(quota, LIBZFS_NONE_VALUE, sizeof(quota));
 
 	fnvlist_add_string(nvl, prop, quota);
 
