@@ -353,3 +353,31 @@ py_iter_userspace(py_iter_state_t *state)
 
 	return iter_ret;
 }
+
+int
+py_iter_root_datasets(py_iter_state_t *state)
+{
+	int iter_ret;
+	py_zfs_error_t zfs_err;
+
+	ITER_ALLOW_THREADS(state);
+	PY_ZFS_LOCK(state->pylibzfsp);
+
+	// We can use our generic filesystem_callback here
+	// since we're producing only dataset handles
+	iter_ret = zfs_iter_root(state->pylibzfsp->lzh,
+				 filesystem_callback,
+				 (void *)state);
+	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
+	}
+
+	PY_ZFS_UNLOCK(state->pylibzfsp);
+	ITER_END_ALLOW_THREADS(state);
+
+	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		set_exc_from_libzfs(&zfs_err, "zfs_iter_filesystems_v2() failed");
+	}
+
+	return iter_ret;
+}

@@ -1,4 +1,5 @@
 #include "../truenas_pylibzfs.h"
+#include "py_zfs_iter.h"
 
 #define	ZFS_STR	"<" PYLIBZFS_MODULE_NAME ".ZFS>"
 #define	DEFAULT_HISTORY_PREFIX	"truenas-pylibzfs: "
@@ -422,6 +423,93 @@ PyObject *py_zfs_pool_open(PyObject *self,
 	return (out);
 }
 
+PyDoc_STRVAR(py_zfs_iter_root_datasets__doc__,
+"iter_root_datasets(*, callback, state) -> bool\n\n"
+"----------------------------------------------\n\n"
+"Iterate root datasets for all imported zpools\n\n"
+"Parameters\n"
+"----------\n"
+"callback: callable\n"
+"    Callback function that will be called for every child dataset.\n\n"
+"state: object, optional\n"
+"    Optional python object (for example dictionary) passed as an argument\n"
+"    to the callback function for each root dataset.\n\n"
+"Returns\n"
+"-------\n"
+"bool\n"
+"    Value indicates that iteration completed without being stopped by the\n"
+"    callback fuction returning False.\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    An error occurred during iteration of the datasetd. Note that this\n"
+"    exception type may also be raised within the callback function.\n\n"
+"NOTE regarding \"callback\":\n"
+"--------------------------\n"
+"Minimally the function signature must take a single argument for each ZFS\n"
+"object. If the \"state\" keyword is specified then the callback function\n"
+"should take two arguments. The callback function must return bool value\n"
+"indicating whether iteration should continue.\n\n"
+"Example \"callback\":\n"
+"-------------------\n"
+"def my_callback(ds, state):\n"
+"    print(f'{ds.name}: {state}')\n"
+"    return True\n"
+);
+static
+PyObject *py_zfs_iter_root_datasets(PyObject *self,
+					   PyObject *args_unused,
+					   PyObject *kwargs)
+{
+	int err;
+	py_zfs_t *plz = (py_zfs_t *)self;
+
+	py_iter_state_t iter_state = (py_iter_state_t){
+		.pylibzfsp = plz,
+	};
+
+	char *kwnames [] = {"callback", "state", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$OO",
+					 kwnames,
+					 &iter_state.callback_fn,
+					 &iter_state.private_data)) {
+		return NULL;
+
+	}
+
+	if (!iter_state.callback_fn) {
+		PyErr_SetString(PyExc_ValueError,
+				"`callback` keyword argument is required.");
+		return NULL;
+	}
+
+	if (!PyCallable_Check(iter_state.callback_fn)) {
+		PyErr_SetString(PyExc_TypeError,
+				"callback function must be callable.");
+		return NULL;
+	}
+
+	// There aren't any useful arguments we can pass to sys.audit
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".iter_root_datasets",
+			"O", Py_None) < 0) {
+		return NULL;
+	}
+
+	err = py_iter_root_datasets(&iter_state);
+	if ((err == ITER_RESULT_ERROR) || (err == ITER_RESULT_IOCTL_ERROR)) {
+		// Exception is set by callback function
+		return NULL;
+	}
+
+	if (err == ITER_RESULT_SUCCESS) {
+		Py_RETURN_TRUE;
+	}
+
+	Py_RETURN_FALSE;
+}
+
 PyGetSetDef zfs_getsetters[] = {
 	{ .name = NULL }
 };
@@ -441,6 +529,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_name = "destroy_resource",
 		.ml_meth = (PyCFunction)py_zfs_resource_destroy,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS
+	},
+	{
+		.ml_name = "iter_root_datasets",
+		.ml_meth = (PyCFunction)py_zfs_iter_root_datasets,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_iter_root_datasets__doc__
 	},
 	{
 		.ml_name = "open_pool",

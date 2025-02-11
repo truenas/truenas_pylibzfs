@@ -247,6 +247,7 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->struct_zfs_props_type);
 	Py_CLEAR(state->struct_zfs_prop_type);
 	Py_CLEAR(state->struct_zfs_prop_src_type);
+	Py_CLEAR(state->struct_zfs_userquota_type);
 
 	Py_CLEAR(state->zfs_property_src_enum);
 	Py_CLEAR(state->zfs_property_enum);
