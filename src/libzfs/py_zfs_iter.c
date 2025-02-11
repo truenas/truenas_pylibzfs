@@ -376,7 +376,7 @@ py_iter_root_datasets(py_iter_state_t *state)
 	ITER_END_ALLOW_THREADS(state);
 
 	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
-		set_exc_from_libzfs(&zfs_err, "zfs_iter_filesystems_v2() failed");
+		set_exc_from_libzfs(&zfs_err, "zfs_iter_root() failed");
 	}
 
 	return iter_ret;
