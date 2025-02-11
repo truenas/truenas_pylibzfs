@@ -49,6 +49,9 @@ typedef struct {
 	 */
 	PyTypeObject *struct_zfs_prop_src_type;
 
+	/* Reference to named tuple for ZFS user quota */
+	PyTypeObject *struct_zfs_userquota_type;
+
 	/*
 	 * References to enums that are available in the base
 	 * of module. We have them in state so that we can
