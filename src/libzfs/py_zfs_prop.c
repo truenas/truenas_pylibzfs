@@ -105,9 +105,21 @@ char *py_create_prop_doc(const char *name, zfs_prop_t prop)
  * the python memory interface. If this gets replaced by system malloc,
  * the developer should also change how the memory is freed on state cleanup.
  */
-static
 char *pymem_strdup(const char *s)
 {
+	/*
+	 * There are some places where we have
+	 *
+         * const char *data = PyUnicode_AsUTF8(foo);
+	 * out = pymem_strdup(data);
+	 * Py_XDECREF(foo);
+	 * return out;
+	 *
+	 * Check for NULL here simplifies logic
+	 */
+	if (s == NULL)
+		return NULL;
+
 	size_t len = strlen(s) + 1;
 	void *new = PyMem_Malloc(len);
 	if (new == NULL)

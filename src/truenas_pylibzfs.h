@@ -381,6 +381,7 @@ extern PyObject *py_zfs_get_properties(py_zfs_obj_t *pyzfs,
 
 extern PyObject *py_zfs_props_to_dict(py_zfs_obj_t *pyzfs, PyObject *pyprops);
 extern boolean_t py_zfs_prop_valid_for_type(zfs_prop_t prop, zfs_type_t zfs_type);
+extern char *pymem_strdup(const char *s);
 
 /* py_zfs_userquota.c */
 extern void init_py_struct_userquota_state(pylibzfs_state_t *state);
@@ -390,6 +391,11 @@ extern PyObject *py_zfs_userquota(PyTypeObject *qtypestruct,
 				  uint64_t value);
 extern nvlist_t *py_userquotas_to_nvlist(pylibzfs_state_t *state, PyObject *uquotas);
 
+/* py_zfs_mount.c */
+extern PyObject *py_zfs_mount(py_zfs_resource_t *res,
+			      PyObject *py_mp,
+			      PyObject *py_mntopts,
+			      int flags);
 
 /* Set up propset module with frozensets */
 extern PyObject *py_setup_propset_module(PyObject *parent);

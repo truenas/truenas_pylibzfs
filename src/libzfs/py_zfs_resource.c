@@ -34,9 +34,81 @@ PyObject *py_repr_zfs_resource(PyObject *self)
 	return py_repr_zfs_obj_impl(&res->obj, ZFS_RESOURCE_STR);
 }
 
+PyDoc_STRVAR(py_zfs_resource_refresh_props__doc__,
+"refresh_properties() -> None\n"
+"--------------------------------------------------------\n"
+"Refresh the properties for a ZFSResource. ZFS properties may be internally\n"
+"cached in the zfs_handle_t object underlying the python object.\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+""
+"Returns\n"
+"-------\n"
+"None\n\n"
+""
+"Raises\n"
+"------\n"
+"Does not raise an exception.\n"
+);
 static
-PyObject *py_zfs_resource_userspace(PyObject *self, PyObject *args) {
+PyObject *py_zfs_resource_refresh_props(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	zfs_refresh_properties(res->obj.zhp);
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	res->is_simple = B_FALSE;
+	Py_END_ALLOW_THREADS
+
 	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_resource_get_mount__doc__,
+"get_mountpoint() -> str | None\n"
+"--------------------------------------------------------\n"
+"Check whether the ZFS resource is mounted and if it is mounted, return\n"
+"the path at which it is mounted, otherwise return None type\n\n"
+""
+"Parameters\n"
+"----------\n"
+"None\n\n"
+""
+"Returns\n"
+"-------\n"
+"str: mountpoint of the dataset if mounted otherwise None type\n"
+""
+"Raises\n"
+"------\n"
+"MemoryError: failed to allocate memory for mountpoint string.\n"
+);
+static
+PyObject *py_zfs_resource_get_mount(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	boolean_t mounted;
+	char *mp = NULL;
+	PyObject *out = NULL;
+
+	// PY_ZFS_LOCK needs held due to interaction with libzfs mnttab
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	mounted = zfs_is_mounted(res->obj.zhp, &mp);
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (!mounted)
+		Py_RETURN_NONE;
+
+	if (mp == NULL)
+		// strdup failed
+		return PyErr_NoMemory();
+
+	out = PyUnicode_FromString(mp);
+	free(mp);
+	return out;
 }
 
 PyDoc_STRVAR(py_zfs_resource_iter_filesystems__doc__,
@@ -747,6 +819,191 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 	return out;
 }
 
+PyDoc_STRVAR(py_zfs_resource_mount__doc__,
+"mount(*, mountpoint, mount_options=None, force=False, \n"
+"      load_encryption_key=False) -> None\n"
+"------------------------------------------------------\n\n"
+"Mount the specified ZFS dataset with the specified options\n"
+"Generally this method should be called without arguments,\n"
+"which relies on internal dataset configuration for setting\n"
+"appropriate mount options.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"mountpoint: str, optional\n"
+"    Optional parameter to manually specify the mountpoint at\n"
+"    which to mount the datasets. If this is omitted then the\n"
+"    mountpoint specied in the ZFS mountpoint property will be used.\n\n"
+"    Generally the mountpoint should be not be specified and the\n"
+"    library user should rely on the ZFS mountpoint property.\n\n"
+"mount_options: list | None, optional, default=None\n"
+"    List of mount options to use when mounting the ZFS dataset.\n"
+"    These may be any of MNTOPT constants in the truenas_pylibzfs.constants\n"
+"    module.\n\n"
+"    NOTE: it's generally preferable to set these as ZFS properties rather\n"
+"    than overriding via mount options\n\n"
+"force: bool, optional, default=False\n"
+"    Redacted datasets and ones with the CANMOUNT property set to off\n"
+"    will fail to mount without explicitly passing the force option\n\n"
+"load_encryption_key: bool, optional, default=False\n"
+"    Load keys for encrypted filesystems as they are being mounted. This is \n"
+"    equivalent to executing zfs load-key before mounting it.\n\n"
+""
+"Returns\n"
+"-------\n"
+"None\n\n"
+""
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"- The underlying ZFS type is not mountable.\n\n"
+"ValueError:\n"
+"- The dataset has mountpoint set to legacy or none and an explicit\n"
+"  mountpoint was not passed to this method as an argument.\n"
+"- A mountpoint was specified that was not an absolute path.\n"
+"- / (root) was set as the mountpoint.\n"
+"- The mountpoint property was explicitly set to None.\n"
+"ZFSError:\n"
+"- The ZFS mount operation failed.\n\n"
+);
+static
+PyObject *py_zfs_resource_mount(PyObject *self,
+				PyObject *args_unused,
+				PyObject *kwargs)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	char *kwnames [] = {
+		"mountpoint",
+		"mount_options",
+		"force",
+		"load_encryption_key",
+		NULL
+	};
+	PyObject *py_mp = NULL;
+	PyObject *py_mntopts = NULL;
+	/*
+	 * In future we can add support for more MS_* flags
+	 * as optional boolean arguments.
+	 */
+	boolean_t force = B_FALSE;
+	boolean_t load = B_FALSE;
+	int flags = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$OOp",
+					 kwnames,
+					 &py_mp,
+					 &py_mntopts,
+					 &force,
+					 &load)) {
+		return NULL;
+	}
+
+	if (force)
+		flags |= MS_FORCE;
+
+	if (load)
+		flags |= MS_CRYPT;
+
+	return py_zfs_mount(res, py_mp, py_mntopts, flags);
+}
+
+PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
+"unmount(*, mountpoint, force=False, lazy=False, "
+"        unload_encryption_key=False, follow_symlinks=False) -> None\n"
+"-------------------------------------------------------------------\n\n"
+"Unmount the specified dataset with the specified flags.\n"
+""
+"Parameters\n"
+"----------\n"
+"mountpoint: str, optional\n"
+"    Optional parameter to manually specify the mountpoint at\n"
+"    which the dataset is mounted. This may be required for datasets with\n"
+"    legacy mountpoints and is benefical if the mountpoint is known apriori.\n\n"
+"force: bool, optional, default=False\n"
+"    Forcefully unmount the file system, even if it is currently in use.\n\n"
+"lazy: bool, optional, default=False\n"
+"    Perform a lazy unmount: make the mount unavailable for new accesses, \n"
+"    immediately disconnect the filesystem and all filesystems mounted below \n"
+"    it from each other and from the mount table, and actually perform the \n"
+"    unmount when the mount ceases to be busy.\n\n"
+"unload_encryption_key: bool, optional, default=False\n"
+"    Unload keys for any encryption roots unmounted by this operation.\n\n"
+"follow_symlinks: bool, optional, default=False\n"
+"    Don't dereference mountpoint if it is a symbolic link.\n\n"
+""
+"Returns\n"
+"-------\n"
+"None\n\n"
+""
+"Raises:\n"
+"-------\n"
+"ZFSError:\n"
+"- The ZFS unmount operation failed.\n\n"
+);
+static
+PyObject *py_zfs_resource_unmount(PyObject *self,
+				  PyObject *args_unused,
+				  PyObject *kwargs)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	char *kwnames [] = {
+		"mountpoint",
+		"force",
+		"lazy",
+		"unload_encryption_key",
+		"follow_symlinks",
+		NULL
+	};
+	const char *mp = NULL;
+	int err;
+	int flags = 0;
+	py_zfs_error_t zfs_err;
+	boolean_t force = B_FALSE;
+	boolean_t unload = B_FALSE;
+	boolean_t lazy = B_FALSE;
+	boolean_t follow = B_FALSE;
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$spppp",
+					 kwnames,
+					 &mp,
+					 &force,
+					 &lazy,
+					 &unload,
+					 &follow)) {
+		return NULL;
+	}
+
+	if (force)
+		flags |= MS_FORCE;
+
+	if (lazy)
+		flags |= MS_DETACH;
+
+	if (unload)
+		flags |= MS_CRYPT;
+
+	if (!follow)
+		flags |= UMOUNT_NOFOLLOW;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	err = zfs_unmount(res->obj.zhp, mp, flags);
+	if (err)
+		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
+
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_umount() failed");
+		return NULL;
+	}
+
+	Py_RETURN_NONE;
+}
+
 static
 PyMethodDef zfs_resource_methods[] = {
 	{
@@ -786,15 +1043,34 @@ PyMethodDef zfs_resource_methods[] = {
 		.ml_doc = py_zfs_resource_set_user_properties__doc__
 	},
 	{
+		.ml_name = "refresh_properties",
+		.ml_meth = (PyCFunction)py_zfs_resource_refresh_props,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_resource_refresh_props__doc__
+	},
+	{
 		.ml_name = "asdict",
 		.ml_meth = (PyCFunction)py_zfs_resource_asdict,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_resource_asdict__doc__
 	},
 	{
-		.ml_name = "userspace",
-		.ml_meth = py_zfs_resource_userspace,
-		.ml_flags = METH_VARARGS
+		.ml_name = "mount",
+		.ml_meth = (PyCFunction)py_zfs_resource_mount,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_mount__doc__
+	},
+	{
+		.ml_name = "unmount",
+		.ml_meth = (PyCFunction)py_zfs_resource_unmount,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_unmount__doc__
+	},
+	{
+		.ml_name = "get_mountpoint",
+		.ml_meth = (PyCFunction)py_zfs_resource_get_mount,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_resource_get_mount__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
