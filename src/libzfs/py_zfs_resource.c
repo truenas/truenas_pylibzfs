@@ -909,9 +909,9 @@ PyObject *py_zfs_resource_mount(PyObject *self,
 }
 
 PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
-"umount(*, mountpoint, force=False, lazy=False, "
-"       unload_encryption_key=False, follow_symlinks=False) -> None\n"
-"------------------------------------------------------------------\n\n"
+"unmount(*, mountpoint, force=False, lazy=False, "
+"        unload_encryption_key=False, follow_symlinks=False) -> None\n"
+"-------------------------------------------------------------------\n\n"
 "Unmount the specified dataset with the specified flags.\n"
 ""
 "Parameters\n"
@@ -939,7 +939,7 @@ PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "Raises:\n"
 "-------\n"
 "ZFSError:\n"
-"- The ZFS umount operation failed.\n\n"
+"- The ZFS unmount operation failed.\n\n"
 );
 static
 PyObject *py_zfs_resource_unmount(PyObject *self,
