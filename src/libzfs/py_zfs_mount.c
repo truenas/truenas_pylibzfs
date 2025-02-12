@@ -167,7 +167,7 @@ PyObject *py_zfs_mount(py_zfs_resource_t *res,
 
 	/*
 	 * There are various dataset settings that may preclude
-	 * manually mounting (especially, without force parameter
+	 * manually mounting (especially, without force parameter)
 	 */
 	if (!py_is_mountable_internal(res, flags & MS_FORCE))
 		return NULL;
