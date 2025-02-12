@@ -820,9 +820,9 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 }
 
 PyDoc_STRVAR(py_zfs_resource_mount__doc__,
-"mount(*, mountpoint, mount_options=None, force=False, "
+"mount(*, mountpoint, mount_options=None, force=False, \n"
 "      load_encryption_key=False) -> None\n"
-"-------------------------------------------------------------\n\n"
+"------------------------------------------------------\n\n"
 "Mount the specified ZFS dataset with the specified options\n"
 "Generally this method should be called without arguments,\n"
 "which relies on internal dataset configuration for setting\n"
@@ -841,7 +841,7 @@ PyDoc_STRVAR(py_zfs_resource_mount__doc__,
 "    These may be any of MNTOPT constants in the truenas_pylibzfs.constants\n"
 "    module.\n\n"
 "    NOTE: it's generally preferable to set these as ZFS properties rather\n"
-"    than overriding via mount options\n"
+"    than overriding via mount options\n\n"
 "force: bool, optional, default=False\n"
 "    Redacted datasets and ones with the CANMOUNT property set to off\n"
 "    will fail to mount without explicitly passing the force option\n\n"
@@ -911,7 +911,7 @@ PyObject *py_zfs_resource_mount(PyObject *self,
 PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "umount(*, mountpoint, force=False, lazy=False, "
 "       unload_encryption_key=False, follow_symlinks=False) -> None\n"
-"-------------------------------------------------------------------\n\n"
+"------------------------------------------------------------------\n\n"
 "Unmount the specified dataset with the specified flags.\n"
 ""
 "Parameters\n"
@@ -928,9 +928,9 @@ PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "    it from each other and from the mount table, and actually perform the \n"
 "    unmount when the mount ceases to be busy.\n\n"
 "unload_encryption_key: bool, optional, default=False\n"
-"    Unload keys for any encryption roots unmounted by this operation.\n"
+"    Unload keys for any encryption roots unmounted by this operation.\n\n"
 "follow_symlinks: bool, optional, default=False\n"
-"    Don't dereference mountpoint if it is a symbolic link.\n"
+"    Don't dereference mountpoint if it is a symbolic link.\n\n"
 ""
 "Returns\n"
 "-------\n"
