@@ -141,12 +141,6 @@ PyObject *py_zfs_mount(py_zfs_resource_t *res,
 	int err;
 	py_zfs_error_t zfs_err;
 
-	if (res->obj.ctype != ZFS_TYPE_FILESYSTEM) {
-		PyErr_SetString(PyExc_TypeError,
-				"ZFS type may not be mounted.");
-		return NULL;
-	}
-
 	/* ensure we have a valid mountpoint */
 	if (py_mp == NULL) {
 		/*
