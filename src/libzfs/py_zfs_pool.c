@@ -111,7 +111,9 @@ static
 PyObject *py_zfs_pool_root_vdev(PyObject *self, PyObject *args) {
 	PyObject *out = NULL;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
-	nvlist_t *nvroot;
+	nvlist_t *nvroot = NULL;
+	zpool_handle_t *tzhp = NULL;
+	py_zfs_error_t err;
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.root_vdev", "O",
 	    p->name) < 0) {
@@ -119,11 +121,29 @@ PyObject *py_zfs_pool_root_vdev(PyObject *self, PyObject *args) {
 	}
 
 	Py_BEGIN_ALLOW_THREADS
-	nvroot = fnvlist_lookup_nvlist(zpool_get_config(p->zhp, NULL),
+	PY_ZFS_LOCK(p->pylibzfsp);
+	tzhp = zpool_open(p->pylibzfsp->lzh, PyUnicode_AsUTF8(p->name));
+	if (tzhp == NULL) {
+		py_get_zfs_error(p->pylibzfsp->lzh, &err);
+	}
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (tzhp == NULL) {
+		set_exc_from_libzfs(&err, "zfs_open() failed");
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	nvroot = fnvlist_lookup_nvlist(zpool_get_config(tzhp, NULL),
 	    ZPOOL_CONFIG_VDEV_TREE);
 	Py_END_ALLOW_THREADS
 
 	out = (PyObject *)init_zfs_vdev(p, nvroot, NULL);
+
+	Py_BEGIN_ALLOW_THREADS
+	zpool_close(tzhp);
+	Py_END_ALLOW_THREADS
 	return (out);
 }
 
