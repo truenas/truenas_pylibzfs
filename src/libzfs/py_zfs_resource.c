@@ -55,14 +55,7 @@ static
 PyObject *py_zfs_resource_refresh_props(PyObject *self, PyObject *args_unused)
 {
 	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
-
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(res->obj.pylibzfsp);
-	zfs_refresh_properties(res->obj.zhp);
-	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
-	res->is_simple = B_FALSE;
-	Py_END_ALLOW_THREADS
-
+	py_zfs_props_refresh(res);
 	Py_RETURN_NONE;
 }
 
@@ -404,12 +397,7 @@ PyObject *py_zfs_resource_get_properties(PyObject *self,
 		 * This means we _must_ refresh properties before
 		 * generating python object
 		 */
-		Py_BEGIN_ALLOW_THREADS
-		PY_ZFS_LOCK(res->obj.pylibzfsp);
-		zfs_refresh_properties(res->obj.zhp);
-		PY_ZFS_UNLOCK(res->obj.pylibzfsp);
-		res->is_simple = B_FALSE;
-		Py_END_ALLOW_THREADS
+		py_zfs_props_refresh(res);
 	}
 
 	return py_zfs_get_properties(&res->obj, prop_set, get_source);
@@ -990,8 +978,12 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
 	err = zfs_unmount(res->obj.zhp, mp, flags);
-	if (err)
+	if (err) {
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
+	} else {
+		// the unmount may have altered encryption settings
+		zfs_refresh_properties(res->obj.zhp);
+	}
 
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS

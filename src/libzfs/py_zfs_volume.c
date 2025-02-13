@@ -31,6 +31,41 @@ PyObject *py_repr_zfs_volume(PyObject *self)
 	return py_repr_zfs_obj_impl(RSRC_TO_ZFS(ds), ZFS_VOLUME_STR);
 }
 
+PyDoc_STRVAR(py_zfs_volume_get_enc__doc__,
+"get_encryption() -> truenas_pylibzfs.ZFSEncrypt | None\n"
+"------------------------------------------------------\n"
+"Get python object to control encryption settings of volume.\n"
+"Returns None if dataset is not encrypted.\n\n"
+"Parameters\n"
+"----------\n"
+"    None\n\n"
+""
+"Returns\n"
+"-------\n"
+"    truenas_pylibzfs.ZFSEncrypt object if encrypted else None\n\n"
+""
+"Raises\n"
+"------\n"
+"    None"
+);
+static
+PyObject *py_zfs_volume_get_enc(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_dataset_t *)self));
+	uint64_t keyformat = ZFS_KEYFORMAT_NONE;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(obj->pylibzfsp);
+	keyformat = zfs_prop_get_int(obj->zhp, ZFS_PROP_KEYFORMAT);
+	PY_ZFS_UNLOCK(obj->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (keyformat == ZFS_KEYFORMAT_NONE)
+		Py_RETURN_NONE;
+
+	return init_zfs_enc(obj->ctype, self);
+}
+
 static
 PyGetSetDef zfs_volume_getsetters[] = {
 	{ .name = NULL }
@@ -38,6 +73,12 @@ PyGetSetDef zfs_volume_getsetters[] = {
 
 static
 PyMethodDef zfs_volume_methods[] = {
+	{
+		.ml_name = "get_encryption",
+		.ml_meth = py_zfs_volume_get_enc,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_volume_get_enc__doc__
+	},
 	{ NULL, NULL, 0, NULL }
 };
 

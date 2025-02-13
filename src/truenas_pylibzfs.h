@@ -4,6 +4,7 @@
 #include "truenas_pylibzfs_enums.h"
 #include "truenas_pylibzfs_state.h"
 #include "truenas_pylibzfs_core.h"
+#include "truenas_pylibzfs_enc.h"
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
@@ -108,6 +109,11 @@ typedef struct {
 	py_zfs_resource_t rsrc;
 } py_zfs_snapshot_t;
 
+union zfs_resources {
+	py_zfs_dataset_t *ds;
+	py_zfs_volume_t *vol;
+};
+
 /* Macro to get pointer to base ZFS object from various ZFS resource types */
 #define RSRC_TO_ZFS(x) (&x->rsrc.obj)
 
@@ -126,6 +132,12 @@ typedef struct {
 	PyObject *type;
 	PyObject *path;
 } py_zfs_vdev_t;
+
+typedef struct {
+	PyObject_HEAD
+	zfs_type_t ctype;
+	union zfs_resources rsrc_obj;
+} py_zfs_enc_t;
 
 extern PyTypeObject ZFS;
 extern PyTypeObject ZFSDataset;
@@ -382,6 +394,7 @@ extern PyObject *py_zfs_get_properties(py_zfs_obj_t *pyzfs,
 extern PyObject *py_zfs_props_to_dict(py_zfs_obj_t *pyzfs, PyObject *pyprops);
 extern boolean_t py_zfs_prop_valid_for_type(zfs_prop_t prop, zfs_type_t zfs_type);
 extern char *pymem_strdup(const char *s);
+extern void py_zfs_props_refresh(py_zfs_resource_t *res);
 
 /* py_zfs_userquota.c */
 extern void init_py_struct_userquota_state(pylibzfs_state_t *state);

@@ -582,3 +582,15 @@ PyObject *py_zfs_props_to_dict(py_zfs_obj_t *pyzfs, PyObject *pyprops)
 
 	return out;
 }
+
+
+/* Refresh the properties of the ZFS resource */
+void py_zfs_props_refresh(py_zfs_resource_t *res)
+{
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	zfs_refresh_properties(res->obj.zhp);
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	res->is_simple = B_FALSE;
+	Py_END_ALLOW_THREADS
+}
