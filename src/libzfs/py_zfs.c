@@ -510,6 +510,30 @@ PyObject *py_zfs_iter_root_datasets(PyObject *self,
 	Py_RETURN_FALSE;
 }
 
+static
+PyObject *py_zfs_test_topology(PyObject *self, PyObject *args,
+    PyObject *kwargs) {
+	PyObject *topology = NULL;
+
+	char *kwnames[] = {"topology", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$O", kwnames,
+	    &topology)) {
+		return (NULL);
+	}
+
+	if (topology == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "topology keyword argument is required.");
+		return (NULL);
+	}
+
+	nvlist_t *tree = make_vdev_tree(topology, NULL);
+	nvlist_print_json(stdout, tree);
+	putchar('\n');
+	fnvlist_free(tree);
+	Py_RETURN_NONE;
+}
+
 PyGetSetDef zfs_getsetters[] = {
 	{ .name = NULL }
 };
@@ -539,6 +563,11 @@ PyMethodDef zfs_methods[] = {
 	{
 		.ml_name = "open_pool",
 		.ml_meth = (PyCFunction)py_zfs_pool_open,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS
+	},
+	{
+		.ml_name = "test_topology",
+		.ml_meth = (PyCFunction)py_zfs_test_topology,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS
 	},
 	{ NULL, NULL, 0, NULL }

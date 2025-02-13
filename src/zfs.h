@@ -11,7 +11,9 @@
 #define __location__ __FILE__ ":" __LINESTR__
 
 #include <libzfs.h>
+#include <libzutil.h>
 #include <pthread.h>
+#include <limits.h>
 #include <Python.h>
 
 #endif /* _ZFS_H */
