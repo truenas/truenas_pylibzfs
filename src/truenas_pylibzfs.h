@@ -125,6 +125,7 @@ typedef struct {
 	PyObject *parent;
 	PyObject *type;
 	PyObject *path;
+	PyObject *class;
 } py_zfs_vdev_t;
 
 extern PyTypeObject ZFS;
@@ -257,7 +258,7 @@ extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
 
 /* Provided by py_zfs_vdev.c */
 extern py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
-    PyObject* parent);
+    PyObject* parent, boolean_t is_spare, boolean_t is_cache);
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
