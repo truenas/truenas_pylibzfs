@@ -242,6 +242,42 @@ PyObject *py_zfs_dataset_set_userquotas(PyObject *self,
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_dataset_crypto__doc__,
+"crypto() -> truenas_pylibzfs.ZFSCrypto | None\n"
+"---------------------------------------------\n"
+"Get python object to control encryption settings of dataset.\n"
+"Returns None if dataset is not encrypted.\n\n"
+"Parameters\n"
+"----------\n"
+"    None\n\n"
+""
+"Returns\n"
+"-------\n"
+"    truenas_pylibzfs.ZFSCrypto object if encrypted else None\n\n"
+""
+"Raises\n"
+"------\n"
+"    None"
+);
+static
+PyObject *py_zfs_dataset_crypto(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_dataset_t *)self));
+	uint64_t keyformat = ZFS_KEYFORMAT_NONE;
+
+        // PY_ZFS_LOCK needs held due to interaction with libzfs mnttab
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(obj->pylibzfsp);
+	keyformat = zfs_prop_get_int(obj->zhp, ZFS_PROP_KEYFORMAT);
+	PY_ZFS_UNLOCK(obj->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (keyformat == ZFS_KEYFORMAT_NONE)
+		Py_RETURN_NONE;
+
+	return init_zfs_crypto(obj->ctype, self);
+}
+
 static
 PyGetSetDef zfs_dataset_getsetters[] = {
 	{ .name = NULL }
@@ -260,6 +296,12 @@ PyMethodDef zfs_dataset_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_dataset_set_userquotas,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_dataset_set_userquotas__doc__
+	},
+	{
+		.ml_name = "crypto",
+		.ml_meth = py_zfs_dataset_crypto,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_dataset_crypto__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

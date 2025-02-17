@@ -158,6 +158,7 @@ int init_py_zfs_state(PyObject *module)
 
 	init_py_struct_prop_state(state);
 	init_py_struct_userquota_state(state);
+	module_init_zfs_crypto(module);
 
 	return 0;
 }
@@ -248,6 +249,7 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->struct_zfs_prop_type);
 	Py_CLEAR(state->struct_zfs_prop_src_type);
 	Py_CLEAR(state->struct_zfs_userquota_type);
+	Py_CLEAR(state->struct_zfs_crytpo_info_type);
 
 	Py_CLEAR(state->zfs_property_src_enum);
 	Py_CLEAR(state->zfs_property_enum);

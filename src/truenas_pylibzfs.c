@@ -4,6 +4,7 @@
 
 static PyTypeObject *alltypes[] = {
 	&ZFS,
+	&ZFSCrypto,
 	&ZFSDataset,
 	&ZFSObject,
 	&ZFSPool,

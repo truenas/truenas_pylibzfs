@@ -55,14 +55,7 @@ static
 PyObject *py_zfs_resource_refresh_props(PyObject *self, PyObject *args_unused)
 {
 	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
-
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(res->obj.pylibzfsp);
-	zfs_refresh_properties(res->obj.zhp);
-	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
-	res->is_simple = B_FALSE;
-	Py_END_ALLOW_THREADS
-
+	py_zfs_props_refresh(res);
 	Py_RETURN_NONE;
 }
 
@@ -332,9 +325,9 @@ PyObject *py_zfs_resource_iter_snapshots(PyObject *self,
 }
 
 PyDoc_STRVAR(py_zfs_resource_get_properties__doc__,
-"asdict(*, properties, get_source=False) ->"
+"get_properties(*, properties, get_source=False) -> "
 "truenas_pylibzfs.struct_zfs_property\n\n"
-"-------------------------------------\n\n"
+"-----------------------------------------------------\n\n"
 "Get the specified properties of a given ZFS resource.\n\n"
 ""
 "Parameters\n"
@@ -404,12 +397,7 @@ PyObject *py_zfs_resource_get_properties(PyObject *self,
 		 * This means we _must_ refresh properties before
 		 * generating python object
 		 */
-		Py_BEGIN_ALLOW_THREADS
-		PY_ZFS_LOCK(res->obj.pylibzfsp);
-		zfs_refresh_properties(res->obj.zhp);
-		PY_ZFS_UNLOCK(res->obj.pylibzfsp);
-		res->is_simple = B_FALSE;
-		Py_END_ALLOW_THREADS
+		py_zfs_props_refresh(res);
 	}
 
 	return py_zfs_get_properties(&res->obj, prop_set, get_source);
@@ -696,8 +684,9 @@ PyObject *py_zfs_resource_set_user_properties(PyObject *self,
 }
 
 PyDoc_STRVAR(py_zfs_resource_asdict__doc__,
-"asdict(*, properties, get_source=False) -> dict\n\n"
-"-----------------------------------------------\n\n"
+"asdict(*, properties, get_source=False, get_user_properties=False,\n"
+"       get_crypto=False) -> dict\n\n"
+"------------------------------------------------------------------\n\n"
 "Get the specified properties of a given ZFS resource.\n\n"
 ""
 "Parameters\n"
@@ -707,6 +696,11 @@ PyDoc_STRVAR(py_zfs_resource_asdict__doc__,
 "get_source: bool, optional, default=False\n"
 "    Non-default option to retrieve the source information for the returned\n"
 "    propeties.\n\n"
+"get_user_properties: bool, optional, default=False\n"
+"    Non-default option to retrieve the source information for the returned\n"
+"    propeties.\n\n"
+"get_crypto: bool, optional, default=False\n"
+"    Non-default option to include encryption-related information.\n\n"
 ""
 "Returns\n"
 "-------\n"
@@ -743,22 +737,26 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 	PyObject *prop_set = NULL;
 	PyObject *props_dict = NULL;
 	PyObject *userprops = NULL;
+	PyObject *crypto = NULL;
 	PyObject *out = NULL;
 	boolean_t get_source = B_FALSE;
 	boolean_t get_userprops = B_FALSE;
+	boolean_t get_crypto = B_FALSE;
 	char *kwnames [] = {
 		"properties",
 		"get_source",
 		"get_user_properties",
+		"get_crypto",
 		NULL
 	};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$Opp",
+					 "|$Oppp",
 					 kwnames,
 					 &prop_set,
 					 &get_source,
-					 &get_userprops)) {
+					 &get_userprops,
+					 &get_crypto)) {
 		return NULL;
 	}
 
@@ -803,8 +801,17 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 		}
 	}
 
+	if (get_crypto) {
+		crypto = py_zfs_crypto_info_dict(&res->obj);
+		if (crypto == NULL) {
+			Py_CLEAR(props_dict);
+			Py_CLEAR(userprops);
+			return NULL;
+		}
+	}
+
 	out = Py_BuildValue(
-		"{s:O,s:O,s:O,s:O,s:O,s:O,s:O,s:O}",
+		"{s:O,s:O,s:O,s:O,s:O,s:O,s:O,s:O,s:O}",
 		"name", res->obj.name,
 		"pool", res->obj.pool_name,
 		"type", res->obj.type,
@@ -812,10 +819,13 @@ PyObject *py_zfs_resource_asdict(PyObject *self,
 		"createtxg", res->obj.createtxg,
 		"guid", res->obj.guid,
 		"properties", props_dict ? props_dict : Py_None,
-		"user_properties", userprops ? userprops : Py_None
+		"user_properties", userprops ? userprops : Py_None,
+		"crypto", crypto ? crypto : Py_None
 	);
 
 	Py_XDECREF(props_dict);
+	Py_XDECREF(userprops);
+	Py_XDECREF(crypto);
 	return out;
 }
 
@@ -990,8 +1000,12 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
 	err = zfs_unmount(res->obj.zhp, mp, flags);
-	if (err)
+	if (err) {
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
+	} else {
+		// the unmount may have altered encryption settings
+		zfs_refresh_properties(res->obj.zhp);
+	}
 
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
