@@ -1315,7 +1315,6 @@ py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
 				out->class = PyUnicode_FromString("data");
 		}
 	}
-	Py_XINCREF(out->class);
 
 	return (out);
 }
