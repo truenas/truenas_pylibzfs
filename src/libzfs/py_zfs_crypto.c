@@ -1,7 +1,42 @@
 #include "../truenas_pylibzfs.h"
 
 #define ZFS_ENC_STR "<" PYLIBZFS_MODULE_NAME \
-    ".ZFSEncrypt(name=%U, pool=%U, type=%U)>"
+    ".ZFSCrypto(name=%U, pool=%U, type=%U)>"
+
+PyDoc_STRVAR(py_zfs_crypto_encroot__doc__,
+"The encryption_root indicates the name of the ZFS resource from which the\n"
+"this ZFS resource inherits its encryption key. Loading or unloading the\n"
+"key for athe encyption_root will implicitly load or unload the key from\n"
+"all inheriting datasets. See manpage for zfs-load-key(8).\n"
+);
+
+PyDoc_STRVAR(py_zfs_crypto_keylocation__doc__,
+"Default location from which the ZFS encrpytion key will be loaded if the\n"
+"ZFS resource is mounted with \"load_encyption_key=True\" or through the\n"
+"\"load_key\" method if a key or alternative keylocation is not provided.\n"
+"This field is only populated when the resource is an encyption_root.\n"
+);
+
+PyDoc_STRVAR(py_zfs_crypto_keystatus__doc__,
+"Indicates if an encryption key is currently loaded into ZFS for this\n"
+"ZFS resource. If the ZFS keystatus property for this resource is\n"
+"\"available\" the value will be True, otherwise it will be False.\n"
+);
+
+PyStructSequence_Field struct_zfs_crypto_info [] = {
+	{"is_root", "ZFS Resource is an encryption root."},
+	{"encryption_root", py_zfs_crypto_encroot__doc__},
+	{"key_location", py_zfs_crypto_keylocation__doc__},
+	{"key_is_loaded", py_zfs_crypto_keystatus__doc__},
+	{0},
+};
+
+PyStructSequence_Desc struct_zfs_crypto_info_desc = {
+        .name = PYLIBZFS_MODULE_NAME ".struct_zfs_crypto_info",
+        .fields = struct_zfs_crypto_info,
+        .doc = "Python ZFS cryptography information.",
+        .n_in_sequence = 4
+};
 
 static
 PyObject *py_zfs_enc_new(PyTypeObject *type, PyObject *args,
@@ -65,6 +100,186 @@ PyObject *py_repr_zfs_enc(PyObject *self)
 	PYZFS_ASSERT(obj, "invalid zfs_type_t type");
 
 	return py_repr_zfs_obj_impl(obj, ZFS_ENC_STR);
+}
+
+/*
+ * @brief common method to get basic crypto properties
+ *
+ * This function retrieves ZFS crypto properties from a ZFS object.
+ *
+ * @param[in]	obj - pointer to valid py_zfs_obj_t object.
+ * @param[in]	encroot - pointer to buffer to hold ZFS encryption root.
+ * @param[in]	encroot_sz - size of buffer for encryption root.
+ * @param[in]	keylocation - pointer to buffer to hold ZFS key location.
+ * @param[in]	keylocation_sz - size of buffer for key location.
+ * @param[out]	is_encroot_out - whether the handle is an encryption root.
+ * @param[out]  key_is_loaded_out - whether an encryption key
+ * 		has been loaded for the handle.
+ *
+ * @return	B_TRUE on success or B_FALSE on failure
+ *
+ * @note: GIL must be held when calling this function
+ *
+ * @note: This function assumes prior validation that `obj` is encrypted.
+ *
+ * @note: On failure an exception will be set.
+ */
+static
+boolean_t zfs_obj_crypto_info(py_zfs_obj_t *obj,
+			      char *encroot,
+			      size_t encroot_sz,
+			      char *keylocation,
+			      size_t keylocation_sz,
+			      boolean_t *is_encroot_out,
+			      boolean_t *key_is_loaded_out)
+{
+	boolean_t is_encroot;
+	uint64_t keystatus, encrypt;
+	py_zfs_error_t zfs_err;
+	int err = 0;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(obj->pylibzfsp);
+
+	/*
+	 * Deliberately avoid using zfs_crypto_get_encryption_root
+	 * because it uses an unsafe strcpy
+	 */
+	encrypt = zfs_prop_get_int(obj->zhp, ZFS_PROP_ENCRYPTION);
+	err = zfs_prop_get(obj->zhp,
+			   ZFS_PROP_ENCRYPTION_ROOT,
+			   encroot,
+			   encroot_sz,
+			   NULL, NULL, 0, B_TRUE);
+	if (err) {
+		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
+	} else {
+		is_encroot = strcmp(encroot, zfs_get_name(obj->zhp)) == 0;
+		keystatus = zfs_prop_get_int(obj->zhp, ZFS_PROP_KEYSTATUS);
+
+		if (is_encroot) {
+			err = zfs_prop_get(obj->zhp,
+					   ZFS_PROP_KEYLOCATION,
+					   keylocation,
+					   keylocation_sz,
+					   NULL, NULL, 0, B_TRUE);
+
+			if (err) {
+				py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
+			}
+		} else {
+			// follow libzfs behavior and only report keylocation
+			// of encryption roots.
+			*keylocation = '\0';
+		}
+	}
+
+	PY_ZFS_UNLOCK(obj->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	PYZFS_ASSERT((encrypt != ZIO_CRYPT_OFF), "Encryption unexpectedly disabled");
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "Failed to get crypto information.");
+		return B_FALSE;
+	}
+
+	*is_encroot_out = is_encroot;
+	*key_is_loaded_out = keystatus == ZFS_KEYSTATUS_AVAILABLE;
+
+	return B_TRUE;
+}
+
+static
+PyObject *py_zfs_crypto_info_struct(py_zfs_obj_t *obj)
+{
+	PyObject *out = NULL;
+	pylibzfs_state_t *state = py_get_module_state(obj->pylibzfsp);
+	char keylocation[ZFS_MAXPROPLEN];
+	char encroot[ZFS_MAXPROPLEN];
+	boolean_t is_encroot, is_loaded;
+	PyObject *pykeyloc, *pyencroot;
+
+	if (!zfs_obj_crypto_info(obj,
+				 encroot, sizeof(encroot),
+				 keylocation, sizeof(keylocation),
+				 &is_encroot, &is_loaded)) {
+
+		return NULL;
+	}
+
+	out = PyStructSequence_New(state->struct_zfs_crytpo_info_type);
+	if (out == NULL)
+		return NULL;
+
+	pyencroot = PyUnicode_FromString(encroot);
+	if (pyencroot == NULL) {
+		Py_DECREF(out);
+		return NULL;
+	}
+
+	PyStructSequence_SET_ITEM(out, 1, pyencroot);
+
+	if (is_encroot) {
+		PyStructSequence_SET_ITEM(out, 0, Py_NewRef(Py_True));
+		pykeyloc = PyUnicode_FromString(keylocation);
+		if (pykeyloc == NULL) {
+			Py_DECREF(out);
+			return NULL;
+		}
+		PyStructSequence_SET_ITEM(out, 2, pykeyloc);
+	} else {
+		PyStructSequence_SET_ITEM(out, 0, Py_NewRef(Py_False));
+		PyStructSequence_SET_ITEM(out, 2, Py_NewRef(Py_None));
+
+	}
+
+	PyStructSequence_SET_ITEM(out, 3, PyBool_FromLong(is_loaded));
+
+	return out;
+}
+
+/* Convert our info struct to a dictionary */
+PyObject *py_zfs_crypto_info_dict(py_zfs_obj_t *obj)
+{
+	PyObject *out = NULL;
+	PyObject *info_struct = NULL;
+	uint64_t encrypt;
+	int idx;
+
+	/* Do not require caller to pre-check encryption status */
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(obj->pylibzfsp);
+	encrypt = zfs_prop_get_int(obj->zhp, ZFS_PROP_ENCRYPTION);
+	PY_ZFS_UNLOCK(obj->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (encrypt == ZIO_CRYPT_OFF)
+		Py_RETURN_NONE;
+
+	info_struct = py_zfs_crypto_info_struct(obj);
+	if (info_struct == NULL)
+		return NULL;
+
+	out = PyDict_New();
+	if (out == NULL) {
+		Py_DECREF(info_struct);
+		return NULL;
+	}
+
+	for (idx = 0; idx < struct_zfs_crypto_info_desc.n_in_sequence; idx++) {
+		const char *key = struct_zfs_crypto_info[idx].name;
+		PyObject *val = PyStructSequence_GET_ITEM(info_struct, idx);
+
+		if (PyDict_SetItemString(out, key, val) == -1) {
+			Py_DECREF(out);
+			Py_DECREF(info_struct);
+			return NULL;
+		}
+	}
+
+	Py_DECREF(info_struct);
+	return out;
 }
 
 #define ZFS_MEM_KEYFILE "truenas_pylibzfs_keyfile"
@@ -354,6 +569,30 @@ PyObject *py_zfs_enc_unload_key(PyObject *self, PyObject *args_unused)
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_enc_info__doc__,
+"info() -> truenas_pylibzfs.struct_zfs_crypto_info\n"
+"-------------------------------------------------\n\n"
+"Get a truenas_pylibzfs.struct_zfs_crypto_info object containing basic\n"
+"encryption-related properties of the underlying ZFS object.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"    None\n\n"
+"Returns\n"
+"-------\n"
+"    New truenas_pylibzfs.struct_zfs_crypto_info object\n\n"
+"Raises:\n"
+"-------\n"
+"ZFSError:\n"
+"    Failure to read ZFS properties.\n"
+);
+PyObject *py_zfs_enc_info(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_obj_t *obj = py_enc_get_zfs_obj(((py_zfs_enc_t *)self));
+
+	return py_zfs_crypto_info_struct(obj);
+}
+
 static
 PyGetSetDef zfs_enc_getsetters[] = {
 	{ .name = NULL }
@@ -361,6 +600,12 @@ PyGetSetDef zfs_enc_getsetters[] = {
 
 static
 PyMethodDef zfs_enc_methods[] = {
+	{
+		.ml_name = "info",
+		.ml_meth = (PyCFunction)py_zfs_enc_info,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_enc_info__doc__
+	},
 	{
 		.ml_name = "load_key",
 		.ml_meth = (PyCFunction)py_zfs_enc_load_key,
@@ -376,26 +621,39 @@ PyMethodDef zfs_enc_methods[] = {
 	{ NULL, NULL, 0, NULL }
 };
 
-PyTypeObject ZFSEncrypt = {
-	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSEncrypt",
+PyDoc_STRVAR(py_zfs_crypto__doc__,
+"This provides methods to manipulate the crytpography settings of a\n"
+"ZFS resource such as viewing status, loading / unloading keys, and changing\n"
+"keys.\n\n"
+"NOTE: ZFS encrypts file and volume data, file attributes, ACLs, permission\n"
+"bits, directory listings, FUID mappings, and userused/groupused data.  ZFS\n"
+"does not encrypt metadata related to the pool structure, including dataset\n"
+"and snapshot names, dataset hierarchy, properties, file size, file holes,\n"
+"and deduplication tables (though the deduplicated data itself is encrypted).\n"
+"\n"
+"For more information see manpages for zfsprops(7), zfs-load-key(8), and\n"
+"zfs-unload-key(8).\n" 
+);
+PyTypeObject ZFSCrypto = {
+	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSCrypto",
 	.tp_basicsize = sizeof (py_zfs_enc_t),
 	.tp_methods = zfs_enc_methods,
 	.tp_getset = zfs_enc_getsetters,
 	.tp_new = py_zfs_enc_new,
 	.tp_init = py_zfs_enc_init,
-	.tp_doc = "ZFSEncrypt",
+	.tp_doc = py_zfs_crypto__doc__,
 	.tp_dealloc = (destructor)py_zfs_enc_dealloc,
 	.tp_repr = py_repr_zfs_enc,
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 };
 
 /* initialize an object to control ZFS encryption settings */
-PyObject *init_zfs_enc(zfs_type_t type, PyObject *rsrc)
+PyObject *init_zfs_crypto(zfs_type_t type, PyObject *rsrc)
 {
 	py_zfs_enc_t *out = NULL;
 	PYZFS_ASSERT(rsrc, "volume or dataset is missing");
 
-	out = (py_zfs_enc_t *)PyObject_CallFunction((PyObject *)&ZFSEncrypt, NULL);
+	out = (py_zfs_enc_t *)PyObject_CallFunction((PyObject *)&ZFSCrypto, NULL);
 	if (out == NULL) {
 		return NULL;
 	}
@@ -423,4 +681,18 @@ PyObject *init_zfs_enc(zfs_type_t type, PyObject *rsrc)
 	out->ctype = type;
 	Py_INCREF(rsrc);
 	return (PyObject *)out;
+}
+
+void module_init_zfs_crypto(PyObject *module)
+{
+	pylibzfs_state_t *state = NULL;
+	PyTypeObject *obj;
+
+	state = (pylibzfs_state_t *)PyModule_GetState(module);
+	PYZFS_ASSERT(state, "Failed to get module state.");
+
+	obj = PyStructSequence_NewType(&struct_zfs_crypto_info_desc);
+	PYZFS_ASSERT(obj, "Failed to allocate struct_zfs_prop_type");
+
+	state->struct_zfs_crytpo_info_type = obj;
 }

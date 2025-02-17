@@ -4,7 +4,7 @@
 #include "truenas_pylibzfs_enums.h"
 #include "truenas_pylibzfs_state.h"
 #include "truenas_pylibzfs_core.h"
-#include "truenas_pylibzfs_enc.h"
+#include "truenas_pylibzfs_crypto.h"
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
@@ -422,4 +422,7 @@ extern nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
 				       zfs_type_t type,
 				       boolean_t allow_ro);
 extern PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json);
+
+/* Provided by py_zfs_crypto.c */
+extern PyObject *py_zfs_crypto_info_dict(py_zfs_obj_t *obj);
 #endif  /* _TRUENAS_PYLIBZFS_H */
