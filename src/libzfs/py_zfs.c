@@ -513,25 +513,26 @@ PyObject *py_zfs_iter_root_datasets(PyObject *self,
 PyDoc_STRVAR(py_zfs_test_topology__doc__,
 "test_topology(*, topology) -> None\n\n"
 "--------------------------------------\n\n"
-"Creates a VDEV Tree from given topology and prints the nvlist to stdout.\n"
-"This can be helpful while debugging issues in VDEV tree creation."
+"Creates a VDEV Tree from given topology and returns the Python string\n"
+"containing VDEV tree. This can be helpful while debugging issues in VDEV\n"
+"tree creation.\n\n"
 "Parameters\n"
 "----------\n"
-"topology: List of Dictionaries\n"
-"    Topology is a list of Dictionaries where each item of the list would\n"
+"topology: Iterable of Dictionaries\n"
+"    Topology is an iterable of Dictionaries where each item of the list would\n"
 "    specify the formation of each VDEV.\n"
 "        \'root\': Str\n"
 "            this key should specify the class of VDEV. This can be any of\n"
-"            \'DATA\', \'LOG\', \'DEDUP\', \'SPECIAL\', \'SPARE\',or \'CACHE\'.\n"
+"            \'DATA\', \'LOG\', \'DEDUP\', \'SPECIAL\', \'SPARE\', or \'CACHE\'.\n"
 "        \'type\': Str\n"
 "            specify the type of VDEV, which can be any one of \'MIRROR\',\n"
 "            \'STRIPE\', \'RAIDZ1\', \'RAIDZ2\', \'RAIDZ3\', \'DRAID1\'\n"
-"            \'DRAID2\' or \'DRIAD3\'.\n"
+"            \'DRAID2\' or \'DRAID3\'.\n"
 "        \'devices\': List of Str\n"
 "            List of valid paths in string format for disks.\n\n"
 "Returns\n"
 "-------\n"
-"None\n\n"
+"Python String containing VDEV tree.\n\n"
 "Raises:\n"
 "-------\n"
 "TypeError:\n"
@@ -541,6 +542,7 @@ static
 PyObject *py_zfs_test_topology(PyObject *self, PyObject *args,
     PyObject *kwargs) {
 	PyObject *topology = NULL;
+	PyObject *ret;
 
 	char *kwnames[] = {"topology", NULL};
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$O", kwnames,
@@ -557,10 +559,9 @@ PyObject *py_zfs_test_topology(PyObject *self, PyObject *args,
 	nvlist_t *tree = make_vdev_tree(topology, NULL);
 	if (tree == NULL)
 		return (NULL);
-	nvlist_print_json(stdout, tree);
-	putchar('\n');
+	ret = py_dump_nvlist(tree, B_TRUE);
 	fnvlist_free(tree);
-	Py_RETURN_NONE;
+	return (ret);
 }
 
 PyDoc_STRVAR(py_zfs_pool_create__doc__,
@@ -571,16 +572,16 @@ PyDoc_STRVAR(py_zfs_pool_create__doc__,
 "----------\n"
 "name: str\n"
 "    name of the new pool to create.\n\n"
-"topology: List of Dictionaries\n"
-"    Topology is a list of Dictionaries where each item of the list would\n"
+"topology: Iterable of Dictionaries\n"
+"    Topology is an iterable of Dictionaries where each item of the list would\n"
 "    specify the formation of each VDEV.\n"
 "        \'root\': Str\n"
 "            this key should specify the class of VDEV. This can be any of\n"
-"            \'DATA\', \'LOG\', \'DEDUP\', \'SPECIAL\', \'SPARE\',or \'CACHE\'.\n"
+"            \'DATA\', \'LOG\', \'DEDUP\', \'SPECIAL\', \'SPARE\', or \'CACHE\'.\n"
 "        \'type\': Str\n"
 "            specify the type of VDEV, which can be any one of \'MIRROR\',\n"
 "            \'STRIPE\', \'RAIDZ1\', \'RAIDZ2\', \'RAIDZ3\', \'DRAID1\'\n"
-"            \'DRAID2\' or \'DRIAD3\'.\n"
+"            \'DRAID2\' or \'DRAID3\'.\n"
 "        \'devices\': List of Str\n"
 "            List of valid paths in string format for disks.\n\n"
 "Returns\n"
@@ -665,7 +666,7 @@ PyDoc_STRVAR(py_zfs_pool_destroy__doc__,
 "Parameters\n"
 "----------\n"
 "force: bool, optional\n"
-"    Forecully unmount all active datasets.\n\n"
+"    Forcefully unmount all active datasets.\n\n"
 "Returns\n"
 "-------\n"
 "None\n\n"

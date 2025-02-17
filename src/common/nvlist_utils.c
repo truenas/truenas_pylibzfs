@@ -459,7 +459,7 @@ int add_leaf_vdev(nvlist_t *item, PyObject *path)
 	}
 	if (realpath(cpath, rpath) == NULL) {
 		PyErr_Format(PyExc_RuntimeError,
-			"Cannot resolve path %s", cpath);
+			"%s: realpath() failed: %s", cpath, strerror(errno));
 		return (-1);
 	}
 	if (stat64(rpath, &statbuf) != 0) {
@@ -468,23 +468,76 @@ int add_leaf_vdev(nvlist_t *item, PyObject *path)
 		return (-1);
 	}
 	if (S_ISBLK(statbuf.st_mode)) {
-		fnvlist_add_string(item, "type", "disk");
+		fnvlist_add_string(item, ZPOOL_CONFIG_TYPE, VDEV_TYPE_DISK);
 	} else if (S_ISREG(statbuf.st_mode)) {
-		fnvlist_add_string(item, "type", "file");
+		fnvlist_add_string(item, ZPOOL_CONFIG_TYPE, VDEV_TYPE_FILE);
 	} else {
 		PyErr_Format(PyExc_RuntimeError,
 		    "%s is not a block device or regular file", cpath);
 		return (-1);
 	}
-	fnvlist_add_string(item, "path", cpath);
+	fnvlist_add_string(item, ZPOOL_CONFIG_PATH, cpath);
 	uint64_t wd = zfs_dev_is_whole_disk(rpath);
-	fnvlist_add_uint64(item, "whole_disk", wd);
+	fnvlist_add_uint64(item, ZPOOL_CONFIG_WHOLE_DISK, wd);
 	return (0);
 }
 
 static
-int add_draid_data(nvlist_t *nvl, PyObject *item, uint64_t size, const char *ctype)
+uint64_t get_parity(const char *type)
 {
+	uint64_t parity = 0;
+	const char *p;
+
+	if (strncmp(type, VDEV_TYPE_RAIDZ, strlen(VDEV_TYPE_RAIDZ)) == 0) {
+		p = type + strlen(VDEV_TYPE_RAIDZ);
+
+		if (*p == '\0') {
+			/* when unspecified default to single parity */
+			return (1);
+		} else if (*p == '0') {
+			/* no zero prefixes allowed */
+			return (0);
+		} else {
+			/* 0-3, no suffixes allowed */
+			char *end;
+			errno = 0;
+			parity = strtol(p, &end, 10);
+			if (errno != 0 || *end != '\0' ||
+			    parity < 1 || parity > VDEV_RAIDZ_MAXPARITY) {
+				return (0);
+			}
+		}
+	} else if (strncmp(type, VDEV_TYPE_DRAID,
+	    strlen(VDEV_TYPE_DRAID)) == 0) {
+		p = type + strlen(VDEV_TYPE_DRAID);
+
+		if (*p == '\0' || *p == ':') {
+			/* when unspecified default to single parity */
+			return (1);
+		} else if (*p == '0') {
+			/* no zero prefixes allowed */
+			return (0);
+		} else {
+			/* 0-3, allowed suffixes: '\0' or ':' */
+			char *end;
+			errno = 0;
+			parity = strtol(p, &end, 10);
+			if (errno != 0 ||
+			    parity < 1 || parity > VDEV_DRAID_MAXPARITY ||
+			    (*end != '\0' && *end != ':')) {
+				return (0);
+			}
+		}
+	}
+
+	return ((int)parity);
+}
+
+static
+int add_draid_data(nvlist_t *nvl, PyObject *item, uint64_t size,
+    const char *ctype)
+{
+	uint64_t p, d, s, g = 1;
 	PyObject *nsd, *nssp;
 	PyObject *nd, *nsp;
 	nsd = PyUnicode_FromString("draid_data_disks");
@@ -503,84 +556,158 @@ int add_draid_data(nvlist_t *nvl, PyObject *item, uint64_t size, const char *cty
 	nd = PyDict_GetItem(item, nsd);
 	if (!PyLong_Check(nd)) {
 		PyErr_SetString(PyExc_TypeError,
-		    "Expected a list for key \'draid_data_disks\'");
-		Py_DECREF(nsd);
-		Py_DECREF(nssp);
-		return (-1);
+		    "Expected an Int for key \'draid_data_disks\'");
+		goto fail;
 	}
 	nsp = PyDict_GetItem(item, nssp);
 	if (!PyLong_Check(nsp)) {
 		PyErr_SetString(PyExc_TypeError,
-		    "Expected a list for key \'draid_spare_disks\'");
-		Py_DECREF(nsd);
-		Py_DECREF(nssp);
-		return (-1);
+		    "Expected an Int for key \'draid_spare_disks\'");
+		goto fail;
 	}
-	uint64_t p = ctype[strlen(ctype) - 1] - '0';
-	uint64_t d = PyLong_AsUnsignedLong(nd);
-	if (PyErr_Occurred()) {
+	p = get_parity(ctype);
+	if (p == 0 || p > VDEV_DRAID_MAXPARITY) {
+		PyErr_Format(PyExc_TypeError,
+		    "invalid dRAID parity level %lu; must be between 1 and %d\n",
+		    p, VDEV_DRAID_MAXPARITY);
+		goto fail;
+	}
+	d = PyLong_AsUnsignedLong(nd);
+	if ((d == (unsigned long)-1) && PyErr_Occurred()) {
 		PyErr_SetString(PyExc_TypeError,
-			"Failed to convert to unsigned long");
-		Py_DECREF(nsd);
-		Py_DECREF(nssp);
-		return (-1);
+		    "Failed to convert to unsigned long");
+		goto fail;
+
 	}
-	uint64_t s = PyLong_AsUnsignedLong(nsp);
-	if (PyErr_Occurred()) {
+	s = PyLong_AsUnsignedLong(nsp);
+	if ((s == (unsigned long)-1) && PyErr_Occurred()) {
 		PyErr_SetString(PyExc_TypeError,
-			"Failed to convert to unsigned long");
-		Py_DECREF(nsd);
-		Py_DECREF(nssp);
-		return (-1);
+		    "Failed to convert to unsigned long");
+		goto fail;
 	}
-	uint64_t g = 1;
+
+	/*
+	 * When a specific number of data disks is not provided limit a
+	 * redundancy group to 8 data disks.  This value was selected to
+	 * provide a reasonable tradeoff between capacity and performance.
+	 */
+	if (d == UINT64_MAX) {
+		if (size > s + p) {
+			d = MIN(size - s - p, 8);
+		} else {
+			PyErr_Format(PyExc_TypeError, "request number of "
+			    "distributed spares %lu and parity level %lu"
+			    "leaves no disks available for data\n", s, p);
+			goto fail;
+		}
+	}
+
+	/* Verify the maximum allowed group size is never exceeded. */
+	if (d == 0 || (d + p > size - s)) {
+		PyErr_Format(PyExc_TypeError, "requested number of dRAID data "
+		    "disks per group %lu is too high, at most %lu disks "
+		    "are available for data", d, (size - s - p));
+		goto fail;
+	}
+
+	/*
+	 * Verify the requested number of spares can be satisfied.
+	 * An arbitrary limit of 100 distributed spares is applied.
+	 */
+	if (s > 100 || s > (size - (d + p))) {
+		PyErr_Format(PyExc_TypeError, "invalid number of dRAID spares "
+		    "%lu; additional disks would be required", s);
+		goto fail;
+	}
+
+	/* Verify the requested number children is sufficient. */
+	if (size < (d + p + s)) {
+		PyErr_Format(PyExc_TypeError, "%lu disks were provided, but "
+		    "at least %lu disks are required for this config", size,
+		    d + p + s);
+		goto fail;
+	}
+
+	if (size > VDEV_DRAID_MAX_CHILDREN) {
+		PyErr_Format(PyExc_TypeError, "%lu disks were provided, but "
+		    "dRAID only supports up to %u disks", size,
+		    VDEV_DRAID_MAX_CHILDREN);
+		goto fail;
+	}
+
+	if ((d + p) % (size - s) != 0) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Total number of disks does not go cleanly into number of "
+		    "specified groups");
+		goto fail;
+	}
+	/*
+	 * Calculate the minimum number of groups required to fill a slice.
+	 * This is the LCM of the stripe width (ndata + nparity) and the
+	 * number of data drives (children - nspares).
+	 */
 	while (g * (d + p) % (size - s) != 0)
 		g++;
-	fnvlist_add_string(nvl, "type", "draid");
-	fnvlist_add_uint64(nvl, "nparity", p);
-	fnvlist_add_uint64(nvl, "draid_ndata", d);
-	fnvlist_add_uint64(nvl, "draid_nspares", s);
-	fnvlist_add_uint64(nvl, "ngroups", g);
+
+	fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE, VDEV_TYPE_DRAID);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_NPARITY, p);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_DRAID_NDATA, d);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_DRAID_NSPARES, s);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_DRAID_NGROUPS, g);
 	Py_DECREF(nsd);
 	Py_DECREF(nssp);
 	return (0);
+
+fail:
+	Py_DECREF(nsd);
+	Py_DECREF(nssp);
+	return (-1);
 }
 
 static
 void free_nvlist_array(nvlist_t **nvlarr, uint64_t len)
 {
-	for (uint64_t i = 0; i < len; ++i)
-		fnvlist_free(nvlarr[i]);
-	free(nvlarr);
+	if (nvlarr != NULL) {
+		for (uint64_t i = 0; i < len; ++i) {
+			if (nvlarr[i] != NULL)
+				fnvlist_free(nvlarr[i]);
+		}
+		PyMem_Free(nvlarr);
+	}
 }
 
+#define VDT_DATA "data"
+#define VDT_CACHE "cache"
+#define VDT_STRIPE "stripe"
+
+/*
+ * Creates a valid nvlist VDEV tree from given topology. Topology can be an
+ * iterable containing dictionaries specifying the formation of each VDEV.
+ * Memory allocated for VDEV tree in nvlist that is returned must be freed by
+ * the caller.
+ */
 nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 {
 	uint64_t tlc = 0, nsp = 0, nl2c = 0;
-	char croot[128], ctype[128];
+	char croot[ZAP_MAXNAMELEN], ctype[ZAP_MAXNAMELEN];
 	const char *ctroot, *cttype;
-	nvlist_t *nvl;
+	nvlist_t *nvl = NULL;
 	nvlist_t **child = NULL, **ichild = NULL;
-	uint64_t size, isize;
+	uint64_t isize;
 	PyObject *item, *pskroot, *psktype, *pskdev, *devs;
 	PyObject *psroot, *pstype, *pspath;
 
-	if (topology == NULL || !PyList_Check(topology)) {
-		PyErr_SetString(PyExc_TypeError,
-		    "Expected a list for \'topology\'");
+	PyObject *iterator = PyObject_GetIter(topology);
+	if (iterator == NULL)
 		return (NULL);
-	}
 
-	nvl = fnvlist_alloc();
-	fnvlist_add_string(nvl, "type", "root");
-
-	pskroot = PyUnicode_FromString("root");
+	pskroot = PyUnicode_FromString(VDEV_TYPE_ROOT);
 	if (!pskroot) {
 		PyErr_SetString(PyExc_RuntimeError,
 		    "Failed to create Python String");
 		return (NULL);
 	}
-	psktype = PyUnicode_FromString("type");
+	psktype = PyUnicode_FromString(ZPOOL_CONFIG_TYPE);
 	if (!psktype) {
 		Py_DECREF(pskroot);
 		PyErr_SetString(PyExc_RuntimeError,
@@ -595,10 +722,8 @@ nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 		    "Failed to create Python String");
 		return (NULL);
 	}
-	size = (uint64_t)PyList_Size(topology);
 
-	for (uint64_t i = 0; i < size; ++i) {
-		item = PyList_GetItem(topology, i);
+	while((item = PyIter_Next(iterator))) {
 		if (!PyDict_Check(item)) {
 			PyErr_SetString(PyExc_TypeError,
 			    "Expected Dictionaries in \'topology\'");
@@ -639,23 +764,23 @@ nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 		strlcpy(ctype, cttype, sizeof(ctype));
 		to_lower(croot);
 		to_lower(ctype);
-		if (strcmp(croot, "data") == 0 ||
-		    strcmp(croot, "dedup") == 0 ||
-		    strcmp(croot, "log") == 0 ||
-		    strcmp(croot, "special") == 0) {
-			if (strcmp(ctype, "stripe") == 0)
+		if (strcmp(croot, VDT_DATA) == 0 ||
+		    strcmp(croot, VDEV_ALLOC_BIAS_DEDUP) == 0 ||
+		    strcmp(croot, VDEV_ALLOC_BIAS_LOG) == 0 ||
+		    strcmp(croot, VDEV_ALLOC_BIAS_SPECIAL) == 0) {
+			if (strcmp(ctype, VDT_STRIPE) == 0)
 				tlc += (uint64_t)PyList_Size(devs);
 			else
 				tlc += 1;
-		} else if (strcmp(croot, "spare") == 0) {
-			if (strcmp(ctype, "stripe") != 0) {
+		} else if (strcmp(croot, VDEV_TYPE_SPARE) == 0) {
+			if (strcmp(ctype, VDT_STRIPE) != 0) {
 				PyErr_SetString(PyExc_TypeError,
 				    "Spare devices can only be of type stripe");
 				goto fail;	
 			}
 			nsp = PyList_Size(devs);
-		} else if (strcmp(croot, "cache") == 0) {
-			if (strcmp(ctype, "stripe") != 0) {
+		} else if (strcmp(croot, VDT_CACHE) == 0) {
+			if (strcmp(ctype, VDT_STRIPE) != 0) {
 				PyErr_SetString(PyExc_TypeError,
 				    "Cache devices can only be of type stripe");
 				goto fail;	
@@ -666,14 +791,23 @@ nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 			    "Unknown VDEV type for key \'root\'");
 			goto fail;
 		}
+		Py_DECREF(item);
+	}
+	Py_DECREF(iterator);
+
+	nvl = fnvlist_alloc();
+	fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE, VDEV_TYPE_ROOT);
+	if (tlc > 0) {
+		child = PyMem_Calloc(tlc, sizeof(nvlist_t *));
+		if (child == NULL)
+			goto fail;
 	}
 
-	if (tlc > 0)
-		child = malloc(tlc * sizeof(nvlist_t *));
-
 	uint64_t outer = 0, is_log = 0;
-	for (uint64_t i = 0; i < size; ++i) {
-		item = PyList_GetItem(topology, i);
+	iterator = PyObject_GetIter(topology);
+	if (iterator == NULL)
+		goto fail;
+	while((item = PyIter_Next(iterator))) {
 		psroot = PyDict_GetItem(item, pskroot);
 		pstype = PyDict_GetItem(item, psktype);
 		ctroot = PyUnicode_AsUTF8(psroot);
@@ -694,41 +828,48 @@ nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 		to_lower(ctype);
 		devs = PyDict_GetItem(item, pskdev);
 		isize = PyList_Size(devs);
-		if (strcmp(croot, "log") == 0)
+		if (strcmp(croot, VDEV_TYPE_LOG) == 0)
 			is_log = 1;
 		else
 			is_log = 0;
 		
-		if (strcmp(ctype, "stripe") == 0) {
-			if (strcmp(croot, "cache") == 0) {
+		if (strcmp(ctype, VDT_STRIPE) == 0) {
+			if (strcmp(croot, VDT_CACHE) == 0) {
 				nvlist_t **cdevs;
-				cdevs = malloc(nl2c * sizeof(nvlist_t *));
+				cdevs = PyMem_Calloc(nl2c, sizeof(nvlist_t *));
+				if (cdevs == NULL)
+					goto fail;
 				for (uint64_t j = 0; j < nl2c; ++j) {
 					cdevs[j] = fnvlist_alloc();
 					pspath = PyList_GetItem(devs, j);
 					if (add_leaf_vdev(cdevs[j],
 					    pspath) != 0) {
+						free_nvlist_array(cdevs, nl2c);
 						goto fail;
 					}
 					// TODO: set ashift prop as passed or
 					// from ZPOOL props
 				}
-				fnvlist_add_nvlist_array(nvl, "l2cache",
+				fnvlist_add_nvlist_array(nvl, ZPOOL_CONFIG_L2CACHE,
 				    (const nvlist_t **)cdevs, nl2c);
 				free_nvlist_array(cdevs, nl2c);
-			} else if (strcmp(croot, "spare") == 0) {
+			} else if (strcmp(croot, VDEV_TYPE_SPARE) == 0) {
 				nvlist_t **sdevs;
-				sdevs = malloc(nsp * sizeof(nvlist_t *));
+				sdevs = PyMem_Calloc(nsp, sizeof(nvlist_t *));
+				if (sdevs == NULL)
+					goto fail;
 				for (uint64_t j = 0; j < nsp; ++j) {
 					sdevs[j] = fnvlist_alloc();
 					pspath = PyList_GetItem(devs, j);
 					if (add_leaf_vdev(sdevs[j],
 					    pspath) != 0) {
+						free_nvlist_array(sdevs, nsp);
 						goto fail;
 					}
-					fnvlist_add_uint64(sdevs[j], "is_spare", 1);
+					fnvlist_add_uint64(sdevs[j],
+					    ZPOOL_CONFIG_IS_SPARE, 1);
 				}
-				fnvlist_add_nvlist_array(nvl, "spares",
+				fnvlist_add_nvlist_array(nvl, ZPOOL_CONFIG_SPARES,
 				    (const nvlist_t **)sdevs, nsp);
 				free_nvlist_array(sdevs, nsp);
 			} else if (tlc > 0) {
@@ -740,10 +881,11 @@ nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 						goto fail;
 					}
 					fnvlist_add_uint64(child[outer],
-					    "is_log", is_log);
-					if (strcmp(croot, "data") != 0) {
+					    ZPOOL_CONFIG_IS_LOG, is_log);
+					if (strcmp(croot, VDT_DATA) != 0) {
 						fnvlist_add_string(child[outer],
-						    "alloc_bias", croot);
+						    ZPOOL_CONFIG_ALLOCATION_BIAS,
+						    croot);
 					}
 					outer++;
 					// TODO: set ashift prop as passed or
@@ -751,51 +893,68 @@ nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 				}
 			}
 		} else {
-			if (tlc > 0 && strcmp(croot, "cache") != 0 &&
-			    strcmp(croot, "spare") != 0) {
+			if (tlc > 0 && strcmp(croot, VDT_CACHE) != 0 &&
+			    strcmp(croot, VDEV_TYPE_SPARE) != 0) {
 				child[outer] = fnvlist_alloc();
-				if (strncmp(ctype, "draid", strlen("draid")) == 0) {
-					add_draid_data(child[outer], item,
-					    isize, ctype);
-				} else if (strncmp(ctype, "raidz", strlen("raidz")) == 0) {
-					fnvlist_add_string(child[outer], "type",
-					    "raidz");
-					uint64_t p = ctype[strlen(ctype) - 1] - '0';
-					fnvlist_add_uint64(child[outer], "nparity", p);
-				} else {
-					fnvlist_add_string(child[outer], "type",
-					    ctype);	
-				}
-				fnvlist_add_uint64(child[outer], "is_log",
-					is_log);
-				if (strcmp(croot, "data") != 0) {
+				if (strncmp(ctype, VDEV_TYPE_DRAID,
+				    strlen(VDEV_TYPE_DRAID)) == 0) {
+					if (add_draid_data(child[outer], item,
+					    isize, ctype) != 0) {
+						goto fail;
+					}
+				} else if (strncmp(ctype, VDEV_TYPE_RAIDZ,
+				    strlen(VDEV_TYPE_RAIDZ)) == 0) {
 					fnvlist_add_string(child[outer],
-					    "alloc_bias", croot);
+					    ZPOOL_CONFIG_TYPE, VDEV_TYPE_RAIDZ);
+					uint64_t p = get_parity(ctype);
+					if (p == 0 || p > VDEV_RAIDZ_MAXPARITY) {
+						PyErr_Format(PyExc_TypeError,
+						    "invalid RAIDZ parity level "
+						    "%lu; must be between 1 and %d",
+						    p, VDEV_RAIDZ_MAXPARITY);
+						goto fail;
+					}
+					fnvlist_add_uint64(child[outer],
+					    ZPOOL_CONFIG_NPARITY, p);
+				} else {
+					fnvlist_add_string(child[outer],
+					    ZPOOL_CONFIG_TYPE, ctype);	
+				}
+				fnvlist_add_uint64(child[outer],
+				    ZPOOL_CONFIG_IS_LOG, is_log);
+				if (strcmp(croot, VDT_DATA) != 0) {
+					fnvlist_add_string(child[outer],
+					    ZPOOL_CONFIG_ALLOCATION_BIAS, croot);
 				}
 				// TODO: set ashift prop as passed or from
 				// ZPOOL props
-				ichild = malloc(isize * sizeof(nvlist_t *));
+				ichild = PyMem_Calloc(isize, sizeof(nvlist_t *));
+				if (ichild == NULL)
+					goto fail;
 				for(uint64_t j = 0; j < isize; j++) {
 					ichild[j] = fnvlist_alloc();
 					pspath = PyList_GetItem(devs, j);
 					if (add_leaf_vdev(ichild[j],
 					    pspath) != 0) {
+						free_nvlist_array(ichild, isize);
 						goto fail;
 					}
 					// TODO: set ashift prop as passed or
 					// from ZPOOL props
 				}
 				fnvlist_add_nvlist_array(child[outer],
-				    "children",
+				    ZPOOL_CONFIG_CHILDREN,
 				    (const nvlist_t **)ichild, isize);
 				free_nvlist_array(ichild, isize);
 				outer++;
 			}
 		}
+		Py_DECREF(item);
 	}
+	Py_DECREF(iterator);
 
 	if (tlc > 0) {
-		fnvlist_add_nvlist_array(nvl, "children",
+		fnvlist_add_nvlist_array(nvl, ZPOOL_CONFIG_CHILDREN,
 		    (const nvlist_t **)child, tlc);
 		free_nvlist_array(child, tlc);
 	}
@@ -805,6 +964,8 @@ nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props)
 	return (nvl);
 
 fail:
+	if (child && tlc > 0)
+		free_nvlist_array(child, tlc);
 	fnvlist_free(nvl);
 	Py_DECREF(pskroot);
 	Py_DECREF(psktype);
