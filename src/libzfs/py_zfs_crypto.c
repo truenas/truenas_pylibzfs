@@ -593,6 +593,80 @@ PyObject *py_zfs_enc_info(PyObject *self, PyObject *args_unused)
 	return py_zfs_crypto_info_struct(obj);
 }
 
+PyDoc_STRVAR(py_zfs_enc_inherit_key__doc__,
+"inherit_key() -> None\n"
+"---------------------\n\n"
+"Inherit the encryption key of an encrypted parent dataset.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"    None\n\n"
+"Returns\n"
+"-------\n"
+"    None\n\n"
+"Raises:\n"
+"-------\n"
+"ValueError:\n"
+"    The underlying ZFS dataset or volume is not an encryption root.\n\n"
+"ValueError:\n"
+"    The underlying ZFS dataset is currently locked.\n\n"
+"ZFSError:\n"
+"    Operation to inherit the encryption key failed. This may\n"
+"    happen for a variety of reasons and is explained further in the\n"
+"    error information contained in the exception.\n"
+);
+PyObject *py_zfs_enc_inherit_key(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_obj_t *obj = py_enc_get_zfs_obj(((py_zfs_enc_t *)self));
+	char keylocation[ZFS_MAXPROPLEN];
+	char encroot[ZFS_MAXPROPLEN];
+	boolean_t is_encroot, is_loaded;
+	py_zfs_error_t zfs_err;
+	int err;
+
+	if (!zfs_obj_crypto_info(obj,
+				 encroot, sizeof(encroot),
+				 keylocation, sizeof(keylocation),
+				 &is_encroot, &is_loaded)) {
+		return NULL;
+	}
+
+	if (!is_encroot) {
+		PyErr_SetString(PyExc_ValueError,
+				"This operation is only valid for ZFS "
+				"resources that are an encryption root.");
+		return NULL;
+	} else if (!is_loaded) {
+		PyErr_SetString(PyExc_ValueError,
+				"Encryption key must be loaded for "
+				"ZFS resource before changing its encryption "
+				"settings.");
+		return NULL;
+	}
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(obj->pylibzfsp);
+	err = zfs_crypto_rewrap(obj->zhp, NULL, B_TRUE);
+	if (err) {
+		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(obj->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_inherit_key() failed");
+		return NULL;
+	}
+
+	err = py_log_history_fmt(obj->pylibzfsp,
+				 "zfs change-key -i %s",
+				 zfs_get_name(obj->zhp));
+	if (err)
+		return NULL;
+
+
+	Py_RETURN_NONE;
+}
+
 static
 PyGetSetDef zfs_enc_getsetters[] = {
 	{ .name = NULL }
@@ -617,6 +691,12 @@ PyMethodDef zfs_enc_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_enc_unload_key,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_enc_unload_key__doc__
+	},
+	{
+		.ml_name = "inherit_key",
+		.ml_meth = (PyCFunction)py_zfs_enc_inherit_key,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_enc_inherit_key__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
