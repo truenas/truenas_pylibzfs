@@ -51,6 +51,52 @@ PyObject *py_repr_zfs_object(PyObject *self)
 	return py_repr_zfs_obj_impl(obj, ZFS_OBJECT_STR);
 }
 
+PyDoc_STRVAR(py_zfs_obj_rename__doc__,
+"rename(*, new_name, recursive=False, no_unmount=False, force_unmount=False) -> None\n"
+"-----------------------------------------------------------------------------------\n"
+"Rename the ZFS object.\n\n"
+"Parameters\n"
+"----------\n"
+"new_name: str\n"
+"    New name for ZFS object. The new name may not change the pool name component\n"
+"    of the original name and contain alphanumeric characters and the following\n"
+"    special characters:\n\n"
+"    * Underscore (_)\n"
+"    * Hyphen (-)\n"
+"    * Colon (:)\n"
+"    * Period (.)\n"
+"\n"
+"    The name length may not exceed 255 bytes, but it is generally advisable\n"
+"    to limit the length to something significantly less than the absolute\n"
+"    name length limit.\n\n"
+""
+"recursive: bool, optional, default=False\n"
+"    Recursively rename the snapshots of all descendent datasets. Snapshots\n"
+"    are the only dataset that can be renamed recursively.\n\n"
+""
+"no_unmount: bool, optional, default=False\n"
+"    Do not remount file systems during rename. If a file system's mountpoint\n"
+"    property is set to legacy or none, the file system is not unmounted even\n"
+"    if this option is False (default).\n\n"
+""
+"force_unmount: bool, optional, default=False\n"
+"    Force unmount any file systems that need to be unmounted in the process.\n\n"
+""
+"Returns\n"
+"-------\n"
+"    None\n\n"
+""
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    The ZFS name is for the underlying ZFS type.\n\n"
+"ValueError:\n"
+"    Recursive specified when ZFS type is not a snapshot.\n\n"
+"ValueError:\n"
+"    The combination of parameters supplied to this method are invalid.\n\n"
+"ZFSError:\n"
+"    The rename operation failed.\n\n"
+);
 static
 PyObject *py_zfs_obj_rename(PyObject *self,
 			    PyObject *args_unused,
@@ -61,7 +107,6 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	char *new_name = NULL;
 	py_zfs_error_t zfs_err;
 	renameflags_t flags;
-	zfs_handle_t *new = NULL;
 
 	char *kwnames [] = {
 		"new_name",
@@ -97,6 +142,20 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 		return NULL;
 	}
 
+	if (nounmount && forceunmount) {
+		PyErr_SetString(PyExc_ValueError,
+				"Force unmount and no unmount options "
+				"may not be specified simultaneosly.");
+		return NULL;
+	}
+
+	if (recursive && (obj->ctype != ZFS_TYPE_SNAPSHOT)) {
+		PyErr_SetString(PyExc_ValueError,
+				"Recursive is only valid for snapshot "
+				"renames.");
+		return NULL;
+	}
+
 	flags = (renameflags_t) {
 		.recursive = recursive,
 		.nounmount = nounmount,
@@ -114,25 +173,6 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	err = zfs_rename(obj->zhp, new_name, flags);
 	if (err) {
 		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
-	} else {
-		/*
-		 * We need to create a new zfs_handle_t handle
-		 * due to a libzfs bug that fails to rewrite
-		 * zhp->zfs_name. We intentionally ignore errors
-		 * on re-opening the handle because the actual
-		 * rename succeeded. Unfortunately, this means that
-		 * future handle ops will fail. In practice, this
-		 * should be very unlikely to occur.
-		 */
-		new = zfs_open(obj->pylibzfsp->lzh, new_name, SUPPORTED_RESOURCES);
-		if (new != NULL) {
-			/*
-			 * We can safely swap out the handles here because
-			 * of the libzfs handle mutex being held.
-			 */
-			zfs_close(obj->zhp);
-			obj->zhp = new;
-		}
 	}
 
 	PY_ZFS_UNLOCK(obj->pylibzfsp);
@@ -259,7 +299,8 @@ PyMethodDef zfs_obj_methods[] = {
 	{
 		.ml_name = "rename",
 		.ml_meth = (PyCFunction)py_zfs_obj_rename,
-		.ml_flags = METH_VARARGS | METH_KEYWORDS
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_obj_rename__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
