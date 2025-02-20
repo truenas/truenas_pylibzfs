@@ -892,6 +892,55 @@ PyObject *py_zfs_vdev_detach(PyObject *self, PyObject *arg) {
 	Py_RETURN_NONE;
 }
 
+static
+PyObject *create_topology(PyObject *mod, const char *p)
+{
+	PyObject *topology, *kroot, *ktype, *kdev;
+	PyObject *vdata, *vstrp, *ekey, *eroot, *etype;
+	kroot = ktype = kdev = NULL;
+	ekey = eroot = etype = NULL;
+	topology = vdata = vstrp = NULL;
+
+	ekey = PyObject_GetAttrString(mod, "VDevTopKey");
+	if (ekey == NULL)
+		goto fail;
+	eroot = PyObject_GetAttrString(mod, "VDevTopRoot");
+	if (eroot == NULL)
+		goto fail;
+	etype = PyObject_GetAttrString(mod, "VDevTopType");
+	if (etype == NULL)
+		goto fail;
+
+	kroot = PyObject_GetAttrString(ekey, "ROOT");
+	if (kroot == NULL)
+		goto fail;
+	ktype = PyObject_GetAttrString(ekey, "TYPE");
+	if (ktype == NULL)
+		goto fail;
+	kdev = PyObject_GetAttrString(ekey, "DEVICES");
+	if (kdev == NULL)
+		goto fail;
+
+	vdata = PyObject_GetAttrString(eroot, "DATA");
+	if (kdev == NULL)
+		goto fail;
+	vstrp = PyObject_GetAttrString(etype, "STRIPE");
+	if (kdev == NULL)
+		goto fail;
+
+	topology = Py_BuildValue("[{O:O,O:O,O:[s]}]", kroot, vdata, ktype,
+	    vstrp, kdev, p);
+
+fail:
+	Py_XDECREF(ekey);
+	Py_XDECREF(eroot);
+	Py_XDECREF(etype);
+	Py_XDECREF(kroot);
+	Py_XDECREF(ktype);
+	Py_XDECREF(kdev);
+	return (topology);
+}
+
 PyDoc_STRVAR(py_zfs_vdev_attach__doc__,
 "attach(*, path) -> None\n\n"
 "-----------------\n\n"
@@ -957,7 +1006,7 @@ PyObject *py_zfs_vdev_attach(PyObject *self, PyObject *args, PyObject *kwargs) {
 		} else {
 			PyErr_SetString(PyExc_RuntimeError,
 			    "Cannot find child vdevs in vdev tree");
-			    return (NULL);
+			return (NULL);
 		}
 	} else if (strcmp(ctype, VDEV_TYPE_DISK) == 0 || strcmp(ctype,
 	    VDEV_TYPE_FILE) == 0) {
@@ -966,17 +1015,20 @@ PyObject *py_zfs_vdev_attach(PyObject *self, PyObject *args, PyObject *kwargs) {
 		PyErr_SetString(PyExc_TypeError,
 			"Can only attach DISK or FILE type VDEVs to MIRROR "
 			"or STRIPE devices.");
-		    return (NULL);
+		return (NULL);
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.attach", "s",
 		path) < 0) {
-		    return (NULL);
+		return (NULL);
 	}
 
-	topology = Py_BuildValue("[{s:s,s:s,s:[s]}]", "root", "data", "type",
-	    "stripe", "devices", path);
-	nvlist_t *tree = make_vdev_tree(topology, NULL);
+	topology = create_topology(v->pool->pylibzfsp->module, path);
+	if (topology == NULL)
+		return (NULL);
+
+	nvlist_t *tree = make_vdev_tree(v->pool->pylibzfsp->module,
+	    topology, NULL);
 	if (tree == NULL) {
 		Py_DECREF(topology);
 		return (NULL);
@@ -1061,19 +1113,22 @@ PyObject *py_zfs_vdev_replace(PyObject *self, PyObject *args, PyObject *kwargs)
 	if (strcmp(ctype, VDEV_TYPE_DISK) != 0 ) {
 		PyErr_SetString(PyExc_TypeError,
 			"Can only replace DISK type VDEVs.");
-		    return (NULL);
+		return (NULL);
 	} else {
 		fpath = PyUnicode_AsUTF8(v->path);
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.replace", "s",
 		path) < 0) {
-		    return (NULL);
+		return (NULL);
 	}
 
-	topology = Py_BuildValue("[{s:s,s:s,s:[s]}]", "root", "data", "type",
-	    "stripe", "devices", path);
-	nvlist_t *tree = make_vdev_tree(topology, NULL);
+	topology = create_topology(v->pool->pylibzfsp->module, path);
+	if (topology == NULL)
+		return (NULL);
+
+	nvlist_t *tree = make_vdev_tree(v->pool->pylibzfsp->module,
+	    topology, NULL);
 	if (tree == NULL) {
 		Py_DECREF(topology);
 		return (NULL);

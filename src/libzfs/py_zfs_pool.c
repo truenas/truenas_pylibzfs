@@ -408,14 +408,12 @@ PyDoc_STRVAR(py_zfs_pool_add__doc__,
 "topology: Iterable of Dictionaries\n"
 "    Topology is an iterable of Dictionaries where each item of the list would\n"
 "    specify the formation of each VDEV.\n"
-"        \'root\': Str\n"
-"            this key should specify the class of VDEV. This can be any of\n"
-"            \'DATA\', \'LOG\', \'DEDUP\', \'SPECIAL\', \'SPARE\', or \'CACHE\'.\n"
-"        \'type\': Str\n"
-"            specify the type of VDEV, which can be any one of \'MIRROR\',\n"
-"            \'STRIPE\', \'RAIDZ1\', \'RAIDZ2\', \'RAIDZ3\', \'DRAID1\'\n"
-"            \'DRAID2\' or \'DRAID3\'.\n"
-"        \'devices\': List of Str\n"
+"        VDevTopKey.ROOT: Enum\n"
+"            This key should specify the class of VDEV. This can be any Enum\n"
+"            from VDevTopRoot.\n"
+"        VDevTopKey.TYPE: Enum\n"
+"            Specify the type of VDEV, which can be any Enum from VDevTopType\n"
+"        VDevTopKey.DEVICES: List of Str\n"
 "            List of valid paths in string format for disks.\n\n"
 "check_ashift: bool, optional\n"
 "    check the value of ashift while adding VDEVs. If this is set to True and\n"
@@ -452,7 +450,7 @@ PyObject *py_zfs_pool_add(PyObject *self, PyObject *args, PyObject *kwargs)
 		return (NULL);
 	}
 
-	nvlist_t *tree = make_vdev_tree(topology, NULL);
+	nvlist_t *tree = make_vdev_tree(p->pylibzfsp->module, topology, NULL);
 	if (tree == NULL)
 		return (NULL);
 	Py_BEGIN_ALLOW_THREADS

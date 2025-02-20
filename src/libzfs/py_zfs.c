@@ -521,14 +521,12 @@ PyDoc_STRVAR(py_zfs_test_topology__doc__,
 "topology: Iterable of Dictionaries\n"
 "    Topology is an iterable of Dictionaries where each item of the list would\n"
 "    specify the formation of each VDEV.\n"
-"        \'root\': Str\n"
-"            this key should specify the class of VDEV. This can be any of\n"
-"            \'DATA\', \'LOG\', \'DEDUP\', \'SPECIAL\', \'SPARE\', or \'CACHE\'.\n"
-"        \'type\': Str\n"
-"            specify the type of VDEV, which can be any one of \'MIRROR\',\n"
-"            \'STRIPE\', \'RAIDZ1\', \'RAIDZ2\', \'RAIDZ3\', \'DRAID1\'\n"
-"            \'DRAID2\' or \'DRAID3\'.\n"
-"        \'devices\': List of Str\n"
+"        VDevTopKey.ROOT: Enum\n"
+"            This key should specify the class of VDEV. This can be any Enum\n"
+"            from VDevTopRoot.\n"
+"        VDevTopKey.TYPE: Enum\n"
+"            Specify the type of VDEV, which can be any Enum from VDevTopType\n"
+"        VDevTopKey.DEVICES: List of Str\n"
 "            List of valid paths in string format for disks.\n\n"
 "Returns\n"
 "-------\n"
@@ -541,6 +539,7 @@ PyDoc_STRVAR(py_zfs_test_topology__doc__,
 static
 PyObject *py_zfs_test_topology(PyObject *self, PyObject *args,
     PyObject *kwargs) {
+	py_zfs_t *plz = (py_zfs_t *)self;
 	PyObject *topology = NULL;
 	PyObject *ret;
 
@@ -556,7 +555,7 @@ PyObject *py_zfs_test_topology(PyObject *self, PyObject *args,
 		return (NULL);
 	}
 
-	nvlist_t *tree = make_vdev_tree(topology, NULL);
+	nvlist_t *tree = make_vdev_tree(plz->module, topology, NULL);
 	if (tree == NULL)
 		return (NULL);
 	ret = py_dump_nvlist(tree, B_TRUE);
@@ -575,14 +574,12 @@ PyDoc_STRVAR(py_zfs_pool_create__doc__,
 "topology: Iterable of Dictionaries\n"
 "    Topology is an iterable of Dictionaries where each item of the list would\n"
 "    specify the formation of each VDEV.\n"
-"        \'root\': Str\n"
-"            this key should specify the class of VDEV. This can be any of\n"
-"            \'DATA\', \'LOG\', \'DEDUP\', \'SPECIAL\', \'SPARE\', or \'CACHE\'.\n"
-"        \'type\': Str\n"
-"            specify the type of VDEV, which can be any one of \'MIRROR\',\n"
-"            \'STRIPE\', \'RAIDZ1\', \'RAIDZ2\', \'RAIDZ3\', \'DRAID1\'\n"
-"            \'DRAID2\' or \'DRAID3\'.\n"
-"        \'devices\': List of Str\n"
+"        VDevTopKey.ROOT: Enum\n"
+"            This key should specify the class of VDEV. This can be any Enum\n"
+"            from VDevTopRoot.\n"
+"        VDevTopKey.TYPE: Enum\n"
+"            Specify the type of VDEV, which can be any Enum from VDevTopType\n"
+"        VDevTopKey.DEVICES: List of Str\n"
 "            List of valid paths in string format for disks.\n\n"
 "Returns\n"
 "-------\n"
@@ -627,7 +624,7 @@ PyObject *py_zfs_create_pool(PyObject *self, PyObject *args,
 		return (NULL);
 	}
 
-	nvlist_t *tree = make_vdev_tree(topology, NULL);
+	nvlist_t *tree = make_vdev_tree(plz->module, topology, NULL);
 	if (tree == NULL)
 		return (NULL);
 	Py_BEGIN_ALLOW_THREADS

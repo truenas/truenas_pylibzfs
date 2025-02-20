@@ -263,7 +263,8 @@ extern py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
-extern nvlist_t *make_vdev_tree(PyObject *topology, PyObject *props);
+extern nvlist_t *make_vdev_tree(PyObject *mod, PyObject *topology,
+    PyObject *props);
 
 /*
  * @brief convenience function to write a message to the zpool history
