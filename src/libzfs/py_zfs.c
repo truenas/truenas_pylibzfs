@@ -564,7 +564,7 @@ PyObject *py_zfs_test_topology(PyObject *self, PyObject *args,
 }
 
 PyDoc_STRVAR(py_zfs_pool_create__doc__,
-"create_pool(*, name, topology) -> None\n\n"
+"pool_create(*, name, topology) -> None\n\n"
 "--------------------------------------\n\n"
 "Creates a new pool with given name and topology.\n\n"
 "Parameters\n"
@@ -592,7 +592,7 @@ PyDoc_STRVAR(py_zfs_pool_create__doc__,
 "    A libzfs error that occurred while trying to perform the operation.\n\n"
 );
 static
-PyObject *py_zfs_create_pool(PyObject *self, PyObject *args,
+PyObject *py_zfs_pool_create(PyObject *self, PyObject *args,
     PyObject *kwargs)
 {
 	int ret = 0;
@@ -657,7 +657,7 @@ PyObject *py_zfs_create_pool(PyObject *self, PyObject *args,
 }
 
 PyDoc_STRVAR(py_zfs_pool_destroy__doc__,
-"destroy_pool(*, name, force=False) -> None\n\n"
+"pool_destroy(*, name, force=False) -> None\n\n"
 "-----------------\n\n"
 "Destroys the given pool, freeing up any devices for other use.\n\n"
 "Parameters\n"
@@ -761,13 +761,13 @@ PyMethodDef zfs_methods[] = {
 		.ml_doc = py_zfs_test_topology__doc__
 	},
 	{
-		.ml_name = "create_pool",
-		.ml_meth = (PyCFunction)py_zfs_create_pool,
+		.ml_name = "pool_create",
+		.ml_meth = (PyCFunction)py_zfs_pool_create,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_create__doc__
 	},
 	{
-		.ml_name = "destroy_pool",
+		.ml_name = "pool_destroy",
 		.ml_meth = (PyCFunction)py_zfs_pool_destroy,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_destroy__doc__

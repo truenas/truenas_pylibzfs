@@ -14,26 +14,26 @@ lz = open_handle()
 # Example 1:
 # Create a stripe pool with two disks
 t = [{VDevTopKey.ROOT: VDevTopRoot.DATA, VDevTopKey.TYPE: VDevTopType.STRIPE, VDevTopKey.DEVICES: ['/dev/sdb', '/dev/sdc']}]
-lz.create_pool(name='exp-1', topology=t)
-lz.destroy_pool(name='exp-1')
+lz.pool_create(name='exp-1', topology=t)
+lz.pool_destroy(name='exp-1')
 
 # Example 2:
 # Create a mirrored pool with 3 disks
 t = [{VDevTopKey.ROOT: VDevTopRoot.DATA, VDevTopKey.TYPE: VDevTopType.MIRROR, VDevTopKey.DEVICES: ['/dev/sdd', '/dev/sde', '/dev/sdf']}]
-lz.create_pool(name='exp-2', topology=t)
-lz.destroy_pool(name='exp-2')
+lz.pool_create(name='exp-2', topology=t)
+lz.pool_destroy(name='exp-2')
 
 # Example 3:
 # Create a stripe pool with 1 disk
 t = [{VDevTopKey.ROOT: VDevTopRoot.DATA, VDevTopKey.TYPE: VDevTopType.STRIPE, VDevTopKey.DEVICES: ['/dev/sdg']}]
-lz.create_pool(name='exp-3', topology=t)
-lz.destroy_pool(name='exp-3')
+lz.pool_create(name='exp-3', topology=t)
+lz.pool_destroy(name='exp-3')
 
 # Example 4:
 # Create a raidz1 pool with 3 disks
 t = [{VDevTopKey.ROOT: VDevTopRoot.DATA, VDevTopKey.TYPE: VDevTopType.RAIDZ1, VDevTopKey.DEVICES: ['/dev/sdb', '/dev/sdc', '/dev/sdd']}]
-lz.create_pool(name='exp-4', topology=t)
-lz.destroy_pool(name='exp-4')
+lz.pool_create(name='exp-4', topology=t)
+lz.pool_destroy(name='exp-4')
 
 # Example 5:
 # Create a raidz2 pool with 4 data disks, 2 spare disks, 1 disk as caches device
@@ -42,5 +42,5 @@ t = [{VDevTopKey.ROOT: VDevTopRoot.DATA, VDevTopKey.TYPE: VDevTopType.RAIDZ2, VD
      {VDevTopKey.ROOT: VDevTopRoot.SPARE, VDevTopKey.TYPE: VDevTopType.STRIPE, VDevTopKey.DEVICES: ['/dev/sdg', '/dev/sdh']},
      {VDevTopKey.ROOT: VDevTopRoot.LOG, VDevTopKey.TYPE: VDevTopType.STRIPE, VDevTopKey.DEVICES: ['/dev/sdf']},
      {VDevTopKey.ROOT: VDevTopRoot.CACHE, VDevTopKey.TYPE: VDevTopType.STRIPE, VDevTopKey.DEVICES: ['/dev/sdi']}]
-lz.create_pool(name='exp-5', topology=t)
-lz.destroy_pool(name='exp-5')
+lz.pool_create(name='exp-5', topology=t)
+lz.pool_destroy(name='exp-5')

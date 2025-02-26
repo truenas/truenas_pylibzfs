@@ -399,7 +399,7 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 	Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(py_zfs_pool_add__doc__,
+PyDoc_STRVAR(py_zfs_pool_attach_vdevs__doc__,
 "attach_vdevs(*, topology, check_ashift=False) -> None\n\n"
 "---------------------------------------------\n\n"
 "Adds the given list of VDEVs to the pool.\n\n"
@@ -430,7 +430,8 @@ PyDoc_STRVAR(py_zfs_pool_add__doc__,
 "    A libzfs error that occurred while trying to perform the operation.\n\n"
 );
 static
-PyObject *py_zfs_pool_add(PyObject *self, PyObject *args, PyObject *kwargs)
+PyObject *py_zfs_pool_attach_vdevs(PyObject *self, PyObject *args,
+    PyObject *kwargs)
 {
 	int ret, error;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
@@ -535,9 +536,9 @@ PyMethodDef zfs_pool_methods[] = {
 	},
 	{
 		.ml_name = "attach_vdevs",
-		.ml_meth = (PyCFunction)py_zfs_pool_add,
+		.ml_meth = (PyCFunction)py_zfs_pool_attach_vdevs,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
-		.ml_doc = py_zfs_pool_add__doc__
+		.ml_doc = py_zfs_pool_attach_vdevs__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
