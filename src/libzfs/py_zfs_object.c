@@ -105,6 +105,7 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	py_zfs_obj_t *obj = (py_zfs_obj_t *)self;
 	int err, recursive, nounmount, forceunmount;
 	char *new_name = NULL;
+	char orig_name[ZFS_MAX_DATASET_NAME_LEN];
 	py_zfs_error_t zfs_err;
 	renameflags_t flags;
 
@@ -170,6 +171,9 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(obj->pylibzfsp);
 
+	// Make a copy of the original name for logging history
+	strlcpy(orig_name, zfs_get_name(obj->zhp), sizeof(orig_name));
+
 	err = zfs_rename(obj->zhp, new_name, flags);
 	if (err) {
 		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
@@ -187,8 +191,7 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 					 forceunmount ? "-f ": "",
 					 nounmount ? "-u ": "",
 					 recursive ? "-r ": "",
-					 zfs_get_name(obj->zhp),
-					 new_name);
+					 orig_name, new_name);
 	}
 
 	// swap out our name with new one even if we failed to write history
