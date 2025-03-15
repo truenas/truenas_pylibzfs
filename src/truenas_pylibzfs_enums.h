@@ -402,5 +402,68 @@ static const struct {
 };
 _Static_assert(ZFS_NUM_USERQUOTA_PROPS -1 == ZFS_PROP_PROJECTOBJQUOTA);
 
+typedef enum {
+	VDEV_TOP_KEY_ROOT,
+	VDEV_TOP_KEY_TYPE,
+	VDEV_TOP_KEY_DEVICES,
+	VDEV_TOP_KEY_DRAID_DATA_DISKS,
+	VDEV_TOP_KEY_DRAID_SPARE_DISKS
+} vdev_top_key_t;
+static const struct {
+	vdev_top_key_t key;
+	const char *name;
+} vdev_top_key_table[] = {
+	{ VDEV_TOP_KEY_ROOT, "ROOT" },
+	{ VDEV_TOP_KEY_TYPE, "TYPE" },
+	{ VDEV_TOP_KEY_DEVICES, "DEVICES" },
+	{ VDEV_TOP_KEY_DRAID_DATA_DISKS, "DRAID_DATA_DISKS"},
+	{ VDEV_TOP_KEY_DRAID_SPARE_DISKS, "DRAID_SPARE_DISKS"}
+};
+
+typedef enum {
+	VDEV_TOP_ROOT_DATA,
+	VDEV_TOP_ROOT_LOG,
+	VDEV_TOP_ROOT_SPECIAL,
+	VDEV_TOP_ROOT_DEDUP,
+	VDEV_TOP_ROOT_CACHE,
+	VDEV_TOP_ROOT_SPARE
+} vdev_top_root_t;
+
+static const struct {
+	vdev_top_root_t root;
+	const char *name;
+} vdev_top_root_table[] = {
+	{ VDEV_TOP_ROOT_DATA, "DATA" },
+	{ VDEV_TOP_ROOT_LOG, "LOG" },
+	{ VDEV_TOP_ROOT_SPECIAL, "SPECIAL" },
+	{ VDEV_TOP_ROOT_DEDUP, "DEDUP" },
+	{ VDEV_TOP_ROOT_CACHE, "CACHE" },
+	{ VDEV_TOP_ROOT_SPARE, "SPARE" }
+};
+
+typedef enum {
+	VDEV_TOP_TYPE_STRIPE,
+	VDEV_TOP_TYPE_MIRROR,
+	VDEV_TOP_TYPE_RAIDZ1,
+	VDEV_TOP_TYPE_RAIDZ2,
+	VDEV_TOP_TYPE_RAIDZ3,
+	VDEV_TOP_TYPE_DRAID1,
+	VDEV_TOP_TYPE_DRAID2,
+	VDEV_TOP_TYPE_DRAID3,
+} vdev_top_type_t;
+
+static const struct {
+	vdev_top_type_t type;
+	const char *name;
+} vdev_top_type_table[] = {
+	{ VDEV_TOP_TYPE_STRIPE, "STRIPE" },
+	{ VDEV_TOP_TYPE_MIRROR, "MIRROR" },
+	{ VDEV_TOP_TYPE_RAIDZ1, "RAIDZ1" },
+	{ VDEV_TOP_TYPE_RAIDZ2, "RAIDZ2" },
+	{ VDEV_TOP_TYPE_RAIDZ3, "RAIDZ3" },
+	{ VDEV_TOP_TYPE_DRAID1, "DRAID1" },
+	{ VDEV_TOP_TYPE_DRAID2, "DRAID2" },
+	{ VDEV_TOP_TYPE_DRAID3, "DRAID3" },
+};
 
 #endif /* _TRUENAS_PYLIBZFS_ENUMS_H */
