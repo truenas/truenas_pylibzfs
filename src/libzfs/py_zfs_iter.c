@@ -337,7 +337,7 @@ py_iter_userspace(py_iter_state_t *state)
 
 	iter_ret = zfs_userspace(state->target,
 				 conf.qtype,
-				 userspace_callback,
+				 (zfs_userspace_cb_t)userspace_callback,
 				 (void *)state);
 
 	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
