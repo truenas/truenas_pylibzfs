@@ -337,7 +337,8 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 	    (prop == ZFS_PROP_ENCRYPTION_ROOT) ||
 	    (prop == ZFS_PROP_KEYSTATUS) ||
 	    (prop == ZFS_PROP_ORIGIN) ||
-	    (prop == ZFS_PROP_REDACT_SNAPS)
+	    (prop == ZFS_PROP_REDACT_SNAPS) ||
+	    (prop == ZFS_PROP_RECEIVE_RESUME_TOKEN)
 	)) {
 		/*
 		 * Serveral libzfs properties return failure if they
@@ -361,7 +362,7 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 
 		PyErr_Format(
 			PyExc_RuntimeError,
-			"%s: failed to get property for dataset.",
+			"%s: failed to get property.",
 			zfs_prop_to_name(prop)
 		);
 		return NULL;
