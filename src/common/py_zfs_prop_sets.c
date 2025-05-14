@@ -2,8 +2,9 @@
 typedef struct {
 	PyObject *zfs_space_props;
 	PyObject *zfs_volume_props;
+	PyObject *zfs_volume_readonly_props;
 	PyObject *zfs_filesystem_props;
-	PyObject *readonly_zfs_props;
+	PyObject *zfs_filesystem_readonly_props;
 } pylibzfs_propset_t;
 
 
@@ -24,8 +25,9 @@ py_zfs_propset_module_clear(PyObject *module)
 	pylibzfs_propset_t *state = get_propset_state(module);
 	Py_CLEAR(state->zfs_space_props);
 	Py_CLEAR(state->zfs_volume_props);
+	Py_CLEAR(state->zfs_volume_readonly_props);
 	Py_CLEAR(state->zfs_filesystem_props);
-	Py_CLEAR(state->readonly_zfs_props);
+	Py_CLEAR(state->zfs_filesystem_readonly_props);
 	return 0;
 }
 
@@ -69,16 +71,20 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 	if (iterator == NULL)
 		return B_FALSE;
 
-	state->readonly_zfs_props = PyFrozenSet_New(NULL);
-	if (state->readonly_zfs_props == NULL)
-		goto error;
-
 	state->zfs_volume_props = PyFrozenSet_New(NULL);
 	if (state->zfs_volume_props == NULL)
 		goto error;
 
+	state->zfs_volume_readonly_props = PyFrozenSet_New(NULL);
+	if (state->zfs_volume_readonly_props == NULL)
+		goto error;
+
 	state->zfs_filesystem_props = PyFrozenSet_New(NULL);
 	if (state->zfs_filesystem_props == NULL)
+		goto error;
+
+	state->zfs_filesystem_readonly_props = PyFrozenSet_New(NULL);
+	if (state->zfs_filesystem_readonly_props == NULL)
 		goto error;
 
 	state->zfs_space_props = PyFrozenSet_New(NULL);
@@ -94,17 +100,21 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 		PYZFS_ASSERT((val != -1), "Unexpected value for ZFS property");
 		PYZFS_ASSERT((val < ZFS_NUM_PROPS), "Value exceeds known ZFS props");
 
-		if (zfs_prop_readonly(val) &&
-		    (PySet_Add(state->readonly_zfs_props, item)))
-			goto error;
+		if (zfs_prop_valid_for_type(val, ZFS_TYPE_VOLUME, B_FALSE)) {
+			if (PySet_Add(state->zfs_volume_props, item))
+				goto error;
+			if (zfs_prop_readonly(val) &&
+			    (PySet_Add(state->zfs_volume_readonly_props, item)))
+				goto error;
+		}
 
-		if (zfs_prop_valid_for_type(val, ZFS_TYPE_VOLUME, B_FALSE) &&
-		    (PySet_Add(state->zfs_volume_props, item)))
-			goto error;
-
-		if (zfs_prop_valid_for_type(val, ZFS_TYPE_FILESYSTEM, B_FALSE) &&
-		    (PySet_Add(state->zfs_filesystem_props, item)))
-			goto error;
+		if (zfs_prop_valid_for_type(val, ZFS_TYPE_FILESYSTEM, B_FALSE)) {
+			if (PySet_Add(state->zfs_filesystem_props, item))
+				goto error;
+			if (zfs_prop_readonly(val) &&
+			    (PySet_Add(state->zfs_filesystem_readonly_props, item)))
+				goto error;
+		}
 
 		if (is_space_zfs_prop(val) &&
 		    (PySet_Add(state->zfs_space_props, item)))
@@ -113,16 +123,20 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 		Py_DECREF(item);
 	}
 
-	if (PyModule_AddObjectRef(module, "READONLY_ZFS_PROPERTIES",
-	    state->readonly_zfs_props) < 0)
-		goto error;
-
 	if (PyModule_AddObjectRef(module, "ZFS_VOLUME_PROPERTIES",
 	    state->zfs_volume_props) < 0)
 		goto error;
 
+	if (PyModule_AddObjectRef(module, "ZFS_VOLUME_READONLY_PROPERTIES",
+	    state->zfs_volume_readonly_props) < 0)
+		goto error;
+
 	if (PyModule_AddObjectRef(module, "ZFS_FILESYSTEM_PROPERTIES",
 	    state->zfs_filesystem_props) < 0)
+		goto error;
+
+	if (PyModule_AddObjectRef(module, "ZFS_FILESYSTEM_READONLY_PROPERTIES",
+	    state->zfs_filesystem_readonly_props) < 0)
 		goto error;
 
 	if (PyModule_AddObjectRef(module, "ZFS_SPACE_PROPERTIES",
