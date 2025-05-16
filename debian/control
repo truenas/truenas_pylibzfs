@@ -1,0 +1,20 @@
+Source: truenas-pylibzfs
+Section: contrib/python
+Priority: optional
+Maintainer: TrueNAS Engineering <dev@truenas.com>
+Build-Depends: debhelper-compat (= 12),
+               dh-python,
+               cython3,
+               libnvpair3,
+               libuutil3,
+               libzfs6,
+               libzfs6-devel,
+               python3-all-dev,
+               python3-setuptools
+Standards-Version: 4.4.1
+Homepage: https://github.com/truenas/truenas_pylibzfs
+
+Package: python3-truenas-pylibzfs
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python3:Depends}
+Description: C Python bindings for libzfs
