@@ -53,7 +53,10 @@ typedef struct {
 	PyTypeObject *struct_zfs_userquota_type;
 
 	/* Reference to named tuple for crypto info */
-	PyTypeObject *struct_zfs_crytpo_info_type;
+	PyTypeObject *struct_zfs_crypto_info_type;
+
+	/* Reference to named tuple for crypto config (for creation / update) */
+	PyTypeObject *struct_zfs_crypto_change_type;
 
 	/*
 	 * References to enums that are available in the base
