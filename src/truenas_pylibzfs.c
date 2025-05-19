@@ -156,7 +156,12 @@ void py_init_libzfs(void)
 	// we can build our Struct Sequences with correct values
 
 	tmplz = libzfs_init();
-	PYZFS_ASSERT(tmplz, "Failed to initialize libzfs");
+	if (!tmplz) {
+		char err[256];
+		snprintf(err, sizeof(err), "Failed to initialize libzfs: %s", strerror(errno));
+		PYZFS_ASSERT(tmplz, err);
+	}
+
 	libzfs_fini(tmplz);
 }
 
