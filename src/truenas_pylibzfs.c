@@ -147,7 +147,7 @@ static struct PyModuleDef truenas_pylibzfs_constants = {
 };
 
 static
-void py_init_libzfs(void)
+int py_init_libzfs(void)
 {
 	libzfs_handle_t *tmplz = NULL;
 
@@ -156,8 +156,15 @@ void py_init_libzfs(void)
 	// we can build our Struct Sequences with correct values
 
 	tmplz = libzfs_init();
-	PYZFS_ASSERT(tmplz, "Failed to initialize libzfs");
+	if (!tmplz) {
+		PyErr_Format(PyExc_ImportError,
+			     "libzfs_init() failed: %s",
+			     strerror(errno));
+		return B_FALSE;
+	}
+
 	libzfs_fini(tmplz);
+	return B_TRUE;
 }
 
 /* Module initialization */
@@ -190,7 +197,10 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
-	py_init_libzfs();
+	if (!py_init_libzfs()) {
+		Py_DECREF(mpylibzfs);
+		return NULL;
+	}
 
 	lzc = py_setup_lzc_module(mpylibzfs);
 	err = PyModule_AddObjectRef(mpylibzfs, "lzc", lzc);
