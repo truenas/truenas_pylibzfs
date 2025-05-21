@@ -39,12 +39,14 @@ def generic_query_callback(hdl, state):
     else:
         state.results.append(data)
 
-    if state.single_result or not state.recursive:
+    if state.single_result:
         # halt iterator
         return False
 
-    # recursive
-    getattr(hdl, state.iterator_fn_name)(callback=generic_query_callback, state=state)
+    if state.recursive:
+        getattr(hdl, state.iterator_fn_name)(
+            callback=generic_query_callback, state=state
+        )
 
     return True
 
@@ -94,24 +96,23 @@ def generic_query(
 
         return state.results[0]
 
-    if options["offset"]:
-        results = results[options["offset"] :]
+    if offset := options.get("offset", 0):
+        results = results[offset:]
 
-    if options["limit"]:
-        results = results[: options["limit"]]
+    if limit := options.get("limit", 0):
+        results = results[:limit]
 
     return results
 
 
 lz = open_handle()
 rsrc = lz.open_resource(name="dozer")
-
 print("RECURSIVE FILESYSTEM:")
 pprint(
     generic_query(
         rsrc.iter_filesystems,
         [],
-        {"offset": 0, "limit": 0, "get": False, "count": False, "select": []},
+        {"get": False, "count": False, "select": []},
         {"recursive": True},
     )
 )
