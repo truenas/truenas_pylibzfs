@@ -380,7 +380,7 @@ PyObject *py_zfs_pool_open(PyObject *self,
 	char *name = NULL;
 	py_zfs_error_t zfs_err;
 
-	char *kwnames [] = { "pool_name", NULL };
+	char *kwnames [] = { "name", NULL };
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
 					"$s",
@@ -393,7 +393,7 @@ PyObject *py_zfs_pool_open(PyObject *self,
 		PyErr_SetString(PyExc_ValueError,
 				"The name of the pool to open must be "
 				"passed to this method through the "
-				"\"pool_name\" keyword argument.");
+				"\"name\" keyword argument.");
 		return NULL;
 	}
 
