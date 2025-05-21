@@ -134,7 +134,7 @@ common_callback(PyObject *new_hdl, py_iter_state_t *state)
 	Py_DECREF(result);
 
 	PyErr_SetString(PyExc_TypeError,
-			"Excepted boolean result from callback function.");
+			"Expected boolean result from callback function.");
 
 	return ITER_RESULT_ERROR;
 }
