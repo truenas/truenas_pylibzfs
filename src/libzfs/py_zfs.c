@@ -423,10 +423,10 @@ PyObject *py_zfs_pool_open(PyObject *self,
 	return (out);
 }
 
-PyDoc_STRVAR(py_zfs_iter_root_datasets__doc__,
-"iter_root_datasets(*, callback, state) -> bool\n\n"
+PyDoc_STRVAR(py_zfs_iter_root_filesystems__doc__,
+"iter_root_filesystems(*, callback, state) -> bool\n\n"
 "----------------------------------------------\n\n"
-"Iterate root datasets for all imported zpools\n\n"
+"Iterate root filesystems for all imported zpools\n\n"
 "Parameters\n"
 "----------\n"
 "callback: callable\n"
@@ -457,7 +457,7 @@ PyDoc_STRVAR(py_zfs_iter_root_datasets__doc__,
 "    return True\n"
 );
 static
-PyObject *py_zfs_iter_root_datasets(PyObject *self,
+PyObject *py_zfs_iter_root_filesystems(PyObject *self,
 					   PyObject *args_unused,
 					   PyObject *kwargs)
 {
@@ -492,12 +492,12 @@ PyObject *py_zfs_iter_root_datasets(PyObject *self,
 	}
 
 	// There aren't any useful arguments we can pass to sys.audit
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".iter_root_datasets",
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".iter_root_filesystems",
 			"O", Py_None) < 0) {
 		return NULL;
 	}
 
-	err = py_iter_root_datasets(&iter_state);
+	err = py_iter_root_filesystems(&iter_state);
 	if ((err == ITER_RESULT_ERROR) || (err == ITER_RESULT_IOCTL_ERROR)) {
 		// Exception is set by callback function
 		return NULL;
@@ -531,10 +531,10 @@ PyMethodDef zfs_methods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS
 	},
 	{
-		.ml_name = "iter_root_datasets",
-		.ml_meth = (PyCFunction)py_zfs_iter_root_datasets,
+		.ml_name = "iter_root_filesystems",
+		.ml_meth = (PyCFunction)py_zfs_iter_root_filesystems,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
-		.ml_doc = py_zfs_iter_root_datasets__doc__
+		.ml_doc = py_zfs_iter_root_filesystems__doc__
 	},
 	{
 		.ml_name = "open_pool",

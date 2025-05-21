@@ -72,6 +72,6 @@ typedef struct {
 extern int py_iter_filesystems(py_iter_state_t *state);
 extern int py_iter_snapshots(py_iter_state_t *state);
 extern int py_iter_userspace(py_iter_state_t *state);
-extern int py_iter_root_datasets(py_iter_state_t *state);
+extern int py_iter_root_filesystems(py_iter_state_t *state);
 
 #endif  /* _PY_ZFS_ITER_H */
