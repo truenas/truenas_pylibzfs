@@ -355,7 +355,7 @@ py_iter_userspace(py_iter_state_t *state)
 }
 
 int
-py_iter_root_datasets(py_iter_state_t *state)
+py_iter_root_filesystems(py_iter_state_t *state)
 {
 	int iter_ret;
 	py_zfs_error_t zfs_err;

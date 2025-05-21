@@ -22,7 +22,7 @@ state = {
     "datasets": []
 }
 
-lz.iter_root_datasets(callback=print_dataset_names, state=state)
+lz.iter_root_filesystems(callback=print_dataset_names, state=state)
 first_len = len(state["datasets"])
 assert first_len != 0
 
@@ -34,5 +34,5 @@ state = {
     "datasets": []
 }
 
-lz.iter_root_datasets(callback=print_dataset_names, state=state)
+lz.iter_root_filesystems(callback=print_dataset_names, state=state)
 assert len(state["datasets"]) != first_len
