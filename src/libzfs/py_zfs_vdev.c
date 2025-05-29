@@ -258,6 +258,7 @@ void vdev_get_disks_impl(PyObject *list, nvlist_t *tree) {
 		cpath = fnvlist_lookup_string(tree, ZPOOL_CONFIG_PATH);
 		Py_END_ALLOW_THREADS
 		path = PyUnicode_FromString(cpath);
+		PYZFS_ASSERT(path);
 		PYZFS_ASSERT((PyList_Append(list, path) == 0),
 		    "Failed to add disk path to Python list.");
 		return;
