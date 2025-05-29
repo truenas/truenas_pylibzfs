@@ -109,7 +109,7 @@ boolean_t py_add_quota_to_nvlist(pylibzfs_state_t *state,
 		return B_FALSE;
 	}
 
-	if (py_qtype == NULL) {
+	if (py_val == NULL) {
 		PyErr_SetString(PyExc_ValueError,
 				"value key is required");
 		return B_FALSE;
