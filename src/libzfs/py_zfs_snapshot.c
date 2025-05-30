@@ -150,6 +150,7 @@ py_zfs_snapshot_t *init_zfs_snapshot(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_
 	const char *pool_name;
 	zfs_type_t zfs_type;
 	uint64_t guid, createtxg;
+	boolean_t is_encrypted = B_FALSE;
 
 	out = (py_zfs_snapshot_t *)PyObject_CallFunction((PyObject *)&ZFSSnapshot, NULL);
 	if (out == NULL) {
@@ -166,6 +167,7 @@ py_zfs_snapshot_t *init_zfs_snapshot(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_
 	pool_name = zfs_get_pool_name(zfsp);
 	guid = zfs_prop_get_int(zfsp, ZFS_PROP_GUID);
 	createtxg = zfs_prop_get_int(zfsp, ZFS_PROP_CREATETXG);
+	is_encrypted = zfs_is_encrypted(zfsp);
 	Py_END_ALLOW_THREADS
 
 	PYZFS_ASSERT((zfs_type == ZFS_TYPE_SNAPSHOT), "Incorrect ZFS type");
@@ -188,6 +190,7 @@ py_zfs_snapshot_t *init_zfs_snapshot(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_
 	if (obj->createtxg == NULL)
 		goto error;
 
+	obj->encrypted = Py_NewRef(is_encrypted ? Py_True : Py_False);
 	obj->zhp = zfsp;
 	return out;
 

@@ -244,17 +244,9 @@ PyObject *py_zfs_crypto_info_dict(py_zfs_obj_t *obj)
 {
 	PyObject *out = NULL;
 	PyObject *info_struct = NULL;
-	uint64_t encrypt;
 	int idx;
 
-	/* Do not require caller to pre-check encryption status */
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(obj->pylibzfsp);
-	encrypt = zfs_prop_get_int(obj->zhp, ZFS_PROP_ENCRYPTION);
-	PY_ZFS_UNLOCK(obj->pylibzfsp);
-	Py_END_ALLOW_THREADS
-
-	if (encrypt == ZIO_CRYPT_OFF)
+	if (obj->encrypted == Py_False)
 		Py_RETURN_NONE;
 
 	info_struct = py_zfs_crypto_info_struct(obj);
