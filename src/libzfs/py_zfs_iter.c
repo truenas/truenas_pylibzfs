@@ -218,7 +218,11 @@ out:
 }
 
 static int
-userspace_callback(void *private, const char *dom, uid_t xid, uint64_t val)
+userspace_callback(void *private,
+		   const char *dom,
+		   uid_t xid,
+		   uint64_t val,
+		   uint64_t default_quota)
 {
 	int result = ITER_RESULT_ERROR;
 	py_iter_state_t *state = (py_iter_state_t *)private;
@@ -229,7 +233,7 @@ userspace_callback(void *private, const char *dom, uid_t xid, uint64_t val)
 
 	// intentionally omit domain from python layer
 	pyquota = py_zfs_userquota(conf.pyuserquota_struct,
-				   conf.pyqtype, xid, val);
+				   conf.pyqtype, xid, val, default_quota);
 	if (pyquota == NULL)
 		goto out;
 
@@ -337,7 +341,7 @@ py_iter_userspace(py_iter_state_t *state)
 
 	iter_ret = zfs_userspace(state->target,
 				 conf.qtype,
-				 (zfs_userspace_cb_t)userspace_callback,
+				 userspace_callback,
 				 (void *)state);
 
 	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {

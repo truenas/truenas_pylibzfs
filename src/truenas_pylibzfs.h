@@ -401,7 +401,8 @@ extern void init_py_struct_userquota_state(pylibzfs_state_t *state);
 extern PyObject *py_zfs_userquota(PyTypeObject *qtypestruct,
 				  PyObject *pyqtype,
 				  uid_t xid,
-				  uint64_t value);
+				  uint64_t value,
+				  uint64_t default_quota);
 extern nvlist_t *py_userquotas_to_nvlist(pylibzfs_state_t *state, PyObject *uquotas);
 
 /* py_zfs_mount.c */
