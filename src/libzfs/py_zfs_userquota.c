@@ -8,7 +8,7 @@ PyStructSequence_Field struct_zfs_userquota [] = {
 	{"quota_type", "ZFSUserQuota enum identifying quota type."},
 	{"xid", "Either unix ID or RID (solaris SMB) to which quota applies."},
 	{"value", "The numeric value of the quota."},
-	{"default", "The numeric value of the default value for this quota type."},
+	// WARNING: do *not* expand to include default quota value. See note below.
 	{0},
 };
 
@@ -16,7 +16,7 @@ PyStructSequence_Desc struct_zfs_userquota_type_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_zfs_userquota",
 	.fields = struct_zfs_userquota,
 	.doc = "Python ZFS user quota structure.",
-	.n_in_sequence = 4
+	.n_in_sequence = 3
 };
 
 void init_py_struct_userquota_state(pylibzfs_state_t *state)
@@ -33,11 +33,17 @@ PyObject *py_zfs_userquota(PyTypeObject *userquota_struct,
 			   PyObject *pyqtype,
 			   uid_t xid,
 			   uint64_t value,
-			   uint64_t default_quota)
+			   uint64_t default_quota_unused)
 {
+	// Convert userquota info into a python struct sequence
+	//
+	// NOTE: we're deliberately *not* placing the default quota information
+	// in this sequence. This is because the value is being inserted into
+	// the USED rather than QUOTA information and fixing behavior is
+	// non-trivial. API consumer should instead get the default quota
+	// information from the dataset property.
 	PyObject *pyxid;
 	PyObject *pyval;
-	PyObject *pydef;
 	PyObject *out = NULL;
 
 	pyxid = PyLong_FromLong(xid);
@@ -51,18 +57,10 @@ PyObject *py_zfs_userquota(PyTypeObject *userquota_struct,
 		return NULL;
 	}
 
-	pydef = PyLong_FromUnsignedLong(default_quota);
-	if (pydef == NULL) {
-		Py_DECREF(pyxid);
-		Py_DECREF(pyval);
-		return NULL;
-	}
-
 	out = PyStructSequence_New(userquota_struct);
 	if (out == NULL) {
 		Py_DECREF(pyxid);
 		Py_DECREF(pyval);
-		Py_DECREF(pydef);
 		return NULL;
 	}
 
@@ -70,7 +68,6 @@ PyObject *py_zfs_userquota(PyTypeObject *userquota_struct,
 	Py_INCREF(pyqtype);
 	PyStructSequence_SET_ITEM(out, 1, pyxid);
 	PyStructSequence_SET_ITEM(out, 2, pyval);
-	PyStructSequence_SET_ITEM(out, 3, pydef);
 
 	return out;
 }
