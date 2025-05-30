@@ -8,7 +8,7 @@ PyStructSequence_Field struct_zfs_userquota [] = {
 	{"quota_type", "ZFSUserQuota enum identifying quota type."},
 	{"xid", "Either unix ID or RID (solaris SMB) to which quota applies."},
 	{"value", "The numeric value of the quota."},
-	{"default", "The numeric value of any default quota."},
+	{"default", "The numeric value of the default value for this quota type."},
 	{0},
 };
 
@@ -33,7 +33,7 @@ PyObject *py_zfs_userquota(PyTypeObject *userquota_struct,
 			   PyObject *pyqtype,
 			   uid_t xid,
 			   uint64_t value,
-			   uint64_t default_value)
+			   uint64_t default_quota)
 {
 	PyObject *pyxid;
 	PyObject *pyval;
@@ -51,7 +51,7 @@ PyObject *py_zfs_userquota(PyTypeObject *userquota_struct,
 		return NULL;
 	}
 
-	pydef = PyLong_FromUnsignedLong(default_value);
+	pydef = PyLong_FromUnsignedLong(default_quota);
 	if (pydef == NULL) {
 		Py_DECREF(pyxid);
 		Py_DECREF(pyval);
