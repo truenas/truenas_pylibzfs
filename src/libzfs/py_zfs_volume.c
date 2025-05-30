@@ -54,6 +54,9 @@ PyObject *py_zfs_volume_crypto(PyObject *self, PyObject *args_unused)
 	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_dataset_t *)self));
 	uint64_t keyformat = ZFS_KEYFORMAT_NONE;
 
+	if (obj->encrypted == Py_False)
+		Py_RETURN_NONE;
+
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(obj->pylibzfsp);
 	keyformat = zfs_prop_get_int(obj->zhp, ZFS_PROP_KEYFORMAT);
@@ -104,6 +107,7 @@ py_zfs_volume_t *init_zfs_volume(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_t si
 	const char *pool_name;
 	zfs_type_t zfs_type;
 	uint64_t guid, createtxg;
+	boolean_t is_encrypted = B_FALSE;
 
 	out = (py_zfs_volume_t *)PyObject_CallFunction((PyObject *)&ZFSVolume, NULL);
 	if (out == NULL) {
@@ -120,6 +124,7 @@ py_zfs_volume_t *init_zfs_volume(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_t si
 	pool_name = zfs_get_pool_name(zfsp);
 	guid = zfs_prop_get_int(zfsp, ZFS_PROP_GUID);
 	createtxg = zfs_prop_get_int(zfsp, ZFS_PROP_CREATETXG);
+	is_encrypted = zfs_is_encrypted(zfsp);
 	Py_END_ALLOW_THREADS
 
 	PYZFS_ASSERT((zfs_type == ZFS_TYPE_VOLUME), "Incorrect ZFS dataset type");
@@ -142,6 +147,7 @@ py_zfs_volume_t *init_zfs_volume(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_t si
 	if (obj->createtxg == NULL)
 		goto error;
 
+	obj->encrypted = Py_NewRef(is_encrypted ? Py_True : Py_False);
 	obj->zhp = zfsp;
 	return out;
 

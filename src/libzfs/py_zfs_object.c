@@ -35,6 +35,7 @@ void free_py_zfs_obj(py_zfs_obj_t *self)
 	Py_CLEAR(self->pylibzfsp);
 	Py_CLEAR(self->guid);
 	Py_CLEAR(self->createtxg);
+	Py_CLEAR(self->encrypted);
 }
 
 static
@@ -267,6 +268,15 @@ PyObject *py_zfs_obj_get_pool(py_zfs_obj_t *self, void *extra) {
 	return py_get_prop(self->pool_name);
 }
 
+PyDoc_STRVAR(py_zfs_obj_encrypted__doc__,
+"If set, the ZFS resource is encrypted. This does not show if the resource is "
+"locked or unlocked. To get more infomration, call the crypto() method.\n"
+);
+static
+PyObject *py_zfs_obj_get_encrypted(py_zfs_obj_t *self, void *extra) {
+	return py_get_prop(self->encrypted);
+}
+
 static
 PyGetSetDef zfs_obj_getsetters[] = {
 	{
@@ -293,6 +303,11 @@ PyGetSetDef zfs_obj_getsetters[] = {
 		.name	= "pool_name",
 		.get	= (getter)py_zfs_obj_get_pool,
 		.doc	= py_zfs_obj_pool_name__doc__,
+	},
+	{
+		.name	= "encrypted",
+		.get	= (getter)py_zfs_obj_get_encrypted,
+		.doc	= py_zfs_obj_encrypted__doc__,
 	},
 	{ .name = NULL }
 };

@@ -83,6 +83,7 @@ typedef struct {
 	PyObject *guid;
 	PyObject *createtxg;
 	PyObject *pool_name;
+	PyObject *encrypted;
 } py_zfs_obj_t;
 
 /*
