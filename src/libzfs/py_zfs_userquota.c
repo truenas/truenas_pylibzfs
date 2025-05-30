@@ -8,6 +8,7 @@ PyStructSequence_Field struct_zfs_userquota [] = {
 	{"quota_type", "ZFSUserQuota enum identifying quota type."},
 	{"xid", "Either unix ID or RID (solaris SMB) to which quota applies."},
 	{"value", "The numeric value of the quota."},
+	{"default", "The numeric value of any default quota."},
 	{0},
 };
 
@@ -15,7 +16,7 @@ PyStructSequence_Desc struct_zfs_userquota_type_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_zfs_userquota",
 	.fields = struct_zfs_userquota,
 	.doc = "Python ZFS user quota structure.",
-	.n_in_sequence = 3
+	.n_in_sequence = 4
 };
 
 void init_py_struct_userquota_state(pylibzfs_state_t *state)
@@ -31,10 +32,12 @@ void init_py_struct_userquota_state(pylibzfs_state_t *state)
 PyObject *py_zfs_userquota(PyTypeObject *userquota_struct,
 			   PyObject *pyqtype,
 			   uid_t xid,
-			   uint64_t value)
+			   uint64_t value,
+			   uint64_t default_value)
 {
 	PyObject *pyxid;
 	PyObject *pyval;
+	PyObject *pydef;
 	PyObject *out = NULL;
 
 	pyxid = PyLong_FromLong(xid);
@@ -48,16 +51,26 @@ PyObject *py_zfs_userquota(PyTypeObject *userquota_struct,
 		return NULL;
 	}
 
-	out = PyStructSequence_New(userquota_struct);
-	if (out == NULL) {
+	pydef = PyLong_FromUnsignedLong(default_value);
+	if (pydef == NULL) {
 		Py_DECREF(pyxid);
 		Py_DECREF(pyval);
 		return NULL;
 	}
 
+	out = PyStructSequence_New(userquota_struct);
+	if (out == NULL) {
+		Py_DECREF(pyxid);
+		Py_DECREF(pyval);
+		Py_DECREF(pydef);
+		return NULL;
+	}
+
 	PyStructSequence_SET_ITEM(out, 0, pyqtype);
+	Py_INCREF(pyqtype);
 	PyStructSequence_SET_ITEM(out, 1, pyxid);
 	PyStructSequence_SET_ITEM(out, 2, pyval);
+	PyStructSequence_SET_ITEM(out, 3, pydef);
 
 	return out;
 }
