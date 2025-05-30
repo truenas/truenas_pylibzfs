@@ -673,6 +673,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.create_holds", "O",
 			kwargs) < 0) {
+		fnvlist_free(holds);
 		return NULL;
 	}
 
@@ -792,6 +793,7 @@ static PyObject *py_lzc_release_holds(PyObject *self,
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.release_holds", "O",
 			kwargs) < 0) {
+		fnvlist_free(holds);
 		return NULL;
 	}
 
@@ -903,13 +905,15 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	if (py_props_dict && py_props_dict != Py_None) {
 		user_props = py_userprops_dict_to_nvlist(py_props_dict);
 		if (user_props == NULL) {
-			Py_DECREF(snaps);
+			fnvlist_free(snaps);
 			return NULL;
 		}
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.create_snapshots", "O",
 			kwargs) < 0) {
+		fnvlist_free(snaps);
+		fnvlist_free(user_props);
 		return NULL;
 	}
 
@@ -1029,6 +1033,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.destroy_snapshots", "O",
 			kwargs) < 0) {
+		fnvlist_free(snaps);
 		return NULL;
 	}
 
