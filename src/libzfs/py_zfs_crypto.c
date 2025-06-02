@@ -12,23 +12,29 @@
 #define MAX_PASSPHRASE_LEN 512
 
 PyDoc_STRVAR(py_zfs_crypto_encroot__doc__,
-"The encryption_root indicates the name of the ZFS resource from which the\n"
-"this ZFS resource inherits its encryption key. Loading or unloading the\n"
-"key for athe encyption_root will implicitly load or unload the key from\n"
-"all inheriting datasets. See manpage for zfs-load-key(8).\n"
+"The encryption_root shows the name of the ZFS resource that this resource\n"
+"inherits its encryption key from. When you load or unload the key for the\n"
+"encryption_root, the system also loads or unloads the key for all datasets\n"
+"that inherit from it.\n"
+"For more information, see the zfs-load-key(8) man page.\n"
 );
 
 PyDoc_STRVAR(py_zfs_crypto_keylocation__doc__,
-"Default location from which the ZFS encrpytion key will be loaded if the\n"
-"ZFS resource is mounted with \"load_encyption_key=True\" or through the\n"
-"\"load_key\" method if a key or alternative keylocation is not provided.\n"
-"This field is only populated when the resource is an encyption_root.\n"
+"This is the default location from which the ZFS encryption key is loaded.\n"
+"The library uses this location if the ZFS resource is mounted with\n"
+"load_encryption_key=True or if the load_key method is used and no key or \n"
+"alternative key location is given.\n\n"
+"Valid keylocation values include:\n"
+"* Absolute paths in the local file system, starting with file://\n"
+"* HTTPS URLs (fetched using fetch(3) from libcurl)\n"
+"* The word prompt, which tells the server to ask the user for the key\n\n"
+"NOTE: This field is valid only if the resource is an encryption root.\n"
 );
 
 PyDoc_STRVAR(py_zfs_crypto_keystatus__doc__,
-"Indicates if an encryption key is currently loaded into ZFS for this\n"
-"ZFS resource. If the ZFS keystatus property for this resource is\n"
-"\"available\" the value will be True, otherwise it will be False.\n"
+"This shows if an encryption key is currently loaded into ZFS for this resource.\n"
+"If the keystatus property of the resource is available, the value is True.\n"
+"If not, the value is False.\n"
 );
 
 PyStructSequence_Field struct_zfs_crypto_info [] = {
@@ -45,6 +51,65 @@ PyStructSequence_Desc struct_zfs_crypto_info_desc = {
         .doc = "Python ZFS cryptography information.",
         .n_in_sequence = 4
 };
+
+PyDoc_STRVAR(py_zfs_crypto_keyformat__doc__,
+"This setting controls the format in which the user provides the encryption key.\n"
+"Valid keyformat values include: \"raw\", \"hex\", and \"passphrase\".\n"
+"* \"raw\" and \"hex\" keys must be 32 bytes long, no matter which encryption suite\n"
+"  is used. These keys must be randomly generated.\n"
+"* \"passphrase\" must be between 8 and 512 bytes long. The library processes them\n"
+"  through PBKDF2 before using them (see the \"pbkdf2_iters\" setting).\n\n"
+);
+
+PyDoc_STRVAR(py_zfs_crypto_keylocation_uri__doc__,
+"This is the default location from which the ZFS encryption key is loaded.\n"
+"The library uses this location if the ZFS resource is mounted with\n"
+"load_encryption_key=True or if the load_key method is used and no key or \n"
+"alternative key location is given.\n\n"
+"Valid keylocation values include:\n"
+"* Absolute paths in the local file system, starting with file://\n"
+"* HTTPS URLs (fetched using fetch(3) from libcurl)\n"
+"* None - this ZFS will be ask you for a password when unlocking the resource.\n"
+"NOTE: If \"keylocation\" is None, you must provide the encryption key or password\n"
+"in the cryptography configuration payload.\n"
+);
+
+PyDoc_STRVAR(py_zfs_crypto_key__doc__,
+"This sets the password or key used to unlock the ZFS resource.\n"
+"This is valid only if the \"keylocation_uri\" is set to None.\n"
+);
+
+PyDoc_STRVAR(py_zfs_crypto_pbkdf2_iters__doc__,
+"This setting controls the number of PBKDF2 iterations used to turn a passphrase\n"
+"into an encryption key. The minimum allowed value is " PBKDF2_MIN_ITERS ".\n"
+"Valid pbkdf2_iters values include:\n"
+"* An integer greater than or equal to the minimum allowed value.\n"
+"* The value None. If set to None, the library uses the minimum allowed value.\n"
+"NOTE: this setting is valid only if the \"passphrase\" \"keyformat\" is selected.\n" 
+);
+
+PyDoc_STRVAR(py_zfs_crypto_change__doc__,
+"This data structure is used to define (on resource creation) or change resource\n"
+"encryption settings. ZFS can either prompt the user for the key or retrieve it from\n"
+"a specified key location.\n"
+"* If \"key_location_uri\" is set to None, ZFS prompts the user for the key. In \n"
+"  this case, the \"key\" field is required.\n"
+"* If \"key_location_uri\" is not set to None, then the \"key\" field must be None.\n"
+);
+PyStructSequence_Field struct_zfs_crypto_change [] = {
+	{"keyformat", py_zfs_crypto_keyformat__doc__},
+	{"key_location_uri", py_zfs_crypto_keylocation_uri__doc__},
+	{"key", py_zfs_crypto_key__doc__},
+	{"pbkdf2_iters", py_zfs_crypto_pbkdfs2_iters__doc__},
+	{0},
+};
+
+PyStructSequence_Desc struct_zfs_crypto_change_desc = {
+        .name = PYLIBZFS_MODULE_NAME ".struct_zfs_crypto_config",
+        .fields = struct_zfs_crypto_info,
+        .doc = py_zfs_crypto_change__doc__,
+        .n_in_sequence = 4
+}
 
 static
 PyObject *py_zfs_enc_new(PyTypeObject *type, PyObject *args,
@@ -880,6 +945,7 @@ PyDoc_STRVAR(py_zfs_enc_change_key__doc__,
 "    Invalid combination of key and key_location parameters.\n\n"
 "ValueError:\n"
 "    ZFS resource is configured to prompt for key and no key was provided.\n\n"
+);
 PyObject *py_zfs_enc_change_key(PyObject *self,
 				PyObject *args_unused,
 				PyObject *kwargs)
@@ -1172,12 +1238,21 @@ void module_init_zfs_crypto(PyObject *module)
 {
 	pylibzfs_state_t *state = NULL;
 	PyTypeObject *obj;
+	int err;
 
 	state = (pylibzfs_state_t *)PyModule_GetState(module);
 	PYZFS_ASSERT(state, "Failed to get module state.");
 
 	obj = PyStructSequence_NewType(&struct_zfs_crypto_info_desc);
-	PYZFS_ASSERT(obj, "Failed to allocate struct_zfs_prop_type");
+	PYZFS_ASSERT(obj, "Failed to allocate struct_zfs_crypto_info_type");
 
-	state->struct_zfs_crytpo_info_type = obj;
+	state->struct_zfs_crypto_info_type = obj;
+
+	obj = PyStructSequence_NewType(&struct_zfs_crypto_change_desc);
+	PYZFS_ASSERT(obj, "Failed to allocate struct_zfs_crypto_info_type");
+
+	state->struct_zfs_crypto_change_type = obj;
+
+	err = PyModule_AddObjectRef(mpylibzfs, "resource_cryptography_config", obj);
+	PYZFS_ASSERT(err == 0, "Failed to add crypto configuration");
 }
