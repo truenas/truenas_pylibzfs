@@ -47,6 +47,7 @@ PyObject *zfs_prop_table_to_dict(void)
 
 	for (i=0; i < ARRAY_SIZE(zfs_prop_table); i++) {
 		PyObject *val = NULL;
+		PyObject *key = NULL;
 
 		/*
 		 * For now exclude properties that aren't
@@ -61,10 +62,22 @@ PyObject *zfs_prop_table_to_dict(void)
 		if (val == NULL)
 			goto fail;
 
-		err = PyDict_SetItemString(dict_out,
-					   zfs_prop_table[i].name,
-					   val);
+		key = PyUnicode_FromString(zfs_prop_to_name(zfs_prop_table[i].prop));
+		if (key == NULL) {
+			Py_DECREF(val);
+			goto fail;
+		}
+
+		PyObject *uppercase_key = PyObject_CallMethod(key, "upper", NULL);
+		Py_DECREF(key);
+		if (uppercase_key == NULL) {
+			Py_DECREF(val);
+			goto fail;
+		}
+
+		err = PyDict_SetItem(dict_out, uppercase_key, val);
 		Py_DECREF(val);
+		Py_DECREF(uppercase_key);
 		if (err)
 			goto fail;
 	}
