@@ -5,6 +5,10 @@ typedef struct {
 	PyObject *zfs_volume_readonly_props;
 	PyObject *zfs_filesystem_props;
 	PyObject *zfs_filesystem_readonly_props;
+	PyObject *zfs_filesystem_snapshot_props;
+	PyObject *zfs_filesystem_snapshot_readonly_props;
+	PyObject *zfs_volume_snapshot_props;
+	PyObject *zfs_volume_snapshot_readonly_props;
 } pylibzfs_propset_t;
 
 
@@ -28,6 +32,10 @@ py_zfs_propset_module_clear(PyObject *module)
 	Py_CLEAR(state->zfs_volume_readonly_props);
 	Py_CLEAR(state->zfs_filesystem_props);
 	Py_CLEAR(state->zfs_filesystem_readonly_props);
+	Py_CLEAR(state->zfs_filesystem_snapshot_props);
+	Py_CLEAR(state->zfs_filesystem_snapshot_readonly_props);
+	Py_CLEAR(state->zfs_volume_snapshot_props);
+	Py_CLEAR(state->zfs_volume_snapshot_readonly_props);
 	return 0;
 }
 
@@ -87,6 +95,22 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 	if (state->zfs_filesystem_readonly_props == NULL)
 		goto error;
 
+	state->zfs_filesystem_snapshot_props = PyFrozenSet_New(NULL);
+	if (state->zfs_filesystem_snapshot_props == NULL)
+		goto error;
+
+	state->zfs_filesystem_snapshot_readonly_props = PyFrozenSet_New(NULL);
+	if (state->zfs_filesystem_snapshot_readonly_props == NULL)
+		goto error;
+
+	state->zfs_volume_snapshot_props = PyFrozenSet_New(NULL);
+	if (state->zfs_volume_snapshot_props == NULL)
+		goto error;
+
+	state->zfs_volume_snapshot_readonly_props = PyFrozenSet_New(NULL);
+	if (state->zfs_volume_snapshot_readonly_props == NULL)
+		goto error;
+
 	state->zfs_space_props = PyFrozenSet_New(NULL);
 	if (state->zfs_space_props == NULL)
 		goto error;
@@ -106,6 +130,14 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 			if (zfs_prop_readonly(val) &&
 			    (PySet_Add(state->zfs_volume_readonly_props, item)))
 				goto error;
+
+			if (zfs_prop_valid_for_type(val, ZFS_TYPE_SNAPSHOT, B_FALSE)) {
+				if (PySet_Add(state->zfs_volume_snapshot_props, item))
+					goto error;
+				if (zfs_prop_readonly(val) &&
+				    (PySet_Add(state->zfs_volume_snapshot_readonly_props, item)))
+					goto error;
+			}
 		}
 
 		if (zfs_prop_valid_for_type(val, ZFS_TYPE_FILESYSTEM, B_FALSE)) {
@@ -114,6 +146,14 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 			if (zfs_prop_readonly(val) &&
 			    (PySet_Add(state->zfs_filesystem_readonly_props, item)))
 				goto error;
+
+			if (zfs_prop_valid_for_type(val, ZFS_TYPE_SNAPSHOT, B_FALSE)) {
+				if (PySet_Add(state->zfs_filesystem_snapshot_props, item))
+					goto error;
+				if (zfs_prop_readonly(val) &&
+				    (PySet_Add(state->zfs_filesystem_snapshot_readonly_props, item)))
+					goto error;
+			}
 		}
 
 		if (is_space_zfs_prop(val) &&
@@ -137,6 +177,22 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 
 	if (PyModule_AddObjectRef(module, "ZFS_FILESYSTEM_READONLY_PROPERTIES",
 	    state->zfs_filesystem_readonly_props) < 0)
+		goto error;
+
+	if (PyModule_AddObjectRef(module, "ZFS_FILESYSTEM_SNAPSHOT_PROPERTIES",
+	    state->zfs_filesystem_snapshot_props) < 0)
+		goto error;
+
+	if (PyModule_AddObjectRef(module, "ZFS_FILESYSTEM_SNAPSHOT_READONLY_PROPERTIES",
+	    state->zfs_filesystem_snapshot_readonly_props) < 0)
+		goto error;
+
+	if (PyModule_AddObjectRef(module, "ZFS_VOLUME_SNAPSHOT_PROPERTIES",
+	    state->zfs_volume_snapshot_props) < 0)
+		goto error;
+
+	if (PyModule_AddObjectRef(module, "ZFS_VOLUME_SNAPSHOT_READONLY_PROPERTIES",
+	    state->zfs_volume_snapshot_readonly_props) < 0)
 		goto error;
 
 	if (PyModule_AddObjectRef(module, "ZFS_SPACE_PROPERTIES",
