@@ -10,6 +10,8 @@
 // Min length and max length are defined in libzfs_crypto.c in libzfs
 #define MIN_PASSPHRASE_LEN 8
 #define MAX_PASSPHRASE_LEN 512
+#define WRAPPING_KEY_LEN 32  // defined in zio_crypt.h
+#define NULL_OR_NONE(x) ((x == NULL) || (x == Py_NONE))
 
 PyDoc_STRVAR(py_zfs_crypto_encroot__doc__,
 "The encryption_root shows the name of the ZFS resource that this resource\n"
@@ -109,6 +111,247 @@ PyStructSequence_Desc struct_zfs_crypto_change_desc = {
         .fields = struct_zfs_crypto_info,
         .doc = py_zfs_crypto_change__doc__,
         .n_in_sequence = 4
+}
+
+typedef struct {
+	zfs_keyformat_t format;
+	const char *format_str;
+	const char *key_location_uri;
+	const char *key;  // crypto key if keylocation is prompt
+	Py_ssize_t key_len;,
+	uint64_t iters;  // pbkdf2 iters (for passphrase keyformat)
+} zfs_crypto_change_info_t;
+
+static
+boolean_t parse_key_format(const char *key_format, zfs_keyformat_t *format_out)
+{
+	if (strcmp(key_format, "raw") == 0)
+		*format_out = ZFS_KEYFORMAT_RAW;
+	else if (strcmp(key_format, "hex") == 0)
+		*format_out = ZFS_KEYFORMAT_HEX;
+	else if (strcmp(key_format, "passphrase") == 0)
+		*format_out = ZFS_KEYFORMAT_PASSPHRASE;
+	else {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: not a valid key format. Choices are: "
+			     "\"raw\", \"hex\", and \"passphrase\".");
+		return B_FALSE;
+	}
+
+	return B_TRUE;
+}
+
+static
+boolean_t validate_keylocation(PyObject *py_keyloc)
+{
+	// Check that key_location is prefixed by file:// or https://
+	// Technically, libzfs supports reading key material over http,
+	// but I don't consider this a reasonable feature to expose
+	if ((strncmp(key_location_uri, ZFS_URI_PREFIX_FILE,
+	     sizeof(ZFS_URI_PREFIX_FILE)) != 0) &&
+	    (strncmp(key_location_uri, ZFS_URI_PREFIX_HTTPS,
+	     sizeof(ZFS_URI_PREFIX_HTTPS)) != 0)) {
+		PyErr_SetString(PyExc_ValueError,
+				"Encryption key location URI must "
+				"be prefixed with either file:// or "
+				"https://");
+		return NULL;
+
+}
+
+static
+boolean_t validate_keyformat(PyObject *py_keyformat,
+			     PyObject *py_iters,
+			     zfs_crypto_change_info_t *info);
+{
+	const char *keyformat_str;
+	Py_ssize_t iters;
+	zfs_keyformat_t format;
+
+	if ((py_keyformat == NULL) || (py_keyformat == Py_NONE)) {
+		PyErr_SetString(PyExc_ValueError,
+				"keyformat is required.")
+		return B_FALSE;
+	}
+
+	if (!PyUnicode_Check(py_keyformat)) {
+		PyErr_SetString(PyExc_TypeError,
+				"keyformat must be one of \"raw\", \"hex\", "
+				"or \"passphrase\".");
+		return B_FALSE;
+	}
+
+	keyformat_str = PyUnicode_AsUTF8(py_keyformat);
+	if (keyformat_str == NULL)
+		return B_FALSE;
+
+	if (!parse_key_format(keyformat_str, &format))
+		return B_FALSE;
+
+	if ((format != ZFS_KEYFORMAT_PASSPHRASE) || NULL_OR_NONE(py_iters)) {
+		info->format = format;
+		info->format_str = keyformat_str;
+		return B_TRUE;
+	}
+
+	// passphase with iters specified. Need to make sure it's sane
+	if (!PyLong_Check(py_iters)) {
+		PyErr_SetString(PyExc_ValueError,
+				"keyformat is required.")
+		return B_FALSE;
+	}
+
+	iters = PyLong_AsSsize_t(py_iters);
+	if ((iters == -1) && PyErr_Occurred())
+		return B_FALSE;
+
+	if (iters < PBKDF2_MIN_ITERS) {
+		PyErr_Format(PyExc_ValueError,
+			     "Number of pbdkf2 iterations must exceed %d.",
+			     PBKDF2_MIN_ITERS);
+		return B_FALSE;
+	}
+
+	info->iters = iters;
+	info->format = format;
+	info->format_str = keyformat_str;
+
+	return B_TRUE;
+}
+
+/* Validate key material and set it in the provided `info` */
+static
+boolean_t validate_key_material(PyObject *py_key, zfs_crypto_change_info_t *info)
+{
+	const char *key;
+	PyObject *tmp;
+	Py_ssize_t keylen;
+
+	PYZFS_ASSERT(info->format < ZFS_KEYFORMAT_FORMATS);
+
+	switch (info->format) {
+	case ZFS_KEYFORMAT_RAW:
+		if (!PyBytes_Check(key)) {
+			PyErr_SetString(PyExc_TypeError,
+					"Raw key material must be "
+					"presented as a bytes object.");
+			return B_FALSE;
+		}
+		if (PyBytes_AsStringAndSize(py_key, &key, &keylen))
+			return B_FALSE;
+
+		if (keylen != WRAPPING_KEY_LEN) {
+			PyErr_Format(PyExc_ValueError,
+				     "The raw key must be %d bytes long.",
+				     WRAPPING_KEY_LEN);
+		}
+		info->key = key;
+		info->key_len = keylen;
+		break;
+	case ZFS_KEYFORMAT_HEX:
+		tmp = PyLong_FromUnicodeObject(py_key, 16);
+		if (tmp == NULL) {
+			// Clear generic exception and set something
+			//more specific
+			PyErr_Clear();
+			PyErr_SetString(PyExc_TypeError,
+					"You must provide a valid hex string "
+					"when the ZFS key format is set to hex.")
+			return B_FALSE;
+
+		Py_DECREF(tmp);
+		key = PyUnicode_AsUTF8AndSize(py_key, &keylen);
+		if (key == NULL)
+			return B_FALSE;
+
+		if (keylen != WRAPPING_KEY_LEN * 2) {
+			PyErr_Format(PyExc_ValueError,
+				     "The hex key must be %d characters long.",
+				     WRAPPING_KEY_LEN * 2);
+		}
+
+		info->key = key;
+		info->key_len = keylen;
+		break;
+	case ZFS_KEYFORMAT_PASSPHRASE:
+		if (!PyUnicode_Check(key)) {
+			PyErr_SetString(PyExc_TypeError,
+					"Passphrase must be a valid "
+					"unicode string.");
+			return B_FALSE;
+		}
+
+		key = PyUnicode_AsUTF8AndSize(py_key, &keylen);
+		if (key == NULL)
+			return B_FALSE;
+
+		if (keylen < MIN_PASSPHRASE_LEN) {
+			PyErr_Format(PyExc_ValueError,
+				     "The passphrase must have at least %d "
+				     "characters.", MIN_PASSPHRASE_LEN);
+			return B_FALSE;
+		} else if (keylen > MAX_PASSPHRASE_LEN) {
+			PyErr_Format(PyExc_ValueError,
+				     "The passphrase must have at most %d "
+				     "characters.", MAX_PASSPHRASE_LEN);
+			return B_FALSE;
+		}
+		info->key = key;
+		info->key_len = keylen;
+		break;
+	default:
+		PyErr_SetString(PyExc_ValueError,
+				"The ZFS key format is required.");
+		return B_FALSE;
+	}
+
+	return B_TRUE;
+}
+
+static
+boolean_t py_validate_crypto_change(pylibzfs_state_t *state,
+				    PyObject *obj,
+				    zfs_crypto_change_info_t *info)
+{
+	PyObject *py_keyformat, *py_keyloc, *py_key, *py_iters;
+
+	if (!PyObject_TypeCheck(obj, state->struct_zfs_crypto_change_type)) {
+		PyErr_SetString(PyExc_TypeError,
+				"Expected " PYLIBZFS_MODULE_NAME
+				".struct_zfs_crypto_config");
+		return B_FALSE;
+	}
+
+	py_keyformat = PyStructSequence_GET_ITEM(obj, 0);
+	if (!validate_keyformat(py_keyformat))
+		return B_FALSE;
+
+	py_keyloc = PyStructSequence_GET_ITEM(obj, 1);
+	py_key = PyStructSequence_GET_ITEM(obj, 2);
+
+	if (NULL_OR_NONE(py_keyloc) && NULL_OR_NONE(py_key)){
+		PyErr_SetString(PyExc_ValueError,
+				"Either a key location URI or an encryption "
+				"key material is required.");
+		return B_FALSE;
+	}
+
+	if (NULL_OR_NONE(py_keyloc)) {
+		if (!validate_key_material(py_key, info))
+			return B_FALSE;
+	} else {
+		if (!NULL_OR_NONE(py_key)) {
+			PyErr_SetString(PyExc_ValueError,
+					"Encryption key location URI and "
+					"encryption key material material may "
+					"not be specified at the same time.");
+			return B_FALSE;
+		}
+		if (!validate_keylocation(py_keyloc, info))
+			return B_FALSE;
+	}
+
+	return B_TRUE;
 }
 
 static
@@ -733,79 +976,41 @@ PyObject *py_zfs_enc_inherit_key(PyObject *self, PyObject *args_unused)
 }
 
 static
-nvlist_t *get_change_key_params(const char *key_location_uri,
-				zfs_keyformat_t key_format,
-				uint64_t pbkdf2_iters)
+nvlist_t *get_change_key_params(zfs_crypto_change_info_t *info)
 {
 	nvlist_t *out = fnvlist_alloc();
 
 	fnvlist_add_string(out, zfs_prop_to_name(ZFS_PROP_KEYLOCATION),
-	    key_location_uri);
+	    info->key_location_uri);
 
 	fnvlist_add_uint64(out, zfs_prop_to_name(ZFS_PROP_KEYFORMAT),
-	    key_format);
+	    info->format);
 
-	if (pbkdf2_iters)
+	if (info->iters)
 		fnvlist_add_uint64(out, zfs_prop_to_name(ZFS_PROP_PBKDF2_ITERS),
-		    pbkdf2_iters);
+		    info->iters);
 
 	return out;
 }
 
 static
-boolean_t parse_key_format(const char *key_format, zfs_keyformat_t *format_out)
-{
-	if (strcmp(key_format, "raw") == 0)
-		*format_out = ZFS_KEYFORMAT_RAW;
-	else if (strcmp(key_format, "hex") == 0)
-		*format_out = ZFS_KEYFORMAT_HEX;
-	else if (strcmp(key_format, "passphrase") == 0)
-		*format_out = ZFS_KEYFORMAT_PASSPHRASE;
-	else {
-		PyErr_Format(PyExc_ValueError,
-			     "%s: not a valid key format. Choices are: "
-			     "\"raw\", \"hex\", and \"passphrase\".");
-		return B_FALSE;
-	}
-
-	return B_TRUE;
-}
-
-static
 boolean_t py_zfs_crypto_rewrap_key(py_zfs_obj_t *obj,
-				   zfs_keyformat_t key_format,
-				   PyObject *key_in,
-				   uint64_t pbkdf2_iters)
+				   zfs_crypto_change_info_t *info)
 {
 	FILE *keyfile = NULL;
-	const char *key = NULL;
 	char pbuf[42] = { 0 };  // "file://" + "/proc/self/fd/" + strlen(2^64) + \0
 	boolean_t success = B_FALSE;
 	nvlist_t *props = NULL;
 	py_zfs_error_t zfs_err;
 	int err = 0;
 
-	// We have already passed through type validation
-	if (key_format == ZFS_KEYFORMAT_RAW) {
-		key = PyBytes_AsString(key_in);
-	} else {
-		key = PyUnicode_AsUTF8(key_in);
-	}
-
-	// An error here is unexpected and so we need to pass exception up to
-	// caller.
-	if (key == NULL)
-		// Python has already set exception
-		return B_FALSE;
-
 	Py_BEGIN_ALLOW_THREADS
-
 	// Copy user-provided key into an in-memory FILE
 	keyfile = get_mem_keyfile();
 	if (keyfile != NULL) {
 		size_t written;
-		written = fwrite(key, 1, strlen(key), keyfile);
-		if (written == strlen(key)) {
+		written = fwrite(info->key, 1, info->key_len, keyfile);
+		if (written == info->key_len) {
 			fflush(keyfile);
 			success = B_TRUE;
 		}
@@ -819,7 +1024,7 @@ boolean_t py_zfs_crypto_rewrap_key(py_zfs_obj_t *obj,
 			fileno(keyfile)
 		);
 
-		props = get_change_key_params(pbuf, key_format, pbkdf2_iters);
+		props = get_change_key_params(info);
 
 		PY_ZFS_LOCK(obj->pylibzfsp);
 		err = zfs_crypto_rewrap(obj->zhp, props, B_FALSE);
@@ -857,9 +1062,7 @@ boolean_t py_zfs_crypto_rewrap_key(py_zfs_obj_t *obj,
 
 static
 boolean_t py_zfs_crypto_rewrap_loc(py_zfs_obj_t *obj,
-				   const char *key_location_uri,
-				   zfs_keyformat_t key_format,
-				   uint64_t iters)
+				   zfs_crypto_change_info_t *info)
 {
 	nvlist_t *props = NULL;
 	py_zfs_error_t zfs_err;
@@ -867,7 +1070,7 @@ boolean_t py_zfs_crypto_rewrap_loc(py_zfs_obj_t *obj,
 
 	Py_BEGIN_ALLOW_THREADS
 	// fnvlist API cannot fail to allocate
-	props = get_change_key_params(key_location_uri, key_format, iters);
+	props = get_change_key_params(info);
 
 	PY_ZFS_LOCK(obj->pylibzfsp);
 	err = zfs_crypto_rewrap(obj->zhp, props, B_FALSE);
@@ -891,41 +1094,24 @@ boolean_t py_zfs_crypto_rewrap_loc(py_zfs_obj_t *obj,
 
 static
 boolean_t py_zfs_crypto_rewrap(py_zfs_obj_t *obj,
-			       const char *key_loc_uri,
-			       zfs_keyformat_t key_format,
-			       PyObject *key,
-			       uint64_t iters)
+			       zfs_crypto_change_info_t *info)
 {
-	if (key != NULL)
-		return py_zfs_crypto_rewrap_key(obj, key_format, key, iters);
+	if (info->key != NULL)
+		return py_zfs_crypto_rewrap_key(obj, info);
 
-	return py_zfs_crypto_rewrap_loc(obj, key_loc_uri, key_format, iters);
+	return py_zfs_crypto_rewrap_loc(obj, info);
 }
 
 PyDoc_STRVAR(py_zfs_enc_change_key__doc__,
-"change_key(*, key_format=None, key_location_uri=None,\n"
-"           pbkdf2_iters=1300000, key=None) -> None\n"
-"---------------------------------------------------\n\n"
+"change_key(*, info) -> None\n"
+"----------------------------\n\n"
 "Change the encryption key for the ZFS resource (dataset or zvol). This\n"
 "will establish the resource as an encryption root if it is not already one.\n"
 "See Encryption section of man (5) zfs-load-key for more information.\n\n"
 ""
 "Parameters\n"
 "----------\n"
-"key_location: str, optional, default=None\n"
-"    Optional parameter to specify the location in which key material\n"
-"    may be found. This may be a local file or a path served over https.\n\n"
-"key: str, optional, default=None\n"
-"    Optional parameter to specify the password or key to use\n"
-"    to unlock the ZFS resource. This is required if the ZFS\n"
-"    resource (dataset or zvol) has the keylocation set to \"prompt\".\n"
-"key_location: str, optional, default=None\n"
-"    Optional parameter to override the ZFS key location specified\n"
-"    in the ZFS dataset settings. This must be None when \"key\" is\n"
-"    specified.\n\n"
-"test: bool, optional, default=False\n"
-"    Perform a dry-run to check whether the ZFS resource can be unlocked\n"
-"    with the specified parameters.\n\n"
+"info: truenas_libzfs.crypto_change_info\n"
 ""
 "Returns\n"
 "-------\n"
@@ -943,136 +1129,32 @@ PyObject *py_zfs_enc_change_key(PyObject *self,
 				PyObject *kwargs)
 {
 	py_zfs_obj_t *obj = py_enc_get_zfs_obj(((py_zfs_enc_t *)self));
+	pylibzfs_state_t *state = py_get_module_state(obj->pylibzfsp);
 	char keylocation[ZFS_MAXPROPLEN];
 	char encroot[ZFS_MAXPROPLEN];
 	boolean_t is_encroot, is_loaded;
 	int err;
 
-	const char *key_format_str = NULL;
-	const char *key_location_uri = NULL;
-	zfs_keyformat_t key_format = ZFS_KEYFORMAT_NONE;
-	PyObject *key = NULL;
-	uint64_t iters = PBKDF2_MIN_ITERS;
-
-	char *kwnames [] = {
-		"key_format",
-		"key_location_uri",
-		"pbkdf2_iters",
-		"key",
-		NULL
-	};
+	PyObject *py_info = NULL;
+	zfs_crypto_change_info_t info = { .iters = PBKDF2_MIN_ITERS };	
+	char *kwnames [] = {"info", NULL};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-                                         "|$sskO",
+                                         "|$O",
                                          kwnames,
-					 &key_format_str,
-					 &key_location_uri,
-					 &iters,
-					 &key)) {
+					 &py_info)) {
 		return NULL;
 	}
 
-	if ((key_location_uri == NULL) && (key == NULL)) {
+	if (py_info == NULL) {
 		PyErr_SetString(PyExc_ValueError,
 				"Either a key location URI or an encryption "
 				"key material is required.");
 		return NULL;
 	}
 
-	if (key_format_str && !parse_key_format(key_format_str, &key_format))
+	if (!py_validate_crypto_change(state, py_info, &info))
 		return NULL;
-
-	if (key_location_uri != NULL) {
-		if (key != NULL) {
-			PyErr_SetString(PyExc_ValueError,
-					"Encryption key location URI and "
-					"encryption key material material may "
-					"not be specified at the same time.");
-			return NULL;
-		}
-
-		// Check that key_location is prefixed by file:// or https://
-		// Technically, libzfs supports reading key material over http,
-		// but I don't consider this a reasonable feature to expose
-		if ((strncmp(key_location_uri, ZFS_URI_PREFIX_FILE,
-		     sizeof(ZFS_URI_PREFIX_FILE)) != 0) &&
-		    (strncmp(key_location_uri, ZFS_URI_PREFIX_HTTPS,
-		     sizeof(ZFS_URI_PREFIX_HTTPS)) != 0)) {
-			PyErr_SetString(PyExc_ValueError,
-					"Encryption key location URI must "
-					"be prefixed with either file:// or "
-					"https://");
-			return NULL;
-		}
-	} else {
-		switch (key_format) {
-		case ZFS_KEYFORMAT_RAW:
-			if (!PyBytes_Check(key)) {
-				PyErr_SetString(PyExc_TypeError,
-						"Raw key material must be "
-						"presented as a bytes object.");
-				return NULL;
-			}
-			break;
-		case ZFS_KEYFORMAT_HEX: {
-			PyObject *tmp = NULL;
-
-			tmp = PyLong_FromUnicodeObject(key, 16);
-			if (tmp == NULL) {
-				// Clear generic exception and set something
-				//more specific
-				PyErr_Clear();
-				PyErr_SetString(PyExc_TypeError,
-						"A valid hex string must be "
-						"provided when changing the "
-						"ZFS crypto key with the "
-						"\"hex\" key format.");
-				return NULL;
-			}
-			Py_DECREF(tmp);
-			};
-			break;
-		case ZFS_KEYFORMAT_PASSPHRASE: {
-			Py_ssize_t len;
-			if (!PyUnicode_Check(key)) {
-				PyErr_SetString(PyExc_TypeError,
-						"Passphrase must be a valid "
-						"unicode string.");
-				return NULL;
-			}
-
-			len = PyObject_Length(key);
-			if (len == -1)
-				// Python error. Exception is set.
-				return NULL;
-
-			if (len < MIN_PASSPHRASE_LEN) {
-				PyErr_Format(PyExc_ValueError,
-					     "Passphrase must contain at minimum "
-					     "%d characters.", MIN_PASSPHRASE_LEN);
-				return NULL;
-			} else if (len > MAX_PASSPHRASE_LEN) {
-				PyErr_Format(PyExc_ValueError,
-					     "Passphrase must contain at maximum "
-					     "%d characters.", MAX_PASSPHRASE_LEN);
-				return NULL;
-			}
-
-			if (iters < PBKDF2_MIN_ITERS) {
-				PyErr_Format(PyExc_ValueError,
-					     "Number of pbdkf2 iterations must exceed %d.",
-					     PBKDF2_MIN_ITERS);
-				return NULL;
-			}
-			};
-			break;
-		default:
-			PyErr_SetString(PyExc_ValueError,
-					"The ZFS key format must be specified when "
-					"setting a new ZFS crypyto key.");
-			return NULL;
-		};
-	}
 
 	if (!zfs_obj_crypto_info(obj,
 				 encroot, sizeof(encroot),
@@ -1081,7 +1163,7 @@ PyObject *py_zfs_enc_change_key(PyObject *self,
 		return NULL;
 	}
 
-	if (!is_encroot && (key_format == ZFS_KEYFORMAT_NONE)) {
+	if (!is_encroot && (info.key_format == ZFS_KEYFORMAT_NONE)) {
 		PyErr_SetString(PyExc_ValueError,
 				"Key format is required for new encryption "
 				"root.");
@@ -1097,24 +1179,24 @@ PyObject *py_zfs_enc_change_key(PyObject *self,
 	}
 
 	// Perform the ZFS operation
-	if (!py_zfs_crypto_rewrap(obj, key_location_uri, key_format, key, iters))
+	if (!py_zfs_crypto_rewrap(obj, &info))
 		return NULL;
 
-	if (key_location_uri != NULL) {
+	if (info.key_location_uri != NULL) {
 		err = py_log_history_fmt(obj->pylibzfsp,
 					 "zfs change-key %s "
 					 "keylocation=%s, "
 					 "keyformat=%s",
 					 zfs_get_name(obj->zhp),
-					 key_location_uri,
-					 key_format_str);
+					 info.key_location_uri,
+					 info.format_str);
 	} else {
 		err = py_log_history_fmt(obj->pylibzfsp,
 					 "zfs change-key %s "
 					 "keylocation=prompt, "
 					 "keyformat=%s",
 					 zfs_get_name(obj->zhp),
-					 key_format_str);
+					 info.format_str);
 	}
 	if (err)
 		return NULL;
