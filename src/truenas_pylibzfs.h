@@ -427,4 +427,54 @@ extern PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json);
 
 /* Provided by py_zfs_crypto.c */
 extern PyObject *py_zfs_crypto_info_dict(py_zfs_obj_t *obj);
+
+/*
+ * @brief create an encrypted ZFS resource
+ *
+ * This function creates an encrypted resource with specified properties and
+ * crypto config.
+ *
+ * @param[in]	pyzfs - pointer to a py_zfs_t object (libzfs handle)
+ * @param[in]   name - the name of the new resource E.g. "dozer/myenc"
+ * @param[in]   ztype - the zfs type of the new resource
+ * @param[in]	props - combined nvlist of properties to set when creating resource
+ * @param[in]	pycrypto - pointer to PyObject (should be cryptography info type).
+ * @return	returns boolean_t indicating success
+ *
+ * @note cryptography properties from pycrypto object will be merged with nvlist
+ * and overwrite any duplicate keys in `props`.
+ *
+ * @note GIL must be held while calling this function.
+ */
+extern boolean_t pyzfs_create_crypto(py_zfs_t *pyzfs,
+				     const char *name,
+				     zfs_type_t ztype,
+				     nvlist_t *props,
+				     PyObject *pycrypto);
+
+/*
+ * @brief create a crypto info struct sequence object
+ *
+ * This function creates a new cryptography resource struct sequence object
+ * (named tuple equivalent) based on the provided python objects. Validation
+ * is performed while creating it and NULL is returned on validation error.
+ *
+ * @param[in]	pyzfs - pointer to a py_zfs_t object (libzfs handle)
+ * @param[in]   py_keyformat - unicode string containing keyformat type
+ * @param[in]   py_keyloc - unicode object containing key location string or None
+ *              if prompting user for password.
+ * @param[in]   py_key - unicode or bytes object containing key material if prompt
+ *              else None type if key location is local FS path or https.
+ * @param[in]   py_iters - hashing algo iterations if keyformat is password
+ * @return	returns new python object on success or NULL (with exception set)
+ *              on failure.
+ *
+ * @note GIL must be held while calling this function.
+ */
+extern PyObject *generate_crypto_config(py_zfs_t *pyzfs,
+					PyObject *py_keyformat,
+					PyObject *py_keyloc,
+					PyObject *py_key,
+					PyObject *py_iters);
+
 #endif  /* _TRUENAS_PYLIBZFS_H */

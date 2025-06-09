@@ -75,7 +75,8 @@ boolean_t py_zfs_create(py_zfs_t *self,
 			zfs_type_t allowed_types,
 			PyObject *pyzfstype,
 			PyObject *pyprops,
-			PyObject *pyuserprops)
+			PyObject *pyuserprops,
+			PyObject *pycrypto)
 {
 	long ztype;
 	nvlist_t *props = NULL;
@@ -142,14 +143,27 @@ boolean_t py_zfs_create(py_zfs_t *self,
 		return B_FALSE;
 	}
 
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(self);
-	err = zfs_create(self->lzh, name, ztype, props);
-	if (err) {
-		py_get_zfs_error(self->lzh, &zfs_err);
+	if (pycrypto) {
+		// pyzfs_creat_crypto() will handle the history entry and
+		// freeing `props`
+		return pyzfs_create_crypto(self, name, ztype, props, pycrypto);
+	} else {
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(self);
+		err = zfs_create(self->lzh, name, ztype, props);
+		if (err) {
+			py_get_zfs_error(self->lzh, &zfs_err);
+		}
+		PY_ZFS_UNLOCK(self);
+		Py_END_ALLOW_THREADS
 	}
-	PY_ZFS_UNLOCK(self);
-	Py_END_ALLOW_THREADS
+
+	// Error out early to avoid inserting ZFS history on failed dataset creation
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_create() failed");
+		fnvlist_free(props);
+		return B_FALSE;
+	}
 
 	if (props) {
 		const char *json_str = NULL;
@@ -174,11 +188,6 @@ boolean_t py_zfs_create(py_zfs_t *self,
 
 	fnvlist_free(props);
 
-	if (err) {
-		set_exc_from_libzfs(&zfs_err, "zfs_open() failed");
-		return B_FALSE;
-	}
-
 	return B_TRUE;
 }
 
@@ -192,6 +201,7 @@ PyObject *py_zfs_resource_create(PyObject *self,
 	PyObject *pyprops = NULL;
 	PyObject *pyuprops = NULL;
 	PyObject *pyzfstype = NULL;
+	PyObject *pycrypto = NULL;
 	boolean_t created;
 
 	char *kwnames [] = {
@@ -199,16 +209,18 @@ PyObject *py_zfs_resource_create(PyObject *self,
 		"type",
 		"properties",
 		"user_properties",
+		"crypto",
 		NULL
 	};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$sOOO",
+					 "|$sOOOO",
 					 kwnames,
 					 &name,
 					 &pyzfstype,
 					 &pyprops,
-					 &pyuprops)) {
+					 &pyuprops,
+					 &pycrypto)) {
 		return NULL;
 
 	}
@@ -226,7 +238,7 @@ PyObject *py_zfs_resource_create(PyObject *self,
 	}
 
 	created = py_zfs_create(plz, name, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
-	    pyzfstype, pyprops, pyuprops);
+	    pyzfstype, pyprops, pyuprops, pycrypto);
 	if (!created)
 		return NULL;
 
@@ -510,6 +522,85 @@ PyObject *py_zfs_iter_root_filesystems(PyObject *self,
 	Py_RETURN_FALSE;
 }
 
+PyDoc_STRVAR(py_zfs_rsrc_crypto_config__doc__,
+"resource_cryptography_config(*, keyformat=None, key_location_uri=None,\n"
+"                             pbkdf2_iters=1300000, key=None) -> None\n"
+"--------------------------------------------------------------------\n\n"
+"Create a truenas_pylibzfs.struct_zfs_crypto_config based on the specified \n"
+"parameters for use when creating a new encrypted resource or re-keying \n"
+"an existing encrypted resource.\n"
+"See Encryption section of man (5) zfs-load-key for more information.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"keyformat: str, required\n"
+"    Required parameter specifying the format of the key material\n"
+"    located at \"key_location_uri\" or provided as \"key\".\n"
+"    Must be one of \"raw\", \"hex\", or \"passphrase\".\n\n"
+"key_location_uri: str, optional, default=None\n"
+"    Optional parameter to specify the location in which key material\n"
+"    may be found. This may be a local file or a path served over https.\n"
+"    This must be None when \"key\" is specified.\n\n"
+"key: str, optional, default=None\n"
+"    Optional parameter to specify the password or key to use\n"
+"    to unlock the ZFS resource. This is required if the ZFS\n"
+"    resource (dataset or zvol) has the keylocation set to \"prompt\"\n"
+"    or if the \"key_location_uri\" in this payload is omitted.\n"
+"pbkdf2_iters: int, optional, default=1300000\n"
+"    Optional parameter to specify the number of hashing iterations\n"
+"    to peform on the key material when the \"key_format\" is \"passphrase\".\n"
+"Returns\n"
+"-------\n"
+"new truenas_pylibzfs.struct_zfs_crypto_config object\n\n"
+""
+"Raises:\n"
+"-------\n"
+"ValueError:\n"
+"    Invalid combination of parameters.\n\n"
+);
+
+static
+PyObject *py_zfs_rsrc_crypto_config(PyObject *self,
+				    PyObject *args_unused,
+				    PyObject *kwargs)
+{
+	// WARNING: currently genrate_crypto_config will
+	// INCREF these as expected, but any future code
+	// changes here will need to make sure that reference
+	// counting is appropriately handled.
+	PyObject *py_keyformat = Py_None;
+	PyObject *py_keyloc = Py_None;
+	PyObject *py_key = Py_None;
+	PyObject *py_iters = Py_None;
+
+	char *kwnames [] = {
+		"keyformat",
+		"key_location_uri",
+		"key",
+		"pbkdf2_iters",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$OOOO",
+					 kwnames,
+					 &py_keyformat,
+					 &py_keyloc,
+					 &py_key,
+					 &py_iters)) {
+		return NULL;
+	}
+
+	return generate_crypto_config(
+		(py_zfs_t *)self,
+		py_keyformat,
+		py_keyloc,
+		py_key,
+		py_iters
+	);
+}
+
+
 PyGetSetDef zfs_getsetters[] = {
 	{ .name = NULL }
 };
@@ -540,6 +631,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_name = "open_pool",
 		.ml_meth = (PyCFunction)py_zfs_pool_open,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS
+	},
+	{
+		.ml_name = "resource_cryptography_config",
+		.ml_meth = (PyCFunction)py_zfs_rsrc_crypto_config,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_rsrc_crypto_config__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
