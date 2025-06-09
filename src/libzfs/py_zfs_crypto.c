@@ -1308,6 +1308,38 @@ PyObject *init_zfs_crypto(zfs_type_t type, PyObject *rsrc)
 	return (PyObject *)out;
 }
 
+static PyObject *pyzfs_create_crypto_key(py_zfs_t *pyzfs,
+					 const char *name,
+					 zfs_type_t ztype,
+					 nvlist_t *props,
+					 zfs_crypto_change_info_t *info)
+{
+
+}
+
+
+PyObject *pyzfs_create_crypto(py_zfs_t *pyzfs,
+			      const char *name,
+			      zfs_type_t ztype,
+			      nvlist_t *props,
+			      PyObject *pycrypto)
+{
+	pylibzfs_state_t *state = py_get_module_state(pyzfs);
+	nvlist_t *crypto = NULL;
+	zfs_crypto_change_info_t info = { .iters = PBKDF2_MIN_ITERS };	
+
+	if (!py_validate_crypto_change(state, pycrypto, &info)) {
+		fnvlist_free(props);
+		return NULL;
+	}
+
+	if (info->key) {
+		return pyzfs_create_crypto_key(pyzfs, name, ztype, props, &info); 
+	}
+
+	return pyzfs_create_crypto_loc(pyzfs, name, ztype, props, &info);
+}
+
 void module_init_zfs_crypto(PyObject *module)
 {
 	pylibzfs_state_t *state = NULL;

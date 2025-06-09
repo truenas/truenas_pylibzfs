@@ -75,7 +75,8 @@ boolean_t py_zfs_create(py_zfs_t *self,
 			zfs_type_t allowed_types,
 			PyObject *pyzfstype,
 			PyObject *pyprops,
-			PyObject *pyuserprops)
+			PyObject *pyuserprops,
+			PyObject *pycrypto)
 {
 	long ztype;
 	nvlist_t *props = NULL;
@@ -142,14 +143,18 @@ boolean_t py_zfs_create(py_zfs_t *self,
 		return B_FALSE;
 	}
 
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(self);
-	err = zfs_create(self->lzh, name, ztype, props);
-	if (err) {
-		py_get_zfs_error(self->lzh, &zfs_err);
+	if (pycrypto) {
+		return pyzfs_create_crypto(self, name, ztype, props, pycrypto);
+	} else {
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(self);
+		err = zfs_create(self->lzh, name, ztype, props);
+		if (err) {
+			py_get_zfs_error(self->lzh, &zfs_err);
+		}
+		PY_ZFS_UNLOCK(self);
+		Py_END_ALLOW_THREADS
 	}
-	PY_ZFS_UNLOCK(self);
-	Py_END_ALLOW_THREADS
 
 	if (props) {
 		const char *json_str = NULL;
@@ -199,16 +204,18 @@ PyObject *py_zfs_resource_create(PyObject *self,
 		"type",
 		"properties",
 		"user_properties",
+		"crypto",
 		NULL
 	};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$sOOO",
+					 "|$sOOOO",
 					 kwnames,
 					 &name,
 					 &pyzfstype,
 					 &pyprops,
-					 &pyuprops)) {
+					 &pyuprops,
+					 &pycrypto)) {
 		return NULL;
 
 	}
@@ -226,7 +233,7 @@ PyObject *py_zfs_resource_create(PyObject *self,
 	}
 
 	created = py_zfs_create(plz, name, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
-	    pyzfstype, pyprops, pyuprops);
+	    pyzfstype, pyprops, pyuprops, crypto);
 	if (!created)
 		return NULL;
 
