@@ -286,6 +286,102 @@ fail:
 	return (NULL);
 }
 
+/* Create a dictionary for enum spec for the VDevTopKey enum */
+static
+PyObject *zfs_vdev_top_key_table_to_dict(void)
+{
+	PyObject *vtkey_dict = NULL;
+	int err;
+	uint i;
+
+	vtkey_dict = PyDict_New();
+	if (vtkey_dict == NULL)
+		return (NULL);
+
+	for (i=0; i < ARRAY_SIZE(vdev_top_key_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(vdev_top_key_table[i].key);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(vtkey_dict,
+		    vdev_top_key_table[i].name, val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return (vtkey_dict);
+fail:
+	Py_XDECREF(vtkey_dict);
+	return (NULL);
+}
+
+/* Create a dictionary for enum spec for the VDevTopRoot enum */
+static
+PyObject *zfs_vdev_top_root_table_to_dict(void)
+{
+	PyObject *vtroot_dict = NULL;
+	int err;
+	uint i;
+
+	vtroot_dict = PyDict_New();
+	if (vtroot_dict == NULL)
+		return (NULL);
+
+	for (i=0; i < ARRAY_SIZE(vdev_top_root_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(vdev_top_root_table[i].root);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(vtroot_dict,
+			vdev_top_root_table[i].name, val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return (vtroot_dict);
+fail:
+	Py_XDECREF(vtroot_dict);
+	return (NULL);
+}
+
+/* Create a dictionary for enum spec for the VDevTopType enum */
+static
+PyObject *zfs_vdev_top_type_table_to_dict(void)
+{
+	PyObject *vttype_dict = NULL;
+	int err;
+	uint i;
+
+	vttype_dict = PyDict_New();
+	if (vttype_dict == NULL)
+		return (NULL);
+
+	for (i=0; i < ARRAY_SIZE(vdev_top_type_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(vdev_top_type_table[i].type);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(vttype_dict,
+			vdev_top_type_table[i].name, val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return (vttype_dict);
+fail:
+	Py_XDECREF(vttype_dict);
+	return (NULL);
+}
+
 /* Create a dictionary for enum spec for the USERQuota enum */
 static
 PyObject *uquota_table_to_dict(void)
@@ -456,6 +552,21 @@ py_add_zfs_enums(PyObject *module)
 	err = add_enum(module, int_enum, "ZFSUserQuota",
 		       uquota_table_to_dict, kwargs,
 		       &state->zfs_uquota_enum);
+	if (err)
+		goto out;
+
+	err = add_enum(module, int_enum, "VDevTopKey",
+		zfs_vdev_top_key_table_to_dict, kwargs, NULL);
+	if (err)
+		goto out;
+
+	err = add_enum(module, int_enum, "VDevTopRoot",
+		zfs_vdev_top_root_table_to_dict, kwargs, NULL);
+	if (err)
+		goto out;
+
+	err = add_enum(module, int_enum, "VDevTopType",
+		zfs_vdev_top_type_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
