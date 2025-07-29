@@ -28,7 +28,7 @@ PyDoc_STRVAR(py_zfs_crypto_keylocation__doc__,
 "Valid keylocation values include:\n"
 "* Absolute paths in the local file system, starting with file://\n"
 "* HTTPS URLs (fetched using fetch(3) from libcurl)\n"
-"* The word prompt, which tells the server to ask the user for the key\n\n"
+"* The word 'prompt', which tells the server to ask the user for the key\n\n"
 "NOTE: This field is valid only if the resource is an encryption root.\n"
 );
 
