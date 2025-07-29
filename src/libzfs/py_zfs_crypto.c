@@ -86,7 +86,7 @@ PyDoc_STRVAR(py_zfs_crypto_pbkdf2_iters__doc__,
 "Valid pbkdf2_iters values include:\n"
 "* An integer greater than or equal to the minimum allowed value.\n"
 "* The value None. If set to None, the library uses the minimum allowed value.\n"
-"NOTE: this setting is valid only if the \"passphrase\" \"keyformat\" is selected.\n"
+"NOTE: This setting is valid only if the \"passphrase\" \"keyformat\" is selected.\n"
 );
 
 PyDoc_STRVAR(py_zfs_crypto_change__doc__,
