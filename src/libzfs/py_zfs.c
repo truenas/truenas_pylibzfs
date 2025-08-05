@@ -510,6 +510,219 @@ PyObject *py_zfs_iter_root_filesystems(PyObject *self,
 	Py_RETURN_FALSE;
 }
 
+PyDoc_STRVAR(py_zfs_test_topology__doc__,
+"test_topology(*, topology) -> None\n\n"
+"--------------------------------------\n\n"
+"Creates a VDEV Tree from given topology and returns the Python string\n"
+"containing VDEV tree. This can be helpful while debugging issues in VDEV\n"
+"tree creation.\n\n"
+"Parameters\n"
+"----------\n"
+"topology: Iterable of Dictionaries\n"
+"    Topology is an iterable of Dictionaries where each item of the list would\n"
+"    specify the formation of each VDEV.\n"
+"        VDevTopKey.ROOT: Enum\n"
+"            This key should specify the class of VDEV. This can be any Enum\n"
+"            from VDevTopRoot.\n"
+"        VDevTopKey.TYPE: Enum\n"
+"            Specify the type of VDEV, which can be any Enum from VDevTopType\n"
+"        VDevTopKey.DEVICES: List of Str\n"
+"            List of valid paths in string format for disks.\n\n"
+"Returns\n"
+"-------\n"
+"Python String containing VDEV tree.\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If there is an issue while parsing the topology, TypeError will be raised.\n"
+);
+static
+PyObject *py_zfs_test_topology(PyObject *self, PyObject *args,
+    PyObject *kwargs) {
+	py_zfs_t *plz = (py_zfs_t *)self;
+	PyObject *topology = NULL;
+	PyObject *ret;
+
+	char *kwnames[] = {"topology", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$O", kwnames,
+	    &topology)) {
+		return (NULL);
+	}
+
+	if (topology == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "topology keyword argument is required.");
+		return (NULL);
+	}
+
+	nvlist_t *tree = make_vdev_tree(plz->module, topology, NULL);
+	if (tree == NULL)
+		return (NULL);
+	ret = py_dump_nvlist(tree, B_TRUE);
+	fnvlist_free(tree);
+	return (ret);
+}
+
+PyDoc_STRVAR(py_zfs_pool_create__doc__,
+"pool_create(*, name, topology) -> None\n\n"
+"--------------------------------------\n\n"
+"Creates a new pool with given name and topology.\n\n"
+"Parameters\n"
+"----------\n"
+"name: str\n"
+"    name of the new pool to create.\n\n"
+"topology: Iterable of Dictionaries\n"
+"    Topology is an iterable of Dictionaries where each item of the list would\n"
+"    specify the formation of each VDEV.\n"
+"        VDevTopKey.ROOT: Enum\n"
+"            This key should specify the class of VDEV. This can be any Enum\n"
+"            from VDevTopRoot.\n"
+"        VDevTopKey.TYPE: Enum\n"
+"            Specify the type of VDEV, which can be any Enum from VDevTopType\n"
+"        VDevTopKey.DEVICES: List of Str\n"
+"            List of valid paths in string format for disks.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If there is an issue while parsing the topology, TypeError will be raised.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n\n"
+);
+static
+PyObject *py_zfs_pool_create(PyObject *self, PyObject *args,
+    PyObject *kwargs)
+{
+	int ret = 0;
+	py_zfs_t *plz = (py_zfs_t *)self;
+	py_zfs_error_t zfs_err;
+	char *name = NULL;
+	PyObject *topology = NULL;
+
+	char *kwnames[] = {"name", "topology", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sO", kwnames,
+	    &name, &topology)) {
+		return (NULL);
+	}
+
+	if (name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "name keyword argument is required");
+		return (NULL);
+	}
+
+	if (topology == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "topology keyword argument is required.");
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "sO",
+	    name, topology) < 0) {
+		return (NULL);
+	}
+
+	nvlist_t *tree = make_vdev_tree(plz->module, topology, NULL);
+	if (tree == NULL)
+		return (NULL);
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	ret = zpool_create(plz->lzh, name, tree, NULL, NULL);
+	if (ret != 0) {
+		py_get_zfs_error(plz->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	if (ret != 0) {
+		set_exc_from_libzfs(&zfs_err, "zpool_create() failed");
+		fnvlist_free(tree);
+		return (NULL);
+	} else {
+		PyObject *dump = py_dump_nvlist(tree, B_TRUE);
+		ret = py_log_history_fmt(plz, "zpool create %s %s", name,
+		    PyUnicode_AsUTF8(dump));
+		fnvlist_free(tree);
+		Py_XDECREF(dump);
+		if (ret) {
+			// exception should be set since we failed to log
+			// history
+			return (NULL);
+		}
+	}
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_destroy__doc__,
+"pool_destroy(*, name, force=False) -> None\n\n"
+"-----------------\n\n"
+"Destroys the given pool, freeing up any devices for other use.\n\n"
+"Parameters\n"
+"----------\n"
+"force: bool, optional\n"
+"    Forcefully unmount all active datasets.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n"
+);
+static
+PyObject *py_zfs_pool_destroy(PyObject *self, PyObject *args, PyObject *kwargs) {
+	int ret = 0, force = 0;
+	char *name = NULL;
+	py_zfs_t *plz = (py_zfs_t *)self;
+	py_zfs_error_t err;
+	zpool_handle_t *zhp = NULL;
+	boolean_t destroyed = B_FALSE;
+	char *kwnames[] = {"name", "force", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sp", kwnames, &name,
+	    &force)) {
+		return NULL;
+	}
+
+	if (name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "name keyword argument is required.");
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".destroy", "si",
+	    name, force) < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	zhp = zpool_open(plz->lzh, name);
+	if (zhp == NULL) {
+		py_get_zfs_error(plz->lzh, &err);
+	} else {
+		ret = zpool_disable_datasets(zhp, force);
+		if (ret == 0)
+			ret = zpool_destroy(zhp, "destroy");
+		if (ret)
+			py_get_zfs_error(plz->lzh, &err);
+		else
+			destroyed = B_TRUE;
+		zpool_close(zhp);
+	}
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	if (!destroyed) {
+		set_exc_from_libzfs(&err, "zpool_destroy() failed");
+		return (NULL);
+	}
+	Py_RETURN_NONE;
+}
+
 PyGetSetDef zfs_getsetters[] = {
 	{ .name = NULL }
 };
@@ -540,6 +753,24 @@ PyMethodDef zfs_methods[] = {
 		.ml_name = "open_pool",
 		.ml_meth = (PyCFunction)py_zfs_pool_open,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS
+	},
+	{
+		.ml_name = "test_topology",
+		.ml_meth = (PyCFunction)py_zfs_test_topology,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_test_topology__doc__
+	},
+	{
+		.ml_name = "pool_create",
+		.ml_meth = (PyCFunction)py_zfs_pool_create,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_create__doc__
+	},
+	{
+		.ml_name = "pool_destroy",
+		.ml_meth = (PyCFunction)py_zfs_pool_destroy,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_destroy__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

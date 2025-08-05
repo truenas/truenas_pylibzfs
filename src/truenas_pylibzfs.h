@@ -132,6 +132,7 @@ typedef struct {
 	PyObject *parent;
 	PyObject *type;
 	PyObject *path;
+	PyObject *class;
 } py_zfs_vdev_t;
 
 typedef struct {
@@ -270,11 +271,13 @@ extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
 
 /* Provided by py_zfs_vdev.c */
 extern py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
-    PyObject* parent);
+    PyObject* parent, boolean_t is_spare, boolean_t is_cache);
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
+extern nvlist_t *make_vdev_tree(PyObject *mod, PyObject *topology,
+    PyObject *props);
 
 /*
  * @brief convenience function to write a message to the zpool history

@@ -12,7 +12,9 @@
 #define _GNU_SOURCE
 
 #include <libzfs.h>
+#include <libzutil.h>
 #include <pthread.h>
+#include <limits.h>
 #include <Python.h>
 #include <sys/mman.h>
 

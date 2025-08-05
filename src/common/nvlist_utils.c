@@ -436,3 +436,647 @@ PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json)
 	Py_END_ALLOW_THREADS
 	return out;
 }
+
+static
+int to_lower(const char *s, char *d, size_t size)
+{
+	size_t len = strlen(s);
+	if (len > size - 1)
+		return (-1);
+	memset(d, 0, size);
+	for (size_t i = 0; i < len; ++i)
+		d[i] = tolower(s[i]);
+	return (0);
+}
+
+static
+int add_leaf_vdev(nvlist_t *item, PyObject *path)
+{
+	char rpath[PATH_MAX];
+	struct stat64 statbuf;
+	const char *cpath = PyUnicode_AsUTF8(path);
+	if (!cpath) {
+		PyErr_SetString(PyExc_RuntimeError,
+			"Failed to create C string from Python string");
+		return (-1);
+	}
+	if (realpath(cpath, rpath) == NULL) {
+		PyErr_Format(PyExc_RuntimeError,
+			"%s: realpath() failed: %s", cpath, strerror(errno));
+		return (-1);
+	}
+	if (stat64(rpath, &statbuf) != 0) {
+		PyErr_Format(PyExc_RuntimeError,
+			"Cannot open %s", rpath);
+		return (-1);
+	}
+	if (S_ISBLK(statbuf.st_mode)) {
+		fnvlist_add_string(item, ZPOOL_CONFIG_TYPE, VDEV_TYPE_DISK);
+	} else if (S_ISREG(statbuf.st_mode)) {
+		fnvlist_add_string(item, ZPOOL_CONFIG_TYPE, VDEV_TYPE_FILE);
+	} else {
+		PyErr_Format(PyExc_RuntimeError,
+		    "%s is not a block device or regular file", cpath);
+		return (-1);
+	}
+	fnvlist_add_string(item, ZPOOL_CONFIG_PATH, cpath);
+	uint64_t wd = zfs_dev_is_whole_disk(rpath);
+	fnvlist_add_uint64(item, ZPOOL_CONFIG_WHOLE_DISK, wd);
+	return (0);
+}
+
+static
+uint64_t get_parity(const char *type)
+{
+	uint64_t parity = 0;
+	const char *p;
+
+	if (strncmp(type, VDEV_TYPE_RAIDZ, strlen(VDEV_TYPE_RAIDZ)) == 0) {
+		p = type + strlen(VDEV_TYPE_RAIDZ);
+
+		if (*p == '\0') {
+			/* when unspecified default to single parity */
+			return (1);
+		} else if (*p == '0') {
+			/* no zero prefixes allowed */
+			return (0);
+		} else {
+			/* 0-3, no suffixes allowed */
+			char *end;
+			errno = 0;
+			parity = strtol(p, &end, 10);
+			if (errno != 0 || *end != '\0' ||
+			    parity < 1 || parity > VDEV_RAIDZ_MAXPARITY) {
+				return (0);
+			}
+		}
+	} else if (strncmp(type, VDEV_TYPE_DRAID,
+	    strlen(VDEV_TYPE_DRAID)) == 0) {
+		p = type + strlen(VDEV_TYPE_DRAID);
+
+		if (*p == '\0' || *p == ':') {
+			/* when unspecified default to single parity */
+			return (1);
+		} else if (*p == '0') {
+			/* no zero prefixes allowed */
+			return (0);
+		} else {
+			/* 0-3, allowed suffixes: '\0' or ':' */
+			char *end;
+			errno = 0;
+			parity = strtol(p, &end, 10);
+			if (errno != 0 ||
+			    parity < 1 || parity > VDEV_DRAID_MAXPARITY ||
+			    (*end != '\0' && *end != ':')) {
+				return (0);
+			}
+		}
+	}
+
+	return ((int)parity);
+}
+
+static
+int add_draid_data(nvlist_t *nvl, PyObject *item, uint64_t size,
+    const char *ctype, PyObject *kdrdnd, PyObject *kdrdns)
+{
+	uint64_t p, d, s, g = 1;
+	PyObject *nd, *nsp;
+	nd = PyDict_GetItem(item, kdrdnd);
+	if (!PyLong_Check(nd)) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Expected an Int for VDevTopKey.DRAID_DATA_DISKS");
+		return (-1);
+	}
+	nsp = PyDict_GetItem(item, kdrdns);
+	if (!PyLong_Check(nsp)) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Expected an Int for VDevTopKey.DRAID_SPARE_DISKS");
+		return (-1);
+	}
+	p = get_parity(ctype);
+	if (p == 0 || p > VDEV_DRAID_MAXPARITY) {
+		PyErr_Format(PyExc_TypeError,
+		    "invalid dRAID parity level %lu; must be between 1 and %d\n",
+		    p, VDEV_DRAID_MAXPARITY);
+		return (-1);
+	}
+	d = PyLong_AsUnsignedLong(nd);
+	if ((d == (unsigned long)-1) && PyErr_Occurred()) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Failed to convert to unsigned long");
+		return (-1);
+
+	}
+	s = PyLong_AsUnsignedLong(nsp);
+	if ((s == (unsigned long)-1) && PyErr_Occurred()) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Failed to convert to unsigned long");
+		return (-1);
+	}
+
+	/*
+	 * When a specific number of data disks is not provided limit a
+	 * redundancy group to 8 data disks.  This value was selected to
+	 * provide a reasonable tradeoff between capacity and performance.
+	 */
+	if (d == UINT64_MAX) {
+		if (size > s + p) {
+			d = MIN(size - s - p, 8);
+		} else {
+			PyErr_Format(PyExc_TypeError, "request number of "
+			    "distributed spares %lu and parity level %lu"
+			    "leaves no disks available for data\n", s, p);
+			return (-1);
+		}
+	}
+
+	/* Verify the maximum allowed group size is never exceeded. */
+	if (d == 0 || (d + p > size - s)) {
+		PyErr_Format(PyExc_TypeError, "requested number of dRAID data "
+		    "disks per group %lu is too high, at most %lu disks "
+		    "are available for data", d, (size - s - p));
+		return (-1);
+	}
+
+	/*
+	 * Verify the requested number of spares can be satisfied.
+	 * An arbitrary limit of 100 distributed spares is applied.
+	 */
+	if (s > 100 || s > (size - (d + p))) {
+		PyErr_Format(PyExc_TypeError, "invalid number of dRAID spares "
+		    "%lu; additional disks would be required", s);
+		return (-1);
+	}
+
+	/* Verify the requested number children is sufficient. */
+	if (size < (d + p + s)) {
+		PyErr_Format(PyExc_TypeError, "%lu disks were provided, but "
+		    "at least %lu disks are required for this config", size,
+		    d + p + s);
+		return (-1);
+	}
+
+	if (size > VDEV_DRAID_MAX_CHILDREN) {
+		PyErr_Format(PyExc_TypeError, "%lu disks were provided, but "
+		    "dRAID only supports up to %u disks", size,
+		    VDEV_DRAID_MAX_CHILDREN);
+		return (-1);
+	}
+
+	if ((d + p) % (size - s) != 0) {
+		PyErr_SetString(PyExc_TypeError,
+		    "Total number of disks does not go cleanly into number of "
+		    "specified groups");
+		return (-1);
+	}
+	/*
+	 * Calculate the minimum number of groups required to fill a slice.
+	 * This is the LCM of the stripe width (ndata + nparity) and the
+	 * number of data drives (children - nspares).
+	 */
+	while (g * (d + p) % (size - s) != 0)
+		g++;
+
+	fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE, VDEV_TYPE_DRAID);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_NPARITY, p);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_DRAID_NDATA, d);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_DRAID_NSPARES, s);
+	fnvlist_add_uint64(nvl, ZPOOL_CONFIG_DRAID_NGROUPS, g);
+	return (0);
+}
+
+static
+void free_nvlist_array(nvlist_t **nvlarr, uint64_t len)
+{
+	if (nvlarr != NULL) {
+		for (uint64_t i = 0; i < len; ++i) {
+			if (nvlarr[i] != NULL)
+				fnvlist_free(nvlarr[i]);
+		}
+		PyMem_Free(nvlarr);
+	}
+}
+
+/*
+ * Creates a valid nvlist VDEV tree from given topology. Topology can be an
+ * iterable containing dictionaries specifying the formation of each VDEV.
+ * Memory allocated for VDEV tree in nvlist that is returned must be freed by
+ * the caller.
+ */
+nvlist_t *make_vdev_tree(PyObject *mod, PyObject *topology, PyObject *props)
+{
+	uint64_t tlc = 0, nsp = 0, nl2c = 0, isize = 0;
+	vdev_top_root_t vtroot;
+	vdev_top_type_t vttype;
+	nvlist_t *nvl = NULL;
+	nvlist_t **child = NULL, **ichild = NULL;
+	PyObject *item, *kroot, *ktype, *kdev, *devs, *t, *iter;
+	PyObject *root, *type, *pspath, *ekey, *eroot, *etype;
+	PyObject *kdrdnd, *kdrdns;
+
+	if (mod == NULL || topology == NULL)
+		return (NULL);
+
+	kroot = eroot = kdrdnd = NULL;
+	ktype = etype = kdrdns = NULL;
+	kdev = ekey = iter = NULL;
+	item = NULL;
+
+	/*
+	 * Get Enum from module
+	 */
+	ekey = PyObject_GetAttrString(mod, "VDevTopKey");
+	if (ekey == NULL)
+		goto fail;
+	eroot = PyObject_GetAttrString(mod, "VDevTopRoot");
+	if (eroot == NULL)
+		goto fail;
+	etype = PyObject_GetAttrString(mod, "VDevTopType");
+	if (etype == NULL)
+		goto fail;
+
+	/*
+	 * Initialize VDevTopKey instances to be used as keys for each Dict
+	 */
+	kroot = PyObject_GetAttrString(ekey, "ROOT");
+	if (kroot == NULL)
+		goto fail;
+	ktype = PyObject_GetAttrString(ekey, "TYPE");
+	if (ktype == NULL)
+		goto fail;
+	kdev = PyObject_GetAttrString(ekey, "DEVICES");
+	if (kdev == NULL)
+		goto fail;
+	kdrdnd = PyObject_GetAttrString(ekey, "DRAID_DATA_DISKS");
+	if (kdrdnd == NULL)
+		goto fail;
+	kdrdns = PyObject_GetAttrString(ekey, "DRAID_SPARE_DISKS");
+	if (kdrdns == NULL)
+		goto fail;
+
+	iter = PyObject_GetIter(topology);
+	if (iter == NULL)
+		goto fail;
+
+	/*
+	 * In first pass iterate over all Dicts and verify the correctness of
+	 * topology. Also calculate the number of top level children under VDEV
+	 * Tree, along with number of SPARE and CACHE devices. Since the number
+	 * of top level children can vary depending on topology, this will help
+	 * us create nvlist_t arrays to hold the nvlist_t objects.
+	 */
+	while((item = PyIter_Next(iter))) {
+		if (!PyDict_Check(item)) {
+			PyErr_SetString(PyExc_TypeError,
+			    "Expected Dictionaries in \'topology\'");
+			goto fail;
+		}
+		root = PyDict_GetItem(item, kroot);
+		if (root == NULL || !PyObject_IsInstance(root, eroot)) {
+			PyErr_SetString(PyExc_TypeError,
+			    "Expected Enum VDevTopRoot for key VDevTopKey.ROOT");
+			goto fail;
+		}
+		type = PyDict_GetItem(item, ktype);
+		if (type == NULL || !PyObject_IsInstance(type, etype)) {
+			PyErr_SetString(PyExc_TypeError,
+			    "Expected Enum VDevTopType for key VDevTopKey.TYPE");
+			goto fail;
+		}
+		devs = PyDict_GetItem(item, kdev);
+		if (devs == NULL || !PyList_Check(devs)) {
+			PyErr_SetString(PyExc_TypeError,
+			    "Expected a List for key VDevTopKey.DEVICES");
+			goto fail;
+		}
+
+		t = PyObject_GetAttrString(root, "value");
+		if (t == NULL)
+			goto fail;
+		vtroot = (vdev_top_root_t)PyLong_AsUnsignedLong(t);
+		if ((vtroot == (unsigned long)-1) && PyErr_Occurred()) {
+			Py_DECREF(t);
+			PyErr_SetString(PyExc_TypeError,
+			    "Failed to convert to unsigned long");
+			goto fail;
+		}
+		Py_DECREF(t);
+		t = PyObject_GetAttrString(type, "value");
+		if (t == NULL)
+			goto fail;
+		vttype = (vdev_top_type_t)PyLong_AsUnsignedLong(t);
+		if ((vttype == (unsigned long)-1) && PyErr_Occurred()) {
+			Py_DECREF(t);
+			PyErr_SetString(PyExc_TypeError,
+			    "Failed to convert to unsigned long");
+			goto fail;
+		}
+		Py_DECREF(t);
+
+		if ((PyDict_Contains(item, kdrdnd) == 1 ||
+		    PyDict_Contains(item, kdrdns) == 1) &&
+		    (vttype != VDEV_TOP_TYPE_DRAID1 &&
+		    vttype != VDEV_TOP_TYPE_DRAID2 &&
+		    vttype != VDEV_TOP_TYPE_DRAID3)) {
+			PyErr_SetString(PyExc_TypeError,
+			    "VDevTopKey.DRAID_DATA_DISKS and "
+			    "VDevTopKey.DRAID_SPARE_DISKS should only be set "
+			    "with VDevTopType.DRAIDx");
+			goto fail;
+		}
+
+		if (vtroot == VDEV_TOP_ROOT_DATA ||
+		    vtroot == VDEV_TOP_ROOT_LOG ||
+		    vtroot == VDEV_TOP_ROOT_SPECIAL ||
+		    vtroot == VDEV_TOP_ROOT_DEDUP) {
+			if (vttype == VDEV_TOP_TYPE_STRIPE)
+				tlc += (uint64_t)PyList_Size(devs);
+			else
+				tlc += 1;
+		} else if (vtroot == VDEV_TOP_ROOT_SPARE) {
+			if (vttype != VDEV_TOP_TYPE_STRIPE) {
+				PyErr_SetString(PyExc_TypeError,
+				    "Spare devices can only be of type "
+				    "VDevTopType.STRIPE");
+				Py_DECREF(item);
+				goto fail;	
+			}
+			nsp = PyList_Size(devs);
+		} else if (vtroot == VDEV_TOP_ROOT_CACHE) {
+			if (vttype != VDEV_TOP_TYPE_STRIPE) {
+				PyErr_SetString(PyExc_TypeError,
+				    "Cache devices can only be of type "
+				    "VDevTopType.STRIPE");
+				Py_DECREF(item);
+				goto fail;	
+			}
+			nl2c = PyList_Size(devs);
+		}
+		Py_DECREF(item);
+	}
+	Py_DECREF(iter);
+
+	nvl = fnvlist_alloc();
+	fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE, VDEV_TYPE_ROOT);
+	if (tlc > 0) {
+		/*
+		 * Alloc and init memory for top level children
+		 */
+		child = PyMem_Calloc(tlc, sizeof(nvlist_t *));
+		if (child == NULL)
+			goto fail;
+	}
+
+	uint64_t outer = 0;
+	iter = PyObject_GetIter(topology);
+	if (iter == NULL)
+		goto fail;
+
+	/*
+	 * In second pass create the nvlist VDEV tree based on topology.
+	 */
+	while((item = PyIter_Next(iter))) {
+		root = PyDict_GetItem(item, kroot);
+		if (root == NULL) {
+			goto fail;
+		}
+		type = PyDict_GetItem(item, ktype);
+		if (type == NULL) {
+			goto fail;
+		}
+		devs = PyDict_GetItem(item, kdev);
+		if (devs == NULL) {
+			goto fail;
+		}
+		isize = PyList_Size(devs);
+
+		t = PyObject_GetAttrString(root, "value");
+		if (t == NULL)
+			goto fail;
+		vtroot = (vdev_top_root_t)PyLong_AsUnsignedLong(t);
+		if ((vtroot == (unsigned long)-1) && PyErr_Occurred()) {
+			Py_DECREF(t);
+			PyErr_SetString(PyExc_TypeError,
+			    "Failed to convert to unsigned long");
+			goto fail;
+		}
+		Py_DECREF(t);
+
+		t = PyObject_GetAttrString(type, "value");
+		if (t == NULL)
+			goto fail;
+		vttype = (vdev_top_type_t)PyLong_AsUnsignedLong(t);
+		if ((vttype == (unsigned long)-1) && PyErr_Occurred()) {
+			Py_DECREF(t);
+			PyErr_SetString(PyExc_TypeError,
+			    "Failed to convert to unsigned long");
+			goto fail;
+		}
+		Py_DECREF(t);
+
+		char ctype[ZAP_MAXNAMELEN];
+		t = PyObject_GetAttrString(type, "name");
+		if (t == NULL)
+			goto fail;
+		const char *ct = PyUnicode_AsUTF8(t);
+		if (ct == NULL || to_lower(ct, ctype, ZAP_MAXNAMELEN) == -1) {
+			Py_DECREF(t);
+			PyErr_SetString(PyExc_RuntimeError,
+				"Failed to convert Enum name to C string");
+			goto fail;
+		}
+		Py_DECREF(t);
+
+		char croot[ZAP_MAXNAMELEN];
+		t = PyObject_GetAttrString(root, "name");
+		if (t == NULL)
+			goto fail;
+		const char *cr = PyUnicode_AsUTF8(t);
+		if (cr == NULL || to_lower(cr, croot, ZAP_MAXNAMELEN) == -1) {
+			Py_DECREF(t);
+			PyErr_SetString(PyExc_RuntimeError,
+				"Failed to convert Enum name to C string");
+			goto fail;
+		}
+		Py_DECREF(t);
+
+		/*
+		 * STRIPE VDevs will always be top level children
+		 */
+		if (vttype == VDEV_TOP_TYPE_STRIPE) {
+			if (vtroot == VDEV_TOP_ROOT_CACHE) {
+				nvlist_t **cdevs;
+				/*
+				 * Alloc and init nvlist_t array for cache VDEVs
+				 */
+				cdevs = PyMem_Calloc(nl2c, sizeof(nvlist_t *));
+				if (cdevs == NULL)
+					goto fail;
+				for (uint64_t j = 0; j < nl2c; ++j) {
+					cdevs[j] = fnvlist_alloc();
+					pspath = PyList_GetItem(devs, j);
+					if (add_leaf_vdev(cdevs[j],
+					    pspath) != 0) {
+						free_nvlist_array(cdevs, nl2c);
+						goto fail;
+					}
+					// TODO: set ashift prop as passed or
+					// from ZPOOL props
+				}
+				fnvlist_add_nvlist_array(nvl, ZPOOL_CONFIG_L2CACHE,
+				    (const nvlist_t **)cdevs, nl2c);
+				free_nvlist_array(cdevs, nl2c);
+			} else if (vtroot == VDEV_TOP_ROOT_SPARE) {
+				nvlist_t **sdevs;
+				/*
+				 * Alloc and init nvlist_t array for spare VDEVs
+				 */
+				sdevs = PyMem_Calloc(nsp, sizeof(nvlist_t *));
+				if (sdevs == NULL)
+					goto fail;
+				for (uint64_t j = 0; j < nsp; ++j) {
+					sdevs[j] = fnvlist_alloc();
+					pspath = PyList_GetItem(devs, j);
+					if (add_leaf_vdev(sdevs[j],
+					    pspath) != 0) {
+						free_nvlist_array(sdevs, nsp);
+						goto fail;
+					}
+					fnvlist_add_uint64(sdevs[j],
+					    ZPOOL_CONFIG_IS_SPARE, 1);
+				}
+				fnvlist_add_nvlist_array(nvl, ZPOOL_CONFIG_SPARES,
+				    (const nvlist_t **)sdevs, nsp);
+				free_nvlist_array(sdevs, nsp);
+			} else if (tlc > 0) {
+				/*
+				 * Rest of the VDEVs are children of top level
+				 * VDEV. Fill the array of nvlist_t for top
+				 * level children that was created before
+				 * entering the loop
+				 */
+				for(uint64_t j = 0; j < isize; ++j) {
+					child[outer] = fnvlist_alloc();
+					pspath = PyList_GetItem(devs, j);
+					if (add_leaf_vdev(child[outer],
+					    pspath) != 0) {
+						goto fail;
+					}
+					fnvlist_add_uint64(child[outer],
+					    ZPOOL_CONFIG_IS_LOG,
+					    vtroot == VDEV_TOP_ROOT_LOG);
+					if (vtroot != VDEV_TOP_ROOT_DATA) {
+						fnvlist_add_string(child[outer],
+						    ZPOOL_CONFIG_ALLOCATION_BIAS,
+						    croot);
+					}
+					outer++;
+					// TODO: set ashift prop as passed or
+					// from ZPOOL props
+				}
+			}
+		} else {
+			if (tlc > 0 && vtroot != VDEV_TOP_ROOT_CACHE &&
+			    vtroot != VDEV_TOP_ROOT_SPARE) {
+				/*
+				 * For VDevs other than STRIPE, a VDev needs to
+				 * be created for VDevType
+				 */
+				child[outer] = fnvlist_alloc();
+				if (vttype == VDEV_TOP_TYPE_DRAID1 ||
+				    vttype == VDEV_TOP_TYPE_DRAID2 ||
+				    vttype == VDEV_TOP_TYPE_DRAID3) {
+					if (add_draid_data(child[outer], item,
+					    isize, ctype, kdrdnd, kdrdns) != 0) {
+						goto fail;
+					}
+				} else if (vttype == VDEV_TOP_TYPE_RAIDZ1 ||
+				    vttype == VDEV_TOP_TYPE_RAIDZ2 ||
+				    vttype == VDEV_TOP_TYPE_RAIDZ3) {
+					fnvlist_add_string(child[outer],
+					    ZPOOL_CONFIG_TYPE, VDEV_TYPE_RAIDZ);
+					uint64_t p = get_parity(ctype);
+					if (p == 0 || p > VDEV_RAIDZ_MAXPARITY) {
+						PyErr_Format(PyExc_TypeError,
+						    "invalid RAIDZ parity level "
+						    "%lu; must be between 1 and %d",
+						    p, VDEV_RAIDZ_MAXPARITY);
+						goto fail;
+					}
+					fnvlist_add_uint64(child[outer],
+					    ZPOOL_CONFIG_NPARITY, p);
+				} else {
+					fnvlist_add_string(child[outer],
+					    ZPOOL_CONFIG_TYPE, ctype);	
+				}
+				fnvlist_add_uint64(child[outer],
+				    ZPOOL_CONFIG_IS_LOG,
+				    vtroot == VDEV_TOP_ROOT_LOG);
+				if (vtroot != VDEV_TOP_ROOT_DATA) {
+					fnvlist_add_string(child[outer],
+					    ZPOOL_CONFIG_ALLOCATION_BIAS, croot);
+				}
+				// TODO: set ashift prop as passed or from
+				// ZPOOL props
+
+				/*
+				 * Now create leaf VDEVs for all devices
+				 */
+				ichild = PyMem_Calloc(isize, sizeof(nvlist_t *));
+				if (ichild == NULL)
+					goto fail;
+				for(uint64_t j = 0; j < isize; j++) {
+					ichild[j] = fnvlist_alloc();
+					pspath = PyList_GetItem(devs, j);
+					if (add_leaf_vdev(ichild[j],
+					    pspath) != 0) {
+						free_nvlist_array(ichild, isize);
+						goto fail;
+					}
+					// TODO: set ashift prop as passed or
+					// from ZPOOL props
+				}
+				fnvlist_add_nvlist_array(child[outer],
+				    ZPOOL_CONFIG_CHILDREN,
+				    (const nvlist_t **)ichild, isize);
+				free_nvlist_array(ichild, isize);
+				outer++;
+			}
+		}
+		Py_DECREF(item);
+	}
+	Py_DECREF(iter);
+
+	if (tlc > 0) {
+		fnvlist_add_nvlist_array(nvl, ZPOOL_CONFIG_CHILDREN,
+		    (const nvlist_t **)child, tlc);
+		free_nvlist_array(child, tlc);
+	}
+	Py_DECREF(ekey);
+	Py_DECREF(eroot);
+	Py_DECREF(etype);
+	Py_DECREF(kroot);
+	Py_DECREF(ktype);
+	Py_DECREF(kdev);
+	Py_DECREF(kdrdnd);
+	Py_DECREF(kdrdns);
+	return (nvl);
+
+fail:
+	if (child && tlc > 0)
+		free_nvlist_array(child, tlc);
+	if (nvl)
+		fnvlist_free(nvl);
+	Py_XDECREF(ekey);
+	Py_XDECREF(eroot);
+	Py_XDECREF(etype);
+	Py_XDECREF(kroot);
+	Py_XDECREF(ktype);
+	Py_XDECREF(kdev);
+	Py_XDECREF(kdrdnd);
+	Py_XDECREF(kdrdns);
+	Py_XDECREF(iter);
+	Py_XDECREF(item);
+	return (NULL);
+}

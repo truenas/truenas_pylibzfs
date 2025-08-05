@@ -1,16 +1,25 @@
 #include "../truenas_pylibzfs.h"
 
-#define ZFS_VDEV_STR_PATH "<" PYLIBZFS_MODULE_NAME ".ZFSVdev(type=%U, path=%U)>"
-#define ZFS_VDEV_STR "<" PYLIBZFS_MODULE_NAME ".ZFSVdev(type=%U)"
+#define ZFS_VDEV_STR_CLASS_PATH "<" PYLIBZFS_MODULE_NAME ".ZFSVdev(type=%U, class=%U, path=%U, pool=%U)>"
+#define ZFS_VDEV_STR_CLASS "<" PYLIBZFS_MODULE_NAME ".ZFSVdev(type=%U, class=%U, pool=%U)>"
+#define ZFS_VDEV_STR "<" PYLIBZFS_MODULE_NAME ".ZFSVdev(type=%U, pool=%U)>"
 
 static
 PyObject *py_repr_zfs_vdev(PyObject *self) {
 	py_zfs_vdev_t *v = (py_zfs_vdev_t *) self;
 	PyObject *out;
-	if (v->path)
-		out = PyUnicode_FromFormat(ZFS_VDEV_STR_PATH, v->type, v->path);
-	else
-		out = PyUnicode_FromFormat(ZFS_VDEV_STR, v->type);
+	if (v->class) {
+		if (v->path) {
+			out = PyUnicode_FromFormat(ZFS_VDEV_STR_CLASS_PATH,
+			    v->type, v->class, v->path, v->pool->name);
+		} else {
+			out = PyUnicode_FromFormat(ZFS_VDEV_STR_CLASS, v->type,
+			    v->class, v->pool->name);
+		}
+	} else {
+		out = PyUnicode_FromFormat(ZFS_VDEV_STR, v->type,
+		    v->pool->name);
+	}
 	return (out);
 }
 
@@ -29,10 +38,12 @@ int py_zfs_vdev_init(PyObject *type, PyObject *args, PyObject *kwds) {
 
 static
 void py_zfs_vdev_dealloc(py_zfs_vdev_t *self) {
+	fnvlist_free(self->vdev_tree);
 	Py_CLEAR(self->pool);
 	Py_CLEAR(self->parent);
 	Py_CLEAR(self->path);
 	Py_CLEAR(self->type);
+	Py_CLEAR(self->class);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -227,7 +238,7 @@ PyObject *py_zfs_vdev_get_children(PyObject *self, PyObject *args) {
 	list = PyTuple_New(children);
 	PYZFS_ASSERT(list, "Failed to create Python list object.");
 	for (uint_t i = 0; i < children; ++i) {
-		obj = (PyObject *)init_zfs_vdev(v->pool, child[i], self);
+		obj = (PyObject *)init_zfs_vdev(v->pool, child[i], self, B_FALSE, B_FALSE);
 		PYZFS_ASSERT(obj, "Failed to create ZFSVdev child object.");
 		PyTuple_SET_ITEM(list, i, obj);
 	}
@@ -883,6 +894,279 @@ PyObject *py_zfs_vdev_detach(PyObject *self, PyObject *arg) {
 }
 
 static
+PyObject *create_topology(PyObject *mod, const char *p)
+{
+	PyObject *topology, *kroot, *ktype, *kdev;
+	PyObject *vdata, *vstrp, *ekey, *eroot, *etype;
+	kroot = ktype = kdev = NULL;
+	ekey = eroot = etype = NULL;
+	topology = vdata = vstrp = NULL;
+
+	ekey = PyObject_GetAttrString(mod, "VDevTopKey");
+	if (ekey == NULL)
+		goto fail;
+	eroot = PyObject_GetAttrString(mod, "VDevTopRoot");
+	if (eroot == NULL)
+		goto fail;
+	etype = PyObject_GetAttrString(mod, "VDevTopType");
+	if (etype == NULL)
+		goto fail;
+
+	kroot = PyObject_GetAttrString(ekey, "ROOT");
+	if (kroot == NULL)
+		goto fail;
+	ktype = PyObject_GetAttrString(ekey, "TYPE");
+	if (ktype == NULL)
+		goto fail;
+	kdev = PyObject_GetAttrString(ekey, "DEVICES");
+	if (kdev == NULL)
+		goto fail;
+
+	vdata = PyObject_GetAttrString(eroot, "DATA");
+	if (kdev == NULL)
+		goto fail;
+	vstrp = PyObject_GetAttrString(etype, "STRIPE");
+	if (kdev == NULL)
+		goto fail;
+
+	topology = Py_BuildValue("[{O:O,O:O,O:[s]}]", kroot, vdata, ktype,
+	    vstrp, kdev, p);
+
+fail:
+	Py_XDECREF(ekey);
+	Py_XDECREF(eroot);
+	Py_XDECREF(etype);
+	Py_XDECREF(kroot);
+	Py_XDECREF(ktype);
+	Py_XDECREF(kdev);
+	return (topology);
+}
+
+PyDoc_STRVAR(py_zfs_vdev_attach__doc__,
+"attach(*, path) -> None\n\n"
+"-----------------\n\n"
+"Attaches a new device with path given as argument.\n\n"
+"Parameters\n"
+"----------\n"
+"path: str\n"
+"    Valid path for VDEV\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If the operation is invoked on VDEV that is not of type DISK, FILE, or\n"
+"    Mirror, TypeError will be raised.\n"
+"RuntimeError:\n"
+"    If no child vdevs or leaf vdevs are found, RuntimeError will be raised.\n\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error can occur, if libzfs fails to attach the device.\n\n"
+);
+static
+PyObject *py_zfs_vdev_attach(PyObject *self, PyObject *args, PyObject *kwargs) {
+	int ret = 0;
+	py_zfs_error_t err;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	const char *ctype = PyUnicode_AsUTF8(v->type);
+	char *path = NULL;
+	const char *fpath = NULL;
+	PyObject *topology;
+
+	if (ctype == NULL)
+		return (NULL);
+
+	char *kwnames[] = {"path", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$s", kwnames,
+	    &path)) {
+		return (NULL);
+	}
+
+	if (path == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "path keyword argument is required.");
+		return (NULL);
+	}
+
+	if (strcmp(ctype, VDEV_TYPE_MIRROR) == 0) {
+		nvlist_t **child;
+		uint_t children;
+		if (nvlist_lookup_nvlist_array(v->vdev_tree,
+		    ZPOOL_CONFIG_CHILDREN, &child, &children) == 0) {
+			for (uint_t i = 0; i < children; ++i) {
+				if (nvlist_lookup_string(child[i],
+				    ZPOOL_CONFIG_PATH, &fpath) == 0) {
+					break;
+				}
+			}
+			if (fpath == NULL) {
+				PyErr_SetString(PyExc_RuntimeError,
+				    "No leaf vdev found to attach the VDEV");
+				return (NULL);
+			}
+		} else {
+			PyErr_SetString(PyExc_RuntimeError,
+			    "Cannot find child vdevs in vdev tree");
+			return (NULL);
+		}
+	} else if (strcmp(ctype, VDEV_TYPE_DISK) == 0 || strcmp(ctype,
+	    VDEV_TYPE_FILE) == 0) {
+		fpath = PyUnicode_AsUTF8(v->path);
+	} else {
+		PyErr_SetString(PyExc_TypeError,
+			"Can only attach DISK or FILE type VDEVs to MIRROR "
+			"or STRIPE devices.");
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.attach", "s",
+		path) < 0) {
+		return (NULL);
+	}
+
+	topology = create_topology(v->pool->pylibzfsp->module, path);
+	if (topology == NULL)
+		return (NULL);
+
+	nvlist_t *tree = make_vdev_tree(v->pool->pylibzfsp->module,
+	    topology, NULL);
+	if (tree == NULL) {
+		Py_DECREF(topology);
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_attach(v->pool->zhp, fpath, path, tree, 0, B_FALSE);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool attach failed");
+		fnvlist_free(tree);
+		Py_DECREF(topology);
+		return (NULL);
+	} else {
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool attach %s %s %s", zpool_get_name(v->pool->zhp),
+		    fpath, path);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			fnvlist_free(tree);
+			Py_DECREF(topology);
+			return (NULL);
+		}
+	}
+
+	fnvlist_free(tree);
+	Py_DECREF(topology);
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_vdev_replace__doc__,
+"replace(*, path) -> None\n\n"
+"-----------------\n\n"
+"Replaces the VDEV with a new device with given path.\n\n"
+"Parameters\n"
+"----------\n"
+"path: str\n"
+"    Valid path for DISK which will replace the VDEV.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"TypeError:\n"
+"    If the operation is invoked on VDEV that is not of type DISK TypeError\n"
+"    will be raised.\n\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error can occur, if libzfs fails to replace the device.\n\n"
+);
+static
+PyObject *py_zfs_vdev_replace(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	int ret = 0;
+	py_zfs_error_t err;
+	py_zfs_vdev_t *v = (py_zfs_vdev_t *)self;
+	const char *ctype = PyUnicode_AsUTF8(v->type);
+	char *path = NULL;
+	const char *fpath = NULL;
+	PyObject *topology;
+
+	if (ctype == NULL)
+		return (NULL);
+
+	char *kwnames[] = {"path", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$s", kwnames,
+	    &path)) {
+		return (NULL);
+	}
+
+	if (path == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "path keyword argument is required.");
+		return (NULL);
+	}
+
+	if (strcmp(ctype, VDEV_TYPE_DISK) != 0 ) {
+		PyErr_SetString(PyExc_TypeError,
+			"Can only replace DISK type VDEVs.");
+		return (NULL);
+	} else {
+		fpath = PyUnicode_AsUTF8(v->path);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSVdev.replace", "s",
+		path) < 0) {
+		return (NULL);
+	}
+
+	topology = create_topology(v->pool->pylibzfsp->module, path);
+	if (topology == NULL)
+		return (NULL);
+
+	nvlist_t *tree = make_vdev_tree(v->pool->pylibzfsp->module,
+	    topology, NULL);
+	if (tree == NULL) {
+		Py_DECREF(topology);
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(v->pool->pylibzfsp);
+	ret = zpool_vdev_attach(v->pool->zhp, fpath, path, tree, 1, B_FALSE);
+	if (ret)
+		py_get_zfs_error(v->pool->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(v->pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool replace failed");
+		fnvlist_free(tree);
+		Py_DECREF(topology);
+		return (NULL);
+	} else {
+		ret = py_log_history_fmt(v->pool->pylibzfsp,
+		    "zpool replace %s %s %s", zpool_get_name(v->pool->zhp),
+		    fpath, path);
+		if (ret) {
+			// An exception should be set since we failed to log
+			// history
+			fnvlist_free(tree);
+			Py_DECREF(topology);
+			return (NULL);
+		}
+	}
+
+	fnvlist_free(tree);
+	Py_DECREF(topology);
+	Py_RETURN_NONE;
+}
+
+static
 PyGetSetDef zfs_vdev_getsetters[] = {
 	{
 		.name	= "type",
@@ -988,6 +1272,18 @@ PyMethodDef zfs_vdev_methods[] = {
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_vdev_detach__doc__
 	},
+	{
+		.ml_name = "attach",
+		.ml_meth = (PyCFunction)py_zfs_vdev_attach,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_vdev_attach__doc__
+	},
+	{
+		.ml_name = "replace",
+		.ml_meth = (PyCFunction)py_zfs_vdev_replace,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_vdev_replace__doc__
+	},
 	{ NULL, NULL, 0, NULL }
 };
 
@@ -1005,7 +1301,7 @@ PyTypeObject ZFSVdev = {
 };
 
 py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
-    PyObject *parent)
+    PyObject *parent, boolean_t is_spare, boolean_t is_cache)
 {
 	py_zfs_vdev_t *out = NULL;
 	const char *type;
@@ -1021,7 +1317,6 @@ py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
 	Py_INCREF(pool);
 	out->parent = parent;
 	Py_XINCREF(parent);
-	out->vdev_tree = tree;
 
 	Py_BEGIN_ALLOW_THREADS
 	/*
@@ -1029,14 +1324,16 @@ py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
 	 * operation was successful. We can avoid checking for success with
 	 * these functions, since an assert would be hit in case of failure.
 	 */
-	type = fnvlist_lookup_string(tree, ZPOOL_CONFIG_TYPE);
-	path_found = nvlist_lookup_string(tree, ZPOOL_CONFIG_PATH, &path) == 0;
+	out->vdev_tree = fnvlist_dup(tree);
+	type = fnvlist_lookup_string(out->vdev_tree, ZPOOL_CONFIG_TYPE);
+	path_found = nvlist_lookup_string(out->vdev_tree, ZPOOL_CONFIG_PATH,
+	    &path) == 0;
 	Py_END_ALLOW_THREADS
 
 	if (strncmp(type, VDEV_TYPE_RAIDZ, strlen(VDEV_TYPE_RAIDZ)) == 0) {
 		int parity;
 		Py_BEGIN_ALLOW_THREADS
-		parity = fnvlist_lookup_uint64(tree, ZPOOL_CONFIG_NPARITY);
+		parity = fnvlist_lookup_uint64(out->vdev_tree, ZPOOL_CONFIG_NPARITY);
 		Py_END_ALLOW_THREADS
 		out->type = PyUnicode_FromFormat("%s%d", type, parity);
 	} else
@@ -1050,6 +1347,30 @@ py_zfs_vdev_t *init_zfs_vdev(py_zfs_pool_t *pool, nvlist_t *tree,
 		out->path = PyUnicode_FromString(path);
 	else
 		out->path = NULL;
+
+	if (is_spare && is_cache) {
+		PyErr_SetString(PyExc_RuntimeError,
+		    "A VDEV cannot be both spare and cache device");
+		Py_DECREF(out);
+		return (NULL);
+	}
+
+	if (is_spare)
+		out->class = PyUnicode_FromString(VDEV_TYPE_SPARE);
+	else if (is_cache)
+		out->class = PyUnicode_FromString(VDEV_TYPE_L2CACHE);
+	else {
+		if (strcmp(type, VDEV_TYPE_ROOT) == 0)
+			out->class = NULL;
+		else {
+			const char *bias = NULL;
+			if (nvlist_lookup_string(out->vdev_tree,
+			    ZPOOL_CONFIG_ALLOCATION_BIAS, &bias) == 0)
+				out->class = PyUnicode_FromString(bias);
+			else
+				out->class = PyUnicode_FromString("data");
+		}
+	}
 
 	return (out);
 }
