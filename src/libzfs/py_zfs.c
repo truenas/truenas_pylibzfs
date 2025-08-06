@@ -523,8 +523,8 @@ PyObject *py_zfs_iter_root_filesystems(PyObject *self,
 }
 
 PyDoc_STRVAR(py_zfs_rsrc_crypto_config__doc__,
-"resource_cryptography_config(*, keyformat=None, key_location_uri=None,\n"
-"                             pbkdf2_iters=1300000, key=None) -> None\n"
+"resource_cryptography_config(*, keyformat=None, keylocation=None,\n"
+"                             pbkdf2iters=1300000, key=None) -> None\n"
 "--------------------------------------------------------------------\n\n"
 "Create a truenas_pylibzfs.struct_zfs_crypto_config based on the specified \n"
 "parameters for use when creating a new encrypted resource or re-keying \n"
@@ -537,7 +537,7 @@ PyDoc_STRVAR(py_zfs_rsrc_crypto_config__doc__,
 "    Required parameter specifying the format of the key material\n"
 "    located at \"key_location_uri\" or provided as \"key\".\n"
 "    Must be one of \"raw\", \"hex\", or \"passphrase\".\n\n"
-"key_location_uri: str, optional, default=None\n"
+"keylocation: str, optional, default=None\n"
 "    Optional parameter to specify the location in which key material\n"
 "    may be found. This may be a local file or a path served over https.\n"
 "    This must be None when \"key\" is specified.\n\n"
@@ -546,7 +546,7 @@ PyDoc_STRVAR(py_zfs_rsrc_crypto_config__doc__,
 "    to unlock the ZFS resource. This is required if the ZFS\n"
 "    resource (dataset or zvol) has the keylocation set to \"prompt\"\n"
 "    or if the \"key_location_uri\" in this payload is omitted.\n"
-"pbkdf2_iters: int, optional, default=1300000\n"
+"pbkdf2iters: int, optional, default=1300000\n"
 "    Optional parameter to specify the number of hashing iterations\n"
 "    to peform on the key material when the \"key_format\" is \"passphrase\".\n"
 "Returns\n"
@@ -575,7 +575,7 @@ PyObject *py_zfs_rsrc_crypto_config(PyObject *self,
 
 	char *kwnames [] = {
 		"keyformat",
-		"key_location_uri",
+		"keylocation",
 		"key",
 		"pbkdf2_iters",
 		NULL
