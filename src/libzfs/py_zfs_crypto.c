@@ -61,7 +61,7 @@ PyDoc_STRVAR(py_zfs_crypto_keyformat__doc__,
 "* \"raw\" and \"hex\" keys must be 32 bytes long, no matter which encryption suite\n"
 "  is used. These keys must be randomly generated.\n"
 "* \"passphrase\" must be between 8 and 512 bytes long. The library processes them\n"
-"  through PBKDF2 before using them (see the \"pbkdf2_iters\" setting).\n\n"
+"  through PBKDF2 before using them (see the \"pbkdf2iters\" setting).\n\n"
 );
 
 PyDoc_STRVAR(py_zfs_crypto_keylocation_uri__doc__,
@@ -79,13 +79,13 @@ PyDoc_STRVAR(py_zfs_crypto_keylocation_uri__doc__,
 
 PyDoc_STRVAR(py_zfs_crypto_key__doc__,
 "This sets the password or key used to unlock the ZFS resource.\n"
-"This is valid only if the \"keylocation_uri\" is set to None.\n"
+"This is valid only if the \"keylocation\" is set to None.\n"
 );
 
 PyDoc_STRVAR(py_zfs_crypto_pbkdf2_iters__doc__,
 "This setting controls the number of PBKDF2 iterations used to turn a passphrase\n"
 "into an encryption key. The minimum allowed value is " PBKDF2_MIN_ITERS_STR ".\n"
-"Valid pbkdf2_iters values include:\n"
+"Valid pbkdf2iters values include:\n"
 "* An integer greater than or equal to the minimum allowed value.\n"
 "* The value None. If set to None, the library uses the minimum allowed value.\n"
 "NOTE: This setting is valid only if the \"passphrase\" \"keyformat\" is selected.\n"
@@ -101,9 +101,9 @@ PyDoc_STRVAR(py_zfs_crypto_change__doc__,
 );
 PyStructSequence_Field struct_zfs_crypto_change [] = {
 	{"keyformat", py_zfs_crypto_keyformat__doc__},
-	{"key_location_uri", py_zfs_crypto_keylocation_uri__doc__},
+	{"keylocation", py_zfs_crypto_keylocation_uri__doc__},
 	{"key", py_zfs_crypto_key__doc__},
-	{"pbkdf2_iters", py_zfs_crypto_pbkdf2_iters__doc__},
+	{"pbkdf2iters", py_zfs_crypto_pbkdf2_iters__doc__},
 	{0},
 };
 
@@ -1522,7 +1522,6 @@ void module_init_zfs_crypto(PyObject *module)
 {
 	pylibzfs_state_t *state = NULL;
 	PyTypeObject *obj;
-	int err;
 
 	state = (pylibzfs_state_t *)PyModule_GetState(module);
 	PYZFS_ASSERT(state, "Failed to get module state.");
