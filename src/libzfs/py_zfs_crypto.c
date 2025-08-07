@@ -686,8 +686,11 @@ PyObject *py_load_key_memory(py_zfs_obj_t *obj,
 
 	/* First check for ZFS error */
 	if (err) {
-		set_exc_from_libzfs(&zfs_err, "zfs_load_key() failed");
-		return NULL;
+		if (!test || (zfs_err.code != EZFS_CRYPTOFAILED)) {
+			set_exc_from_libzfs(&zfs_err, "zfs_load_key() failed");
+			return NULL;
+		}
+		Py_RETURN_FALSE;
 	}
 
 	/* File op failed and so errno should be set */
@@ -698,7 +701,7 @@ PyObject *py_load_key_memory(py_zfs_obj_t *obj,
 		return NULL;
 	}
 
-	Py_RETURN_NONE;
+	Py_RETURN_TRUE;
 }
 
 PyObject *py_load_key_impl(py_zfs_obj_t *obj,
@@ -737,11 +740,14 @@ PyObject *py_load_key_impl(py_zfs_obj_t *obj,
 	Py_END_ALLOW_THREADS
 
 	if (err) {
-		set_exc_from_libzfs(&zfs_err, "zfs_load_key() failed");
-		return NULL;
+		if (!test || (zfs_err.code != EZFS_CRYPTOFAILED)) {
+			set_exc_from_libzfs(&zfs_err, "zfs_load_key() failed");
+			return NULL;
+		}
+		Py_RETURN_FALSE;
 	}
 
-	Py_RETURN_NONE;
+	Py_RETURN_TRUE;
 }
 
 static
@@ -786,9 +792,43 @@ boolean_t py_validate_key_location(py_zfs_obj_t *obj)
 	return B_TRUE;
 }
 
+static
+PyObject *py_load_key_common(py_zfs_obj_t *obj,
+			     PyObject *args_unused,
+			     PyObject *kwargs,
+			     boolean_t test)
+{
+	const char *alt_keylocation = NULL;
+	const char *key = NULL;
+
+	char *kwnames [] = {
+		"key",
+		"key_location",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$ss",
+					 kwnames,
+					 &key,
+					 &alt_keylocation)) {
+		return NULL;
+	}
+
+	if (!key && !alt_keylocation) {
+		if (!py_validate_key_location(obj))
+			return NULL;
+	}
+
+	return py_load_key_impl(obj,
+				key,
+				alt_keylocation,
+				test);
+}
+
 PyDoc_STRVAR(py_zfs_enc_load_key__doc__,
-"load_key(*, key=None, key_location=None, test=False) -> None\n"
-"------------------------------------------------------------\n\n"
+"load_key(*, key=None, key_location=None) -> None\n"
+"------------------------------------------------\n\n"
 "Load the encrpytion key for the ZFS filesystem (dataset or zvol). This\n"
 "allows it and all children that inherit the \"keylocation\" property to be\n"
 "accessed. Loading a key will not automatically mount a dataset.\n"
@@ -803,9 +843,6 @@ PyDoc_STRVAR(py_zfs_enc_load_key__doc__,
 "    Optional parameter to override the ZFS key location specified\n"
 "    in the ZFS dataset settings. This must be None when \"key\" is\n"
 "    specified.\n\n"
-"test: bool, optional, default=False\n"
-"    Perform a dry-run to check whether the ZFS resource can be unlocked\n"
-"    with the specified parameters.\n\n"
 ""
 "Returns\n"
 "-------\n"
@@ -828,35 +865,49 @@ PyObject *py_zfs_enc_load_key(PyObject *self,
 			      PyObject *kwargs)
 {
 	py_zfs_obj_t *obj = py_enc_get_zfs_obj(((py_zfs_enc_t *)self));
-	const char *alt_keylocation = NULL;
-	const char *key = NULL;
-	boolean_t test = B_FALSE;
+	py_load_key_common(obj, args_unused, kwargs, B_FALSE);
+	Py_RETURN_NONE;
+}
 
-	char *kwnames [] = {
-		"key",
-		"key_location",
-		"test",
-		NULL
-	};
 
-	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-                                         "|$ssp",
-                                         kwnames,
-					 &key,
-					 &alt_keylocation,
-                                         &test)) {
-                return NULL;
-        }
-
-	if (!key && !alt_keylocation) {
-		if (!py_validate_key_location(obj))
-			return NULL;
-	}
-
-	return py_load_key_impl(obj,
-				key,
-				alt_keylocation,
-				test);
+PyDoc_STRVAR(py_zfs_enc_check_key__doc__,
+"check_key(*, key=None, key_location=None) -> bool\n"
+"-------------------------------------------------\n\n"
+"Test whether the provided key marterial can be loaded for the ZFS resource.\n"
+""
+"Parameters\n"
+"----------\n"
+"key: str, optional, default=None\n"
+"    Optional parameter to specify the password or key to use\n"
+"    to unlock the ZFS resource. This is required if the ZFS\n"
+"    resource (dataset or zvol) has the keylocation set to \"prompt\".\n"
+"key_location: str, optional, default=None\n"
+"    Optional parameter to override the ZFS key location specified\n"
+"    in the ZFS dataset settings. This must be None when \"key\" is\n"
+"    specified.\n\n"
+""
+"Returns\n"
+"-------\n"
+"True if the supplied key material can unlock the resource\n\n"
+""
+"Raises:\n"
+"-------\n"
+"ValueError:\n"
+"    Invalid combination of key and key_location parameters.\n\n"
+"ValueError:\n"
+"    ZFS resource is configured to prompt for key and no key was provided.\n\n"
+"RuntimeError:\n"
+"    An OS error occurred when create an in-memory file for user-provided key\n\n"
+"ZFSError:\n"
+"    The zfs_load_key() operation failed.\n\n"
+);
+static
+PyObject *py_zfs_enc_check_key(PyObject *self,
+			       PyObject *args_unused,
+			       PyObject *kwargs)
+{
+	py_zfs_obj_t *obj = py_enc_get_zfs_obj(((py_zfs_enc_t *)self));
+	return py_load_key_common(obj, args_unused, kwargs, B_TRUE);
 }
 
 PyDoc_STRVAR(py_zfs_enc_unload_key__doc__,
@@ -1263,6 +1314,12 @@ PyMethodDef zfs_enc_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_enc_change_key,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_enc_change_key__doc__
+	},
+	{
+		.ml_name = "check_key",
+		.ml_meth = (PyCFunction)py_zfs_enc_check_key,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_enc_check_key__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
