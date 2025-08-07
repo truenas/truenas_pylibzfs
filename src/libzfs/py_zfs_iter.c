@@ -342,7 +342,7 @@ py_iter_userspace(py_iter_state_t *state)
 	PY_ZFS_LOCK(state->pylibzfsp);
 
 	/*
-	 * zfs_ioctl() may fail with EBUSY if dataset is/ unmounted due to
+	 * zfs_ioctl() may fail with EBUSY if dataset is unmounted due to
 	 * zfsvfs_hold() return. In this case we can retry here a few
 	 * times while the GIL is released and the ZFS lock is held.
 	 */
