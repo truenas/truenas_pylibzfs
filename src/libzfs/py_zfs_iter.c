@@ -329,23 +329,40 @@ py_iter_snapshots(py_iter_state_t *state)
 	return iter_ret;
 }
 
+
+#define MAX_ZFS_USERSPACE_RETRIES 50  // number of retries with 0.1 sec sleep
 int
 py_iter_userspace(py_iter_state_t *state)
 {
-	int iter_ret;
+	int iter_ret, tries;
 	py_zfs_error_t zfs_err;
 	iter_conf_userspace_t conf = state->iter_config.userspace;
 
 	ITER_ALLOW_THREADS(state);
 	PY_ZFS_LOCK(state->pylibzfsp);
 
-	iter_ret = zfs_userspace(state->target,
-				 conf.qtype,
-				 userspace_callback,
-				 (void *)state);
+	/*
+	 * zfs_ioctl() may fail with EBUSY if dataset is unmounted due to
+	 * zfsvfs_hold() return. In this case we can retry here a few
+	 * times while the GIL is released and the ZFS lock is held.
+	 */
+	for (tries = 0; tries < MAX_ZFS_USERSPACE_RETRIES; tries++) {
+		iter_ret = zfs_userspace(state->target,
+					 conf.qtype,
+					 userspace_callback,
+					 (void *)state);
 
-	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		if (iter_ret != ITER_RESULT_IOCTL_ERROR)
+			break;
+
+		// store libzfs error state in case this is our last retry
 		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
+		if (zfs_err.code != EZFS_BUSY) {
+			// only retry if failed with EBUSY
+			break;
+		}
+
+		usleep(100000);
 	}
 
 	PY_ZFS_UNLOCK(state->pylibzfsp);
