@@ -371,6 +371,29 @@ PyObject *py_zfs_resource_open(PyObject *self,
 	return out;
 }
 
+PyDoc_STRVAR(py_zfs_resource_destroy__doc__,
+"destroy_resource(*, name) -> bool\n\n"
+"----------------------------------------------\n\n"
+"Destroy the ZFS FILESYSTEM or VOLUME. This is a destructive operation that\n"
+"is irreversible.\n\n"
+"Parameters\n"
+"----------\n"
+"name: str, required\n"
+"    The name of the ZFS resource to destroy.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSException:\n"
+"    The error code EZFS_NOENT is set if the resource does not exist.\n"
+"truenas_pylibzfs.ZFSException:\n"
+"    A library error occured while attempting to destroy the resource.\n\n"
+"IMPLEMENTATION NOTE: this method calls zfs_open() followed by zfs_destroy()\n"
+"on the handle. If there is a race in which the resource is renamed or\n"
+"destroyed between the open and destroy library calls, libzfs ignores the\n"
+"ENOENT and reports success.\n"
+);
 PyObject *py_zfs_resource_destroy(PyObject *self,
 				  PyObject *args_unused,
 				  PyObject *kwargs)
@@ -379,17 +402,15 @@ PyObject *py_zfs_resource_destroy(PyObject *self,
 	char *name = NULL;
 	zfs_handle_t *zfsp = NULL;
 	py_zfs_error_t zfs_err;
-	boolean_t defer = B_FALSE;
 	boolean_t destroyed = B_FALSE;
 	int err;
 
-	char *kwnames [] = { "name", "defer", NULL };
+	char *kwnames [] = { "name", NULL };
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$sp",
+					 "|$s",
 					 kwnames,
-					 &name,
-					 &defer)) {
+					 &name)) {
 		return NULL;
 	}
 
@@ -412,7 +433,7 @@ PyObject *py_zfs_resource_destroy(PyObject *self,
 	if (zfsp == NULL) {
 		py_get_zfs_error(plz->lzh, &zfs_err);
 	} else {
-		err = zfs_destroy(zfsp, defer);
+		err = zfs_destroy(zfsp, B_FALSE);
 		if (err) {
 			py_get_zfs_error(plz->lzh, &zfs_err);
 		} else {
@@ -508,7 +529,7 @@ PyDoc_STRVAR(py_zfs_iter_root_filesystems__doc__,
 "Raises:\n"
 "-------\n"
 "truenas_pylibzfs.ZFSError:\n"
-"    An error occurred during iteration of the datasetd. Note that this\n"
+"    An error occurred during iteration of the dataset. Note that this\n"
 "    exception type may also be raised within the callback function.\n\n"
 "NOTE regarding \"callback\":\n"
 "--------------------------\n"
@@ -673,7 +694,8 @@ PyMethodDef zfs_methods[] = {
 	{
 		.ml_name = "destroy_resource",
 		.ml_meth = (PyCFunction)py_zfs_resource_destroy,
-		.ml_flags = METH_VARARGS | METH_KEYWORDS
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_destroy__doc__
 	},
 	{
 		.ml_name = "iter_root_filesystems",
