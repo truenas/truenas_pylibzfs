@@ -590,6 +590,76 @@ PyObject *nvlist_errors_to_err_tuple(nvlist_t *errors, int error)
 	return out;
 }
 
+#define ZCP_ERR_PREFIX "Channel program execution failed"
+static
+PyObject *zcp_nvlist_errs_to_err_tuple(nvlist_t *errors, int error)
+{
+	PyObject *errtup = NULL;
+	PyObject *errmsg = NULL;
+	const char *errstr = NULL;
+	uint64_t inst = 0;
+
+	errtup = PyTuple_New(1);
+	if (errtup == NULL)
+		return NULL;
+
+	if (errors && nvlist_exists(errors, ZCP_RET_ERROR)) {
+		// Try to extract error message from lua script
+		// result and fallback to strerror
+		const char *es = NULL;
+		nvlist_lookup_string(errors, ZCP_RET_ERROR, &es);
+		errstr = es ? es : strerror(error);
+		if (error == ETIME) {
+			nvlist_lookup_uint64(errors, ZCP_ARG_INSTRLIMIT, &inst);
+		}
+	} else {
+		// These error strings are based on zfs_main.c output
+		switch(error) {
+		case EINVAL:
+			errstr = "Invalid instruction or memory limit.";
+			break;
+		case ENOMEM:
+			errstr = "Return value too large.";
+			break;
+		case ENOSPC:
+			errstr = "Memory limit exhausted.";
+			break;
+		case ETIME:
+			errstr = "Timed out.";
+			break;
+		case EPERM:
+			errstr = "Permission denied. Must run as root.";
+			break;
+		default:
+			errstr = strerror(errno);
+		}
+	}
+
+	errmsg = PyUnicode_FromFormat("%s: %s", ZCP_ERR_PREFIX, errstr);
+	if (errmsg == NULL) {
+		Py_DECREF(errtup);
+		return NULL;
+	}
+
+	// Have tuple steal the reference
+	PyTuple_SET_ITEM(errtup, 0, errmsg);
+
+	if ((error == ETIME) && inst) {
+		// expand our tuple (yes you can do this in C-API)
+		_PyTuple_Resize(&errtup, 2);
+		PyTuple_SET_ITEM(errtup, 0, errmsg);
+
+		// No need to DECREF errmsg first because tuple stole ref
+		errmsg = PyUnicode_FromFormat("%llu Lua instructions", inst);
+		if (errmsg == NULL) {
+			Py_DECREF(errtup);
+			return NULL;
+		}
+		PyTuple_SET_ITEM(errtup, 1, errmsg);
+	}
+	return errtup;
+}
+
 PyDoc_STRVAR(py_zfs_core_create_holds__doc__,
 "create_holds(*, holds, cleanup_fd=False) -> tuple\n"
 "-------------------------------------------------\n\n"
@@ -1078,9 +1148,9 @@ static boolean_t strv_append(char **dst, size_t *dst_sz, const char *src)
 {
 	char *new_dst;
 	size_t src_len = strlen(src) + 1; // PyUnicode API ensures NULL-termination
-	size_t new_len = dst_sz + src_len;
+	size_t new_len = *dst_sz + src_len;
 
-	if ((new_len < src_len) || (new_len < dst_sz)) {
+	if ((new_len < src_len) || (new_len < *dst_sz)) {
 		PyErr_SetString(PyExc_OverflowError,
 				"Unexpected wraparound of string size.");
 		return B_FALSE;
@@ -1092,9 +1162,10 @@ static boolean_t strv_append(char **dst, size_t *dst_sz, const char *src)
 		return B_FALSE;
 	}
 
-	memcpy(&new_dst[dst_sz], src, src_len);
+	memcpy(&new_dst[*dst_sz], src, src_len);
 
 	*dst = new_dst;
+	*dst_sz = new_len;
 	return B_TRUE;
 }
 
@@ -1114,7 +1185,7 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 	size_t strbuf_sz = 0;
 	uint cnt = 0;
 
-	iterator = PyObject_GetIter(obj);
+	iterator = PyObject_GetIter(pycmds);
 	if (iterator == NULL)
 		return NULL;
 
@@ -1140,12 +1211,15 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 
 	Py_DECREF(iterator);
 	if (cnt) {
-		fnvlist_add_string_array(out, ZCP_ARG_CLIARGV, &strbuf, cnt);
+		fnvlist_add_string_array(out, ZCP_ARG_CLIARGV, (const char* const *)&strbuf, cnt);
 	}
 	PyMem_Free(strbuf);
 
+	nvlist_print_json(stdout, out);
+
 	return out;
 }
+
 
 PyDoc_STRVAR(py_lzc_program__doc__,
 "destroy_snapshots(*, pool_name, program, program_arguments=None, \n"
@@ -1240,7 +1314,7 @@ static PyObject *py_lzc_program(PyObject *self,
 		return NULL;
 	}
 
-	if (!pool_name || !cprog) {
+	if (!pool || !cprog) {
 		PyErr_SetString(PyExc_ValueError,
 				"pool_name and script are required");
 		return NULL;
@@ -1260,7 +1334,7 @@ static PyObject *py_lzc_program(PyObject *self,
 	}
 
 	Py_BEGIN_ALLOW_THREADS
-	err = lzc_channel_program(pool, prog, ilimit, mlimit, args, &outnvl);
+	err = lzc_channel_program(pool, cprog, ilimit, mlimit, args, &outnvl);
 	fnvlist_free(args);
 	Py_END_ALLOW_THREADS
 
@@ -1269,7 +1343,7 @@ static PyObject *py_lzc_program(PyObject *self,
 		 * The channel program failed and _hopefully_ it was written
 		 * with some sort of error handling / logging.
 		 */
-		py_err = nvlist_errors_to_err_tuple(outnvl, err);
+		py_err = zcp_nvlist_errs_to_err_tuple(outnvl, err);
 
 		Py_BEGIN_ALLOW_THREADS
 		fnvlist_free(outnvl);
@@ -1278,7 +1352,7 @@ static PyObject *py_lzc_program(PyObject *self,
 		if (py_err == NULL)
 			return NULL;
 
-		set_zfscore_exc(self, "lzc_channel_program() failed", rv, py_err);
+		set_zfscore_exc(self, "lzc_channel_program() failed", err, py_err);
 		return NULL;
 	}
 
@@ -1292,11 +1366,11 @@ static PyObject *py_lzc_program(PyObject *self,
 	fnvlist_free(outnvl);
 	Py_END_ALLOW_THREADS
 
-	if (!readonly) {
+	if (!ro) {
 		// Make some notation in ZFS history that a channel program
 		// was run with possible intention to write changes.
 		Py_BEGIN_ALLOW_THREADS
-		lz = libzfs_init();
+		libzfs_handle_t *lz = libzfs_init();
 		if (lz) {
 			zpool_log_history(lz,
 					 "truenas-pylibzfs: channel program "
