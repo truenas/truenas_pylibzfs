@@ -191,6 +191,60 @@ boolean_t py_zfs_create(py_zfs_t *self,
 	return B_TRUE;
 }
 
+PyDoc_STRVAR(py_zfs_create__doc__,
+"create_resource(*, name, type, properties=None, crypto=None) -> None\n"
+"--------------------------------------------------------------------\n\n"
+"Create a new ZFS FILESYSTEM or VOLUME with the given properties and\n"
+"encryption settings.\n"
+"\n"
+"See man (7) zfsconcepts for description of the ZFS File System Hierarchy\n"
+"and man (7) zfsprops for descriptions of various possible ZFS properties\n"
+""
+"Parameters\n"
+"----------\n"
+"name: str, required\n"
+"    The name of the ZFS resource to create. \n"
+"    It must:\n"
+"    - Begin with the name of an existing ZFS pool.\n"
+"    - Be a maximum of 255 ASCII characters long.\n"
+"    - Identify a unique path in the ZFS namespace.\n"
+"    - Use only the characters [A-Za-z_:/ -].\n"
+"    - Contain no more than 50 components.\n"
+"    - All path components, except the last component, must already exist.\n\n"
+"type: " PYLIBZFS_MODULE_NAME ".ZFSType, required\n"
+"    The ZFS resource type to create. The value must be either "
+     PYLIBZFS_MODULE_NAME ".ZFSType.ZFS_TYPE_FILESYSTEM\n"
+"    or " PYLIBZFS_MODULE_NAME ".ZFSType.ZFS_TYPE_VOLUME\n\n"
+"properties: dict | " PYLIBZFS_MODULE_NAME "struct_zfs_property, optional\n"
+"    Optional ZFS dataset property configuration.\n"
+"    This can be:\n"
+"    - A dictionary with keys from "  PYLIBZFS_MODULE_NAME ".ZFSProperty\n"
+"    - A struct_zfs_property sequence object returned when getting properties\n"
+"      of an existing ZFS resource.\n"
+"\n"
+"    NOTE: dictionary values may be specified in the following ways:\n"
+"    - simplified: \"on\"\n"
+"    - as dictionary like returned by asdict(): {\"value\": \"on\"}\n"
+"    WARNING: not all ZFSProperty properties are valid for a given ZFSType.\n\n"
+"crypto: " PYLIBZFS_MODULE_NAME ".struct_zfs_crypto_config, optional\n"
+"    Optional encryption configuration to establish the volume as a new\n"
+"    encryption root. If omitted, then the new resource will inherit\n"
+"    the encryption configuration of its parent dataset. A crypto config\n"
+"    object may be created by calling the `resource_cryptography_config`\n"
+"    method on an existing libzfs handle object.\n\n"
+"Returns\n"
+"-------\n"
+"    None\n"
+""
+"Raises:\n"
+"-------\n"
+"ValueError:\n"
+"    Invalid combination of parameters.\n"
+"TypeError:\n"
+"    Invaild ZFS type was specified.\n"
+"ZFSException:\n"
+"    The ZFS operation failed for one of a variety of library-specific reasons\n"
+);
 static
 PyObject *py_zfs_resource_create(PyObject *self,
 				 PyObject *args_unused,
@@ -558,7 +612,6 @@ PyDoc_STRVAR(py_zfs_rsrc_crypto_config__doc__,
 "ValueError:\n"
 "    Invalid combination of parameters.\n\n"
 );
-
 static
 PyObject *py_zfs_rsrc_crypto_config(PyObject *self,
 				    PyObject *args_unused,
@@ -609,7 +662,8 @@ PyMethodDef zfs_methods[] = {
 	{
 		.ml_name = "create_resource",
 		.ml_meth = (PyCFunction)py_zfs_resource_create,
-		.ml_flags = METH_VARARGS | METH_KEYWORDS
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_create__doc__
 	},
 	{
 		.ml_name = "open_resource",
