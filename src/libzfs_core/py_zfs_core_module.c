@@ -590,6 +590,76 @@ PyObject *nvlist_errors_to_err_tuple(nvlist_t *errors, int error)
 	return out;
 }
 
+#define ZCP_ERR_PREFIX "Channel program execution failed"
+static
+PyObject *zcp_nvlist_errs_to_err_tuple(nvlist_t *errors, int error)
+{
+	PyObject *errtup = NULL;
+	PyObject *errmsg = NULL;
+	const char *errstr = NULL;
+	uint64_t inst = 0;
+
+	errtup = PyTuple_New(1);
+	if (errtup == NULL)
+		return NULL;
+
+	if (errors && nvlist_exists(errors, ZCP_RET_ERROR)) {
+		// Try to extract error message from lua script
+		// result and fallback to strerror
+		const char *es = NULL;
+		nvlist_lookup_string(errors, ZCP_RET_ERROR, &es);
+		errstr = es ? es : strerror(error);
+		if (error == ETIME) {
+			nvlist_lookup_uint64(errors, ZCP_ARG_INSTRLIMIT, &inst);
+		}
+	} else {
+		// These error strings are based on zfs_main.c output
+		switch(error) {
+		case EINVAL:
+			errstr = "Invalid instruction or memory limit.";
+			break;
+		case ENOMEM:
+			errstr = "Return value too large.";
+			break;
+		case ENOSPC:
+			errstr = "Memory limit exhausted.";
+			break;
+		case ETIME:
+			errstr = "Timed out.";
+			break;
+		case EPERM:
+			errstr = "Permission denied. Must run as root.";
+			break;
+		default:
+			errstr = strerror(errno);
+		}
+	}
+
+	errmsg = PyUnicode_FromFormat("%s: %s", ZCP_ERR_PREFIX, errstr);
+	if (errmsg == NULL) {
+		Py_DECREF(errtup);
+		return NULL;
+	}
+
+	// Have tuple steal the reference
+	PyTuple_SET_ITEM(errtup, 0, errmsg);
+
+	if ((error == ETIME) && inst) {
+		// expand our tuple (yes you can do this in C-API)
+		_PyTuple_Resize(&errtup, 2);
+		PyTuple_SET_ITEM(errtup, 0, errmsg);
+
+		// No need to DECREF errmsg first because tuple stole ref
+		errmsg = PyUnicode_FromFormat("%llu Lua instructions", inst);
+		if (errmsg == NULL) {
+			Py_DECREF(errtup);
+			return NULL;
+		}
+		PyTuple_SET_ITEM(errtup, 1, errmsg);
+	}
+	return errtup;
+}
+
 PyDoc_STRVAR(py_zfs_core_create_holds__doc__,
 "create_holds(*, holds, cleanup_fd=False) -> tuple\n"
 "-------------------------------------------------\n\n"
@@ -1074,6 +1144,225 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 	Py_RETURN_NONE;
 }
 
+/*
+ * Convert python iterable containing strings into argv for zcp. These
+ * are passed as arguments to the lua script as a string array:
+ * {
+ *      "argv" -> [ "arg 1", ... "arg n" ],
+ * }
+ */
+static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
+{
+	nvlist_t *out = NULL;
+	PyObject *item = NULL;
+	PyObject *iterator = NULL;
+	Py_ssize_t iter_len = PyObject_Length(pycmds);
+	const char **arglist = NULL;
+	uint cnt = 0;
+
+	iterator = PyObject_GetIter(pycmds);
+	if (iterator == NULL || iter_len == -1)
+		return NULL;
+
+	// we basically need to simulate argv, argc for
+	// compatiblity with usage of zfs-program(8)
+	arglist = PyMem_Calloc(iter_len, sizeof(char *));
+	if (arglist == NULL) {
+		Py_DECREF(iterator);
+		return NULL;
+	}
+
+	out = fnvlist_alloc();
+
+	while ((item = PyIter_Next(iterator))) {
+		const char *arg;
+
+		arg = PyUnicode_AsUTF8(item);
+		// We don't need to worry about UAF here because
+		// pycmds object still holds reference to the item
+		Py_DECREF(item);
+		if (arg == NULL) {
+			fnvlist_free(out);
+			PyMem_Free(arglist);
+			return NULL;
+		}
+		arglist[cnt] = arg;
+		cnt++;
+	}
+
+	Py_DECREF(iterator);
+	if (cnt) {
+		fnvlist_add_string_array(out, ZCP_ARG_CLIARGV, arglist, cnt);
+	}
+
+	PyMem_Free(arglist);
+
+	return out;
+}
+
+
+PyDoc_STRVAR(py_lzc_program__doc__,
+"channel_program(*, pool_name, script, script_arguments=None, \n"
+"                instruction_limit=10000000, memory_limit=10485760, \n"
+"                readonly=False) -> None\n"
+"---------------------------------------\n\n"
+"Run a provided ZFS channel program lua script. The entire script is executed\n"
+"atomically, with no other administrative operations taking effect\n"
+"concurrently.\n"
+"NOTE: man (8) zfs-program contains documentation for a library of ZFS calls\n"
+"available to channel program scripts under the \"LUA INTERFACE\" section.\n"
+"\n"
+"Parameters\n"
+"----------\n"
+"pool_name: str, required\n"
+"    The channel program given in script runs on this pool. Any attempt to\n"
+"    access or change other pools causes an error.\n"
+"script: str, required\n"
+"    The contents of the lua channel program script to run.\n"
+"script_arguments: iterable, optional\n"
+"    Python iterable (list, tuple, etc) containing strings to present as argv\n"
+"    to the provided `script`. Usage mirrors that of providing arguments to\n"
+"    zfs-program(8).\n"
+"instruction_limit: int, optional, default=10000000\n"
+"    Limit the number of Lua instructions to execute. If a channel program \n"
+"    executes more than the specified number of instructions, it will be stopped\n"
+"    and an error returned. The default limit is 10 million instructions, and it\n"
+"    can be set to a maximum of 100 million instructions.\n"
+"memory_limit: int, optional, default=10485760\n"
+"    Memory limit, in bytes, that may be allocated by the channel program.\n"
+"    If a channel program attempts to allocate more memory than the limit, it\n"
+"    will be stopped and an error returned. The default memory limit is 10 MiB,\n"
+"    and it can be set to a maximum of 100 MiB.\n"
+"readonly: bool, optional, default=True\n"
+"    Execute a read-only channel program, which runs faster. The program cannot\n"
+"    change on-disk state by calling functions from the `zfs.sync` submodule.\n"
+"    This can, for example, be used to gather information for whether changes would\n"
+"    succeed (zfs.check.*). When unset (default), all pending changes must be synced to\n"
+"    disk before a channel program can complete.\n"
+"\n"
+"Returns\n"
+"-------\n"
+"str - JSON object containing results of channel program script\n\n"
+""
+"Raises\n"
+"------\n"
+"TypeError:\n"
+"    \"script_arguments\" are not iterable.\n"
+"\n"
+"ValueError:\n"
+"    \"pool_name\" or \"script\" were omitted.\n"
+"\n"
+"ZFSCoreException:\n"
+"    Failed to execute the channel program or channel program had an error.\n"
+"    Errors generated by the channel program are reported by the exception's\n"
+"    \"errors\" attribute, assuming the script has proper error handling.\n\n"
+);
+static PyObject *py_lzc_program(PyObject *self,
+				PyObject *args_unused,
+				PyObject *kwargs)
+{
+	const char *cprog = NULL;
+	const char *pool = NULL;
+	uint64_t ilimit = ZCP_DEFAULT_INSTRLIMIT;
+	uint64_t mlimit = ZCP_DEFAULT_MEMLIMIT;
+	boolean_t ro = B_TRUE;
+	PyObject *cmds = NULL;
+	PyObject *py_err, *py_out;
+	nvlist_t *outnvl = NULL;
+	nvlist_t *args = NULL;
+	int err;
+
+	char *kwnames [] = {
+		"pool_name",
+		"script",
+		"script_arguments",
+		"instruction_limit",
+		"memory_limit",
+		"readonly",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$ssOkkp",
+					 kwnames,
+					 &pool,
+					 &cprog,
+					 &cmds,
+					 &ilimit,
+					 &mlimit,
+					 &ro)) {
+		return NULL;
+	}
+
+	if (!pool || !cprog) {
+		PyErr_SetString(PyExc_ValueError,
+				"pool_name and script are required");
+		return NULL;
+	}
+
+	args = py_to_nvlist_commands(cmds);
+	if (args == NULL) {
+		return NULL;
+	}
+
+	// Only audit the script itself since args may theoretically contain
+	// sensitive information
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.channel_program", "s",
+			cprog) < 0) {
+		fnvlist_free(args);
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	err = lzc_channel_program(pool, cprog, ilimit, mlimit, args, &outnvl);
+	fnvlist_free(args);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		/*
+		 * The channel program failed and _hopefully_ it was written
+		 * with some sort of error handling / logging.
+		 */
+		py_err = zcp_nvlist_errs_to_err_tuple(outnvl, err);
+
+		Py_BEGIN_ALLOW_THREADS
+		fnvlist_free(outnvl);
+		Py_END_ALLOW_THREADS
+
+		if (py_err == NULL)
+			return NULL;
+
+		set_zfscore_exc(self, "lzc_channel_program() failed", err, py_err);
+		return NULL;
+	}
+
+	// convert the output nvlist into a JSON string
+	py_out = py_dump_nvlist(outnvl, B_TRUE);
+	if (py_out == NULL)
+		// parser error for results
+		return NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(outnvl);
+	Py_END_ALLOW_THREADS
+
+	if (!ro) {
+		// Make some notation in ZFS history that a channel program
+		// was run with possible intention to write changes.
+		Py_BEGIN_ALLOW_THREADS
+		libzfs_handle_t *lz = libzfs_init();
+		if (lz) {
+			zpool_log_history(lz,
+					 "truenas-pylibzfs: channel program "
+					 "executed with write access.");
+			libzfs_fini(lz);
+		}
+		Py_END_ALLOW_THREADS
+	}
+
+	return py_out;
+}
+
 static int
 py_zfs_core_module_clear(PyObject *module)
 {
@@ -1116,6 +1405,12 @@ static PyMethodDef TruenasPylibzfsCoreMethods[] = {
 		.ml_meth = (PyCFunction)py_lzc_release_holds,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_core_release_holds__doc__
+	},
+	{
+		.ml_name = "channel_program",
+		.ml_meth = (PyCFunction)py_lzc_program,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_lzc_program__doc__
 	},
 	{NULL}
 };
