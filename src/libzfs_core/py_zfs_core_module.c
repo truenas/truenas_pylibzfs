@@ -1144,31 +1144,6 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 	Py_RETURN_NONE;
 }
 
-static boolean_t strv_append(char **dst, size_t *dst_sz, const char *src)
-{
-	char *new_dst;
-	size_t src_len = strlen(src) + 1; // PyUnicode API ensures NULL-termination
-	size_t new_len = *dst_sz + src_len;
-
-	if ((new_len < src_len) || (new_len < *dst_sz)) {
-		PyErr_SetString(PyExc_OverflowError,
-				"Unexpected wraparound of string size.");
-		return B_FALSE;
-	}
-
-	new_dst = PyMem_Realloc(*dst, new_len);
-	if (new_dst == NULL) {
-		PyErr_SetString(PyExc_MemoryError, "Realloc failed.");
-		return B_FALSE;
-	}
-
-	memcpy(&new_dst[*dst_sz], src, src_len);
-
-	*dst = new_dst;
-	*dst_sz = new_len;
-	return B_TRUE;
-}
-
 /*
  * Convert python iterable containing strings into argv for zcp. These
  * are passed as arguments to the lua script as a string array:
@@ -1181,13 +1156,21 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 	nvlist_t *out = NULL;
 	PyObject *item = NULL;
 	PyObject *iterator = NULL;
-	char *strbuf = NULL;
-	size_t strbuf_sz = 0;
+	Py_ssize_t iter_len = PyObject_Length(pycmds);
+	const char **arglist = NULL;
 	uint cnt = 0;
 
 	iterator = PyObject_GetIter(pycmds);
-	if (iterator == NULL)
+	if (iterator == NULL || iter_len == -1)
 		return NULL;
+
+	// we basically need to simulate argv, argc for
+	// compatiblity with usage of zfs-program(8)
+	arglist = PyMem_Calloc(iter_len, sizeof(char *));
+	if (arglist == NULL) {
+		Py_DECREF(iterator);
+		return NULL;
+	}
 
 	out = fnvlist_alloc();
 
@@ -1195,37 +1178,34 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 		const char *arg;
 
 		arg = PyUnicode_AsUTF8(item);
+		// We don't need to worry about UAF here because
+		// pycmds object still holds reference to the item
+		Py_DECREF(item);
 		if (arg == NULL) {
-			Py_DECREF(item);
 			fnvlist_free(out);
+			PyMem_Free(arglist);
 			return NULL;
 		}
-		if (!strv_append(&strbuf, &strbuf_sz, arg)) {
-			PyMem_Free(strbuf);
-			Py_DECREF(item);
-			fnvlist_free(out);
-			return NULL;
-		}
+		arglist[cnt] = arg;
 		cnt++;
 	}
 
 	Py_DECREF(iterator);
 	if (cnt) {
-		fnvlist_add_string_array(out, ZCP_ARG_CLIARGV, (const char* const *)&strbuf, cnt);
+		fnvlist_add_string_array(out, ZCP_ARG_CLIARGV, arglist, cnt);
 	}
-	PyMem_Free(strbuf);
 
-	nvlist_print_json(stdout, out);
+	PyMem_Free(arglist);
 
 	return out;
 }
 
 
 PyDoc_STRVAR(py_lzc_program__doc__,
-"destroy_snapshots(*, pool_name, program, program_arguments=None, \n"
-"                  instruction_limit=10000000, memory_limit=10485760, \n"
-"                  readonly=False) -> None\n"
-"-----------------------------------------\n\n"
+"channel_program(*, pool_name, script, script_arguments=None, \n"
+"                instruction_limit=10000000, memory_limit=10485760, \n"
+"                readonly=False) -> None\n"
+"---------------------------------------\n\n"
 "Run a provided ZFS channel program lua script. The entire script is executed\n"
 "atomically, with no other administrative operations taking effect\n"
 "concurrently.\n"
