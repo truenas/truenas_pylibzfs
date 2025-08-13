@@ -343,7 +343,6 @@ out:
 	return args_out;
 }
 
-static
 int add_enum(PyObject *module,
 	     PyObject *enum_type,
 	     const char *class_name,
