@@ -545,8 +545,8 @@ PyDoc_STRVAR(py_zfs_iter_root_filesystems__doc__,
 );
 static
 PyObject *py_zfs_iter_root_filesystems(PyObject *self,
-					   PyObject *args_unused,
-					   PyObject *kwargs)
+				       PyObject *args_unused,
+				       PyObject *kwargs)
 {
 	int err;
 	py_zfs_t *plz = (py_zfs_t *)self;
@@ -585,6 +585,92 @@ PyObject *py_zfs_iter_root_filesystems(PyObject *self,
 	}
 
 	err = py_iter_root_filesystems(&iter_state);
+	if ((err == ITER_RESULT_ERROR) || (err == ITER_RESULT_IOCTL_ERROR)) {
+		// Exception is set by callback function
+		return NULL;
+	}
+
+	if (err == ITER_RESULT_SUCCESS) {
+		Py_RETURN_TRUE;
+	}
+
+	Py_RETURN_FALSE;
+}
+
+PyDoc_STRVAR(py_zfs_iter_pools__doc__,
+"iter_pools(*, callback, state) -> bool\n\n"
+"----------------------------------------------\n\n"
+"Iterate all pools on the system.\n\n"
+"Parameters\n"
+"----------\n"
+"callback: callable\n"
+"    Callback function that will be called for every pool.\n\n"
+"state: object, optional\n"
+"    Optional python object (for example dictionary) passed as an argument\n"
+"    to the callback function for each pool.\n\n"
+"Returns\n"
+"-------\n"
+"bool\n"
+"    Value indicates that iteration completed without being stopped by the\n"
+"    callback fuction returning False.\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    An error occurred during iteration of the datasetd. Note that this\n"
+"    exception type may also be raised within the callback function.\n\n"
+"NOTE regarding \"callback\":\n"
+"--------------------------\n"
+"Minimally the function signature must take a single argument for each zpool\n"
+"object. If the \"state\" keyword is specified then the callback function\n"
+"should take two arguments. The callback function must return bool value\n"
+"indicating whether iteration should continue.\n\n"
+"Example \"callback\":\n"
+"-------------------\n"
+"def my_callback(pool, state):\n"
+"    print(f'{pool.name}: {state}')\n"
+"    return True\n"
+);
+static
+PyObject *py_zfs_iter_pools(PyObject *self,
+			    PyObject *args_unused,
+			    PyObject *kwargs)
+{
+	int err;
+	py_zfs_t *plz = (py_zfs_t *)self;
+
+	py_iter_state_t iter_state = (py_iter_state_t){
+		.pylibzfsp = plz,
+	};
+
+	char *kwnames [] = {"callback", "state", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$OO",
+					 kwnames,
+					 &iter_state.callback_fn,
+					 &iter_state.private_data)) {
+		return NULL;
+	}
+
+	if (!iter_state.callback_fn) {
+		PyErr_SetString(PyExc_ValueError,
+				"`callback` keyword argument is required.");
+		return NULL;
+	}
+
+	if (!PyCallable_Check(iter_state.callback_fn)) {
+		PyErr_SetString(PyExc_TypeError,
+				"callback function must be callable.");
+		return NULL;
+	}
+
+	// There aren't any useful arguments we can pass to sys.audit
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".iter_pools",
+			"O", Py_None) < 0) {
+		return NULL;
+	}
+
+	err = py_iter_pools(&iter_state);
 	if ((err == ITER_RESULT_ERROR) || (err == ITER_RESULT_IOCTL_ERROR)) {
 		// Exception is set by callback function
 		return NULL;
@@ -702,6 +788,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_iter_root_filesystems,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_iter_root_filesystems__doc__
+	},
+	{
+		.ml_name = "iter_pools",
+		.ml_meth = (PyCFunction)py_zfs_iter_pools,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_iter_pools__doc__
 	},
 	{
 		.ml_name = "open_pool",
