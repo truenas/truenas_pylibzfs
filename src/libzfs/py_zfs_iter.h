@@ -34,11 +34,16 @@ typedef struct {
 	PyTypeObject *pyuserquota_struct;
 } iter_conf_userspace_t;
 
+typedef struct {
+	int unused;  // for consistency with other iterators
+} iter_conf_pool_t;
+
 union iter_config {
 	iter_conf_filesystem_t filesystem;
 	iter_conf_snapshot_t snapshot;
 	iter_conf_bookmark_t bookmark;
 	iter_conf_userspace_t userspace;
+	iter_conf_pool_t pool;
 };
 
 /*
@@ -73,5 +78,6 @@ extern int py_iter_filesystems(py_iter_state_t *state);
 extern int py_iter_snapshots(py_iter_state_t *state);
 extern int py_iter_userspace(py_iter_state_t *state);
 extern int py_iter_root_filesystems(py_iter_state_t *state);
+extern int py_iter_pools(py_iter_state_t *state);
 
 #endif  /* _PY_ZFS_ITER_H */
