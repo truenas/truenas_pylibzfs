@@ -379,6 +379,179 @@ PyObject *py_zfs_pool_ddt_prune(PyObject *self,
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_config__doc__,
+"dump_config(*) -> dict\n\n"
+"----------------------\n\n"
+"Dump the zfs pool configuration for the pool. This information is cached\n"
+"inside the zpool handle and contains a wide variety of zpool-related information.\n"
+"If the application using the API is holding a zpool handle for a long period of\n"
+"time and attempting to gather stats counters, then the stats should be refreshed\n"
+"before each config dump.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"dict\n\n"
+"Raises:\n"
+"-------\n"
+"This method instructs libzfs to dump the nvlist contents of the pool config as a\n"
+"JSON and then uses the default JSON library in python to load the JSON, and so\n"
+"The primary case where error may happen is if there's a memory allocation error or if\n"
+"a bug in the libzfs nvlist utilities generats invalid JSON. This in theory should not\n"
+"happen.\n\n"
+);
+static
+PyObject *py_zfs_pool_config(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	pylibzfs_state_t *state = py_get_module_state(p->pylibzfsp);
+	PyObject *nvldump = NULL, *dict_out = NULL;
+	nvlist_t *zpool_config = NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	// We need to take a lock here because in MT case you can have
+	// one thread refresh pool stats and free the config while
+	// this thread dumps the nvlist to JSON.
+	zpool_config = zpool_get_config(p->zhp, NULL);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	// convert nvlist to JSON string
+	nvldump = py_dump_nvlist(zpool_config, B_TRUE);
+	dict_out = PyObject_CallFunction(state->loads_fn, "O", nvldump);
+	Py_CLEAR(nvldump);
+
+	return dict_out;
+}
+
+PyDoc_STRVAR(py_zfs_pool_refresh_stats__doc__,
+"refresh_stats(*) -> dict\n\n"
+"------------------------\n\n"
+"Refresh the vdev statistics stored in the cached zpool config in the zpool handle.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"RuntimeError:\n"
+"   An unexpected error occurred when issuing the ZFS ioctl to refresh zpool stats.\n"
+"FileNotFoundError:\n"
+"   The pool was exported or destroyed. libzfs implementation note: the libzfs call\n"
+"   will have also updated the hdl->zpool_state to POOL_STATE_UNAVAIL after erroring\n"
+"   out.\n"
+"\n\n"
+);
+static
+PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	boolean_t missing;
+	pool_state_t pool_state;
+	int err;
+
+	Py_BEGIN_ALLOW_THREADS
+	// We need to take a lock here because in MT case you can have
+	// one thread refresh pool stats and free the config while
+	// this thread dumps the nvlist to JSON.
+	PY_ZFS_LOCK(p->pylibzfsp);
+
+	err = zpool_refresh_stats(p->zhp, &missing);
+	if (!err)
+		// libzfs will set err to zero but change
+		// internal pool state on some types of error conditions
+		pool_state = zpool_get_state(p->zhp);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	// Err here would indicate zcmd_read_dst_nvlist() failed
+	// Many times error is *actually* indicated by the pool state
+	// transitioning to unavailable
+	if (err) {
+		PyErr_Format(PyExc_RuntimeError,
+			     "Failed to refresh zpool stats: %s",
+			     strerror(errno));
+		return NULL;
+	} else if (missing) {
+		// During the refresh, the ZFS ioctol failed with ENOENT
+		// or EINVAL
+		PyErr_Format(PyExc_FileNotFoundError,
+			     "ZFS ioctl to refresh pool stats failed with "
+			     "EINVAL or ENOENT. This may also indicate that the "
+			     "pool was exported or destroyed.");
+
+		return NULL;
+	} else if (pool_state == POOL_STATE_UNAVAIL) {
+		PyErr_Format(PyExc_FileNotFoundError,
+			     "Attempt to refresh pool stats. Pool state "
+			     "is currently unavailable.");
+	}
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_sync__doc__,
+"sync_pool(*) -> None\n\n"
+"--------------------\n\n"
+"Force all in-core dirty data to be written to the primary pool storage and not\n"
+"the ZIL.  It will also update administrative information including quota\n"
+"reporting.\n\n"
+"WARNING: this operation may have a performance impact.\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"ZFSException:\n"
+"   The pool sync operation failed.\n\n"
+"\n\n"
+);
+static
+PyObject *py_zfs_pool_sync(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	/*
+	 * libzfs / libzfs_core have support for a `force` argument
+	 * that is not exposed in the zpool command. For now we are
+	 * keeping same behavior of not exposing this option.
+	 */
+	boolean_t force = B_FALSE;
+	int err;
+	py_zfs_error_t zfs_err;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.sync_pool", "O",
+	    Py_None) < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	err = zpool_sync_one(p->zhp, &force);
+	if (err)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zpool_sync() failed");
+		return (NULL);
+	}
+
+	// NOTE: we can't generate a zpool history message for this
+	// operation.
+
+	Py_RETURN_NONE;
+}
+
+
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
@@ -399,6 +572,24 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = py_zfs_pool_root_dataset,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_pool_root_dataset__doc__
+	},
+	{
+		.ml_name = "dump_config",
+		.ml_meth = py_zfs_pool_config,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_config__doc__
+	},
+	{
+		.ml_name = "refresh_stats",
+		.ml_meth = py_zfs_pool_refresh_stats,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_refresh_stats__doc__
+	},
+	{
+		.ml_name = "sync_pool",
+		.ml_meth = py_zfs_pool_sync,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_sync__doc__
 	},
 	{
 		.ml_name = "root_vdev",
