@@ -237,66 +237,6 @@ PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(py_zfs_pool_delete__doc__,
-"delete(*, force=False) -> None\n\n"
-"-----------------\n\n"
-"Destroys the given pool, freeing up any devices for other use.\n\n"
-"Parameters\n"
-"----------\n"
-"force: bool, optional\n"
-"    Forecully unmount all active datasets.\n\n"
-"Returns\n"
-"-------\n"
-"None\n\n"
-"Raises:\n"
-"-------\n"
-"truenas_pylibzfs.ZFSError:\n"
-"    A libzfs error that occurred while trying to perform the operation.\n"
-);
-static
-PyObject *py_zfs_pool_delete(PyObject *self, PyObject *args, PyObject *kwargs) {
-	int ret, force = 0, error;
-	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
-	py_zfs_error_t err;
-	ret = force = 0;
-	char *kwnames[] = {"force", NULL};
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$p", kwnames, &force)) {
-		return NULL;
-	}
-
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.delete", "OO",
-	    p->name, kwargs ? kwargs : Py_None) < 0) {
-		return NULL;
-	}
-
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(p->pylibzfsp);
-	ret = zpool_disable_datasets(p->zhp, force);
-	if (ret == 0)
-		ret = zpool_destroy(p->zhp, "destroy");
-	if (ret)
-		py_get_zfs_error(p->pylibzfsp->lzh, &err);
-	PY_ZFS_UNLOCK(p->pylibzfsp);
-	Py_END_ALLOW_THREADS
-
-	if (ret) {
-		set_exc_from_libzfs(&err, "zpool_delete() failed");
-		return (NULL);
-	} else {
-		error = py_log_history_fmt(p->pylibzfsp,
-		    "zpool destroy %s%s", force ? "-f " : "",
-		    zpool_get_name(p->zhp));
-		if (error) {
-			// An exception should be set since we failed to log
-			// history
-			return (NULL);
-		}
-	}
-
-	Py_RETURN_NONE;
-}
-
 PyDoc_STRVAR(py_zfs_pool_ddt_prefetch__doc__,
 "ddt_prefetch(*) -> None\n\n"
 "-----------------------\n\n"
@@ -477,12 +417,6 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = py_zfs_pool_upgrade,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_pool_upgrade__doc__
-	},
-	{
-		.ml_name = "delete",
-		.ml_meth = (PyCFunction)py_zfs_pool_delete,
-		.ml_flags = METH_VARARGS | METH_KEYWORDS,
-		.ml_doc = py_zfs_pool_delete__doc__
 	},
 	{
 		.ml_name = "ddt_prefetch",
