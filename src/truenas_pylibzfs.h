@@ -26,6 +26,30 @@
         __PYZFS_ASSERT_IMPL(test, message, __location__);
 
 /*
+ * Reentrant pthread lock on libzfs handle object
+ * When thread owner calls PY_ZFS_LOCK() on this, the refcnt
+ * is incremented but pthread mutex not retaken.
+ *
+ * When thread owner calls PY_ZFS_UNLOCK() on this, the refcnt
+ * is decremented until it hits zero, at which point the lock
+ * is actually released.
+ *
+ * When a non-thread owner calls PY_ZFS_LOCK() then it directly
+ * makes a blocking pthread_mutex_lock() call and when it finally
+ * succeeds, it sets the refcnt to one and sets its thread id
+ * as the owner.
+ *
+ * zfs_lock: pthread_mutex for protecting libzfs handle
+ * owner: thread id of current holder of the lock
+ * refcnt: number of references held by current owner
+ */
+typedef struct {
+	pthread_mutex_t lock;
+	pid_t owner;
+	uint refcnt;
+} py_zfs_lock_t;
+
+/*
  * Wrapper around libzfs_handle_t
  * lzh: libzfs handle
  * zfs_lock: pthread_mutex for protecting libzfs handle
@@ -38,7 +62,7 @@ typedef struct {
 	PyObject_HEAD
 	PyObject *module;
 	libzfs_handle_t *lzh;
-	pthread_mutex_t zfs_lock;
+	py_zfs_lock_t zfs_lock;
 	boolean_t mnttab_cache_enable;
 	int history;
 	char history_prefix[MAX_HISTORY_PREFIX_LEN];
@@ -50,11 +74,25 @@ typedef struct {
  * py_zfs_t objects for operations using libzfs_handle_t.
  */
 #define PY_ZFS_LOCK(obj) do { \
-	pthread_mutex_lock(&obj->zfs_lock); \
+	pid_t tid = gettid(); \
+	if (tid == &obj->zfs_lock.owner) { \
+		pthread_mutex_lock(&obj->zfs_lock); \
+		&obj->zfs_lock.refcnt++; \
+	} else { \
+		pthread_mutex_lock(&obj->zfs_lock); \
+		&obj->zfs_lock.owner = tid; \
+		&obj->zfs_lock.refcnt = 1; \
+	} \
 } while (0);
 
 #define PY_ZFS_UNLOCK(obj) do { \
-	pthread_mutex_unlock(&obj->zfs_lock); \
+	pid_t tid = gettid(); \
+	PYZFS_ASSERT((tid == &obj->zfs_lock.owner), "LOCKING ERROR"); \
+	&obj->zfs_lock.refcnt--; \
+	if (&obj->zfs_lock.refcnt == 0) { \
+		pthread_mutex_unlock(&obj->zfs_lock.lock); \
+		&obj->zfs_lock.owner = 0; \
+	} \
 } while (0);
 
 /*
