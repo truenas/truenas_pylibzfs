@@ -308,7 +308,7 @@ extern int add_enum(PyObject *module,
 		    PyObject *(*get_dict)(void),
 		    PyObject *kwargs,
 		    PyObject **penum_out);
-extern int py_add_zfs_enums(PyObject *module);
+extern int py_add_zfs_enums(PyObject *module, PyObject *libzfs_enum_mod);
 
 /* Provided by py_zfs_state.c */
 /*
@@ -484,4 +484,8 @@ extern PyObject *generate_crypto_config(py_zfs_t *pyzfs,
 					PyObject *py_key,
 					PyObject *py_iters);
 
+
+/* provided by py_zfs_pool_status.c */
+extern PyObject *py_get_pool_status(py_zfs_pool_t *pypool);
+extern void init_py_pool_status_state(pylibzfs_state_t *state);
 #endif  /* _TRUENAS_PYLIBZFS_H */
