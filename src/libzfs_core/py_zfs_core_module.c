@@ -1161,7 +1161,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
  */
 static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 {
-	nvlist_t *out = NULL;
+	nvlist_t *nvl = NULL;
 	PyObject *item = NULL;
 	PyObject *iterator = NULL;
 	Py_ssize_t iter_len = PyObject_Length(pycmds);
@@ -1180,7 +1180,7 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 		return NULL;
 	}
 
-	out = fnvlist_alloc();
+	nvl = fnvlist_alloc();
 
 	while ((item = PyIter_Next(iterator))) {
 		const char *arg;
@@ -1190,8 +1190,9 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 		// pycmds object still holds reference to the item
 		Py_DECREF(item);
 		if (arg == NULL) {
-			fnvlist_free(out);
+			fnvlist_free(nvl);
 			PyMem_Free(arglist);
+			Py_DECREF(iterator);
 			return NULL;
 		}
 		arglist[cnt] = arg;
@@ -1200,12 +1201,12 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 
 	Py_DECREF(iterator);
 	if (cnt) {
-		fnvlist_add_string_array(out, ZCP_ARG_CLIARGV, arglist, cnt);
+		fnvlist_add_string_array(nvl, ZCP_ARG_CLIARGV, arglist, cnt);
 	}
 
 	PyMem_Free(arglist);
 
-	return out;
+	return nvl;
 }
 
 /*
