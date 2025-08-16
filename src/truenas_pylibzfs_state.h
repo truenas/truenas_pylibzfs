@@ -67,6 +67,12 @@ typedef struct {
 	PyObject *zfs_property_enum;
 	PyObject *zfs_type_enum;
 	PyObject *zfs_uquota_enum;
+
+	/*
+	 * References to json module dumps, loads fuctions
+	 */
+	PyObject *dumps_fn;
+	PyObject *loads_fn;
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);

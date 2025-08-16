@@ -302,6 +302,12 @@ extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
 extern int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...);
 
 /* Provided by py_zfs_enum.c */
+extern int add_enum(PyObject *module,
+		    PyObject *enum_type,
+		    const char *class_name,
+		    PyObject *(*get_dict)(void),
+		    PyObject *kwargs,
+		    PyObject **penum_out);
 extern int py_add_zfs_enums(PyObject *module);
 
 /* Provided by py_zfs_state.c */
@@ -424,6 +430,7 @@ extern nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
 				       zfs_type_t type,
 				       boolean_t allow_ro);
 extern PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json);
+extern nvlist_t *py_dict_to_nvlist(PyObject *dict_in);
 
 /* Provided by py_zfs_crypto.c */
 extern PyObject *py_zfs_crypto_info_dict(py_zfs_obj_t *obj);

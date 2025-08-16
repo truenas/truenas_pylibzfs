@@ -939,7 +939,9 @@ PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "unload_encryption_key: bool, optional, default=False\n"
 "    Unload keys for any encryption roots unmounted by this operation.\n\n"
 "follow_symlinks: bool, optional, default=False\n"
-"    Don't dereference mountpoint if it is a symbolic link.\n\n"
+"    Don't dereference mountpoint if it is a symbolic link.\n"
+"recursive: bool, optional, default=False\n"
+"    Unmount any children inheriting the mountpoint property.\n\n"
 ""
 "Returns\n"
 "-------\n"
@@ -962,6 +964,7 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 		"lazy",
 		"unload_encryption_key",
 		"follow_symlinks",
+		"recursive",
 		NULL
 	};
 	const char *mp = NULL;
@@ -972,15 +975,17 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 	boolean_t unload = B_FALSE;
 	boolean_t lazy = B_FALSE;
 	boolean_t follow = B_FALSE;
+	boolean_t recurse = B_FALSE;
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$spppp",
+					 "|$sppppp",
 					 kwnames,
 					 &mp,
 					 &force,
 					 &lazy,
 					 &unload,
-					 &follow)) {
+					 &follow,
+					 &recurse)) {
 		return NULL;
 	}
 
@@ -998,7 +1003,11 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
-	err = zfs_unmount(res->obj.zhp, mp, flags);
+	if (recurse) {
+		err = zfs_unmountall(res->obj.zhp, flags);
+	} else {
+		err = zfs_unmount(res->obj.zhp, mp, flags);
+	}
 	if (err) {
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
 	} else {
