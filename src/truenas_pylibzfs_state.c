@@ -152,8 +152,8 @@ int setup_json_functions(pylibzfs_state_t *state)
 	if (json_mod == NULL)
 		return -1;
 
-        callable = PyObject_GetAttrString(json_mod, "dumps");
-        if (callable == NULL)
+	callable = PyObject_GetAttrString(json_mod, "dumps");
+	if (callable == NULL)
 		return -1;
 
 	state->dumps_fn = callable;
