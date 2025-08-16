@@ -96,6 +96,23 @@ PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 	return (out);
 }
 
+PyDoc_STRVAR(py_zfs_pool_status__doc__,
+"status(*) -> struct_zpool_status\n"
+"--------------------------------\n\n"
+"Retrieve zpool status details\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"Initialized truenas_pylibzfs.struct_zpool_status object.\n"
+);
+static
+PyObject *py_zfs_pool_status(PyObject *self, PyObject *args)
+{
+	return py_get_pool_status((py_zfs_pool_t *)self);
+}
+
 PyDoc_STRVAR(py_zfs_pool_root_vdev__doc__,
 "root_vdev(*) -> ZFSVdev\n\n"
 "-----------------------\n\n"
@@ -453,6 +470,12 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_name = "asdict",
 		.ml_meth = py_zfs_pool_asdict,
 		.ml_flags = METH_NOARGS
+	},
+	{
+		.ml_name = "status",
+		.ml_meth = py_zfs_pool_status,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_status__doc__
 	},
 	{
 		.ml_name = "root_dataset",

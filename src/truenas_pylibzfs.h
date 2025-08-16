@@ -302,7 +302,7 @@ extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
 extern int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...);
 
 /* Provided by py_zfs_enum.c */
-extern int py_add_zfs_enums(PyObject *module);
+extern int py_add_zfs_enums(PyObject *module, PyObject *libzfs_enum_mod);
 
 /* Provided by py_zfs_state.c */
 /*
@@ -477,4 +477,8 @@ extern PyObject *generate_crypto_config(py_zfs_t *pyzfs,
 					PyObject *py_key,
 					PyObject *py_iters);
 
+
+/* provided by py_zfs_pool_status.c */
+extern PyObject *py_get_pool_status(py_zfs_pool_t *pypool);
+extern void init_py_pool_status_state(pylibzfs_state_t *state);
 #endif  /* _TRUENAS_PYLIBZFS_H */
