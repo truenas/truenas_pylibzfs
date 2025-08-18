@@ -12,6 +12,6 @@ lz = truenas_pylibzfs.open_handle()
 
 state = {"pools": []}
 
-lz.iter_root_filesystems(callback=print_pool_names, state=state)
+lz.iter_pools(callback=print_pool_names, state=state)
 pool_len = len(state["pools"])
 assert pool_len != 0
