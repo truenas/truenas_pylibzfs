@@ -136,6 +136,38 @@ pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs)
 	return state;
 }
 
+/*
+ * store references to json.loads and json.dumps methods
+ * these are currently used for managing nvlist JSON dumps
+ * For example nvlist -> json (via print_nvlist_json) -> dict (via
+ * json.loads()).
+ */
+static
+int setup_json_functions(pylibzfs_state_t *state)
+{
+	PyObject *json_mod = NULL;
+	PyObject *callable = NULL;
+
+	json_mod = PyImport_ImportModule("json");
+	if (json_mod == NULL)
+		return -1;
+
+	callable = PyObject_GetAttrString(json_mod, "dumps");
+	if (callable == NULL)
+		return -1;
+
+	state->dumps_fn = callable;
+
+	callable = PyObject_GetAttrString(json_mod, "loads");
+	if (callable == NULL)
+		return -1;
+
+	state->loads_fn = callable;
+
+	Py_DECREF(json_mod);
+	return 0;
+}
+
 int init_py_zfs_state(PyObject *module)
 {
 	int err;
@@ -155,6 +187,8 @@ int init_py_zfs_state(PyObject *module)
 
 	err = setup_zfs_prop_type(module, state);
 	PYZFS_ASSERT(err == 0, "Failed to setup Property type in module state.");
+
+	err = setup_json_functions(state);
 
 	init_py_struct_prop_state(state);
 	init_py_struct_userquota_state(state);
@@ -256,4 +290,6 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->zfs_property_enum);
 	Py_CLEAR(state->zfs_type_enum);
 	Py_CLEAR(state->zfs_uquota_enum);
+	Py_CLEAR(state->dumps_fn);
+	Py_CLEAR(state->loads_fn);
 }
