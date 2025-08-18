@@ -510,6 +510,72 @@ PyObject *py_zfs_pool_open(PyObject *self,
 	return (out);
 }
 
+PyDoc_STRVAR(py_zfs_pool_destroy__doc__,
+"destroy_pool(*, name, force=False) -> None\n\n"
+"------------------------------------------\n\n"
+"Destroys the given pool, freeing up any devices for other use.\n\n"
+"Parameters\n"
+"----------\n"
+"name: str, required\n"
+"    Name of the pool to destroy\n"
+"force: bool, optional\n"
+"    Forcefully unmount all active datasets.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while trying to perform the operation.\n"
+);
+static
+PyObject *py_zfs_pool_destroy(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	int err = -1;
+	boolean_t force = B_FALSE;
+	char *pool_name = NULL;
+	py_zfs_t *plz = (py_zfs_t *)self;
+	py_zfs_error_t zfs_err;
+	zpool_handle_t *zhp;
+	char *kwnames[] = {"name", "force", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+					 "|$sp",
+					 kwnames,
+					 &pool_name,
+					 &force)) {
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".destroy_pool", "sO",
+		pool_name, kwargs ? kwargs : Py_None) < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	zhp = zpool_open(plz->lzh, pool_name);
+	if (zhp == NULL) {
+		py_get_zfs_error(plz->lzh, &zfs_err);
+	} else {
+		err = zpool_disable_datasets(zhp, force);
+		if (err == 0)
+			err = zpool_destroy(zhp, "destroy");
+		if (err)
+			py_get_zfs_error(plz->lzh, &zfs_err);
+	}
+	zpool_close(zhp);
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "destroy_pool() failed");
+		return NULL;
+	}
+
+	Py_RETURN_NONE;
+}
+
 PyDoc_STRVAR(py_zfs_iter_root_filesystems__doc__,
 "iter_root_filesystems(*, callback, state) -> bool\n\n"
 "----------------------------------------------\n\n"
@@ -707,6 +773,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_name = "open_pool",
 		.ml_meth = (PyCFunction)py_zfs_pool_open,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS
+	},
+	{
+		.ml_name = "destroy_pool",
+		.ml_meth = (PyCFunction)py_zfs_pool_destroy,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_destroy__doc__
 	},
 	{
 		.ml_name = "resource_cryptography_config",
