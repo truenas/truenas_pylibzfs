@@ -436,3 +436,193 @@ PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json)
 	Py_END_ALLOW_THREADS
 	return out;
 }
+
+/*
+ * Add python string value to nvlist. nvlist API makes copy of string.
+ * Does not impact refcnt of val
+ */
+static
+boolean_t nvlist_add_py_str(nvlist_t *nvl, const char *key, PyObject *val)
+{
+	const char *cval = PyUnicode_AsUTF8(val);
+	if (cval == NULL) {
+		return B_FALSE;
+	}
+
+	fnvlist_add_string(nvl, key, cval);
+	return B_TRUE;
+}
+
+/*
+ * Add python bool value to nvlist. nvlist API makes copy of string.
+ * Does not impact refcnt of val
+ */
+static
+boolean_t nvlist_add_py_bool(nvlist_t *nvl, const char *key, PyObject *val)
+{
+	boolean_t cval = val == Py_True;
+	fnvlist_add_boolean_value(nvl, key, cval);
+	return B_TRUE;
+}
+
+/*
+ * Add python float value to nvlist as double.
+ * Does not impact refcnt of val
+ */
+static
+boolean_t nvlist_add_py_float(nvlist_t *nvl, const char *key, PyObject *val)
+{
+	double cval;
+	cval = PyFloat_AsDouble(val);
+	if ((cval == (float)-1) && PyErr_Occurred())
+		return B_FALSE;
+
+	nvlist_add_double(nvl, key, cval);
+	return B_TRUE;
+}
+
+/*
+ * Add python int value to nvlist as uint64.
+ * Does not impact refcnt of val
+ */
+static
+boolean_t nvlist_add_py_int_unsigned(nvlist_t *nvl, const char *key, PyObject *val)
+{
+	Py_ssize_t cval;
+
+	cval = PyLong_AsSsize_t(val);
+	if ((cval == -1) && PyErr_Occurred())
+		return B_FALSE;
+
+	fnvlist_add_uint64(nvl, key, cval);
+	return B_TRUE;
+}
+
+/*
+ * Add python int value to nvlist. First tries as int64 and on overflow changes to
+ * uint64 if the value overflows a long. Does not impact refcnt.
+ */
+static
+boolean_t nvlist_add_py_int(nvlist_t *nvl, const char *key, PyObject *val)
+{
+	long cval;
+	int overflow = 0;
+
+	// start with assumption we have a long
+	// Non-zero overflow indicates whether -1 is an error case
+	cval = PyLong_AsLongAndOverflow(val, &overflow);
+	if ((cval == -1) && (overflow != 0)) {
+		if (overflow == 1)
+			// Value exceeds long and so we need ulong
+			return nvlist_add_py_int_unsigned(nvl, key, val);
+
+		else if (overflow == -1) {
+			// maybe need long long, but we're not supporting
+			// that right now
+			PyErr_Format(PyExc_ValueError,
+				     "%s: value for key lower than minimum "
+				     "allowed for nvlist.", key);
+			return B_FALSE;
+		}
+
+		// Perhaps we had an exception that set an invalid
+		// overflow value
+		if (PyErr_Occurred())
+			return B_FALSE;
+
+		PyErr_Format(PyExc_RuntimeError,
+			     "%s: unexpected failure converting python int.",
+			      key);
+		return B_FALSE;
+	}
+
+	fnvlist_add_int64(nvl, key, cval);
+	return B_TRUE;
+}
+
+/*
+ * Convert a python dictionary to an nvlist. This is primarily used for
+ * handling kwargs for lua channel program. Should be kept to lua-safe types
+ * if possible. Allocates a new nvlist. Does not impact refcnt of the dictionary
+ */
+nvlist_t *py_dict_to_nvlist(PyObject *dict_in)
+{
+	nvlist_t *nvl = fnvlist_alloc();
+	PyObject *key, *value;
+	Py_ssize_t pos = 0;
+
+	if (!PyDict_Check(dict_in)) {
+		PyErr_SetString(PyExc_TypeError, "Not a dictionary");
+		fnvlist_free(nvl);
+		return NULL;
+	}
+
+	while (PyDict_Next(dict_in, &pos, &key, &value)) {
+		const char *ckey;
+		if (!PyUnicode_Check(key)) {
+			PyErr_SetString(PyExc_TypeError, "Key must be unicode string");
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		ckey = PyUnicode_AsUTF8(key);
+		if (!ckey) {
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		/*
+		 * We don't want to use macro Py_TYPE() to get
+		 * PyTypeObject and switch() it because we want to
+		 * catch subtypes as well.
+		 */
+		// python str
+		if (PyUnicode_Check(value)) {
+			// Python string
+			if (!nvlist_add_py_str(nvl, ckey, value)) {
+				fnvlist_free(nvl);
+				return NULL;
+			}
+		// python bool
+		} else if (PyBool_Check(value)) {
+			if (!nvlist_add_py_bool(nvl, ckey, value)) {
+				fnvlist_free(nvl);
+				return NULL;
+			}
+		// python float
+		} else if (PyFloat_Check(value)) {
+			if (!nvlist_add_py_float(nvl, ckey, value)) {
+				fnvlist_free(nvl);
+				return NULL;
+			}
+		// python int
+		} else if (PyLong_Check(value)) {
+			// python int
+			if (!nvlist_add_py_int(nvl, ckey, value)) {
+				fnvlist_free(nvl);
+				return NULL;
+			}
+		// python dict
+		} else if (PyDict_Check(value)) {
+			nvlist_t *subnvl = NULL;
+
+			subnvl = py_dict_to_nvlist(value);
+			if (subnvl == NULL) {
+				fnvlist_free(nvl);
+			}
+
+			fnvlist_add_nvlist(nvl, ckey, subnvl);
+			nvlist_free(subnvl);
+		} else if (PyList_Check(value)) {
+			PyErr_SetString(PyExc_ValueError, "Lists are not supported");
+			fnvlist_free(nvl);
+			return NULL;
+		} else {
+			PyErr_Format(PyExc_ValueError, "%s: unsupported type for key",
+				     ckey);
+			return NULL;
+		}
+	}
+
+	return nvl;
+}
