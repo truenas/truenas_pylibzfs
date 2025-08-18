@@ -457,7 +457,7 @@ PyDoc_STRVAR(py_zfs_pool_config__doc__,
 "-------\n"
 "This method instructs libzfs to dump the nvlist contents of the pool config as a\n"
 "JSON and then uses the default JSON library in python to load the JSON, and so\n"
-"The primary case where error may happen is if there's a memory allocation error or if\n"
+"the primary case where error may happen is if there's a memory allocation error or if\n"
 "a bug in the libzfs nvlist utilities generats invalid JSON. This in theory should not\n"
 "happen.\n\n"
 );
