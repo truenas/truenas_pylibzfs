@@ -243,6 +243,26 @@ out:
 	return result;
 }
 
+static int
+pool_callback(zpool_handle_t *hdl, void *private)
+{
+	int result = ITER_RESULT_ERROR;
+	py_iter_state_t *state = (py_iter_state_t *)private;
+	py_zfs_pool_t *new_pool = NULL;
+
+	ITER_END_ALLOW_THREADS(state);
+
+	new_pool = init_zfs_pool(state->pylibzfsp, hdl);
+	if (new_pool == NULL) {
+		goto out;
+	}
+
+	result = common_callback((PyObject *)new_pool, state);
+out:
+	ITER_ALLOW_THREADS(state);
+	return result;
+}
+
 /**
  * @brief iterate ZFS filesystems and zvols from python
  *
@@ -398,6 +418,32 @@ py_iter_root_filesystems(py_iter_state_t *state)
 
 	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
 		set_exc_from_libzfs(&zfs_err, "zfs_iter_root() failed");
+	}
+
+	return iter_ret;
+}
+
+int
+py_iter_pools(py_iter_state_t *state)
+{
+	int iter_ret;
+	py_zfs_error_t zfs_err;
+
+	ITER_ALLOW_THREADS(state);
+	PY_ZFS_LOCK(state->pylibzfsp);
+
+	iter_ret = zpool_iter(state->pylibzfsp->lzh,
+			      pool_callback,
+			      (void *)state);
+	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
+	}
+
+	PY_ZFS_UNLOCK(state->pylibzfsp);
+	ITER_END_ALLOW_THREADS(state);
+
+	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		set_exc_from_libzfs(&zfs_err, "zpool_iter() failed");
 	}
 
 	return iter_ret;
