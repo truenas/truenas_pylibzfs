@@ -537,6 +537,7 @@ PyObject *py_zfs_pool_destroy(PyObject *self, PyObject *args, PyObject *kwargs)
 	py_zfs_t *plz = (py_zfs_t *)self;
 	py_zfs_error_t zfs_err;
 	zpool_handle_t *zhp;
+	char history_entry[256];  // MAX_HISTORY_PREFIX_LEN + whatever we add here
 	char *kwnames[] = {"name", "force", NULL};
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
@@ -559,8 +560,13 @@ PyObject *py_zfs_pool_destroy(PyObject *self, PyObject *args, PyObject *kwargs)
 		py_get_zfs_error(plz->lzh, &zfs_err);
 	} else {
 		err = zpool_disable_datasets(zhp, force);
-		if (err == 0)
-			err = zpool_destroy(zhp, "destroy");
+		if (err == 0) {
+			// Create a history message to be inserted if
+			// the pool destroy goes sideways for some reason
+			snprintf(history_entry, sizeof(history_entry),
+				 "%s zpool destroy", plz->history_prefix);
+			err = zpool_destroy(zhp, history_entry);
+		}
 		if (err)
 			py_get_zfs_error(plz->lzh, &zfs_err);
 	}
