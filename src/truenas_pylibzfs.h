@@ -303,6 +303,7 @@ extern int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...);
 
 /* Provided by py_zfs_enum.c */
 extern int add_enum(PyObject *module,
+		    PyObject *parent_module,
 		    PyObject *enum_type,
 		    const char *class_name,
 		    PyObject *(*get_dict)(void),
