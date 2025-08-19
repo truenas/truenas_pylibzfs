@@ -297,5 +297,6 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->zpool_status_enum);
 	Py_CLEAR(state->struct_zpool_status_type);
 	Py_CLEAR(state->struct_vdev_status_type);
+	Py_CLEAR(state->struct_vdev_stats_type);
 	Py_CLEAR(state->vdev_state_enum);
 }

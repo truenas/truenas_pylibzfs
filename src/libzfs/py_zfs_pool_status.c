@@ -59,16 +59,36 @@ PyStructSequence_Desc struct_pool_status_desc = {
 	.n_in_sequence = 6
 };
 
+PyStructSequence_Field struct_vdev_stats [] = {
+	{"allocated", "Space allocated"},
+	{"space", "Total capacity"},
+	{"dspace", "Deflated capacity"},
+	{"pspace", "Physical capacity"},
+	{"rsize", "Replaceable dev size"},
+	{"esize", "Expandable dev size"},
+	{"read_errors", "Number of read errors"},
+	{"write_errors", "Number of write errors"},
+	{"checksum_errors", "Number of checksum errors"},
+	{"initialize_errors", "Number of errors initializing vdev"},
+	{"dio_verify_errors", "Number of O_DIRECT checksum errors"},
+	{"slow_ios", "Number of slow I/Os. Leaf-only"},
+	{"self_healed_bytes", "Number of self-healed bytes"},
+	{0},
+};
+
+PyStructSequence_Desc struct_vdev_stats_desc = {
+	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_stats",
+	.fields = struct_vdev_stats,
+	.doc = "Python ZFS vdev stats structure",
+	.n_in_sequence = 12
+};
+
 PyStructSequence_Field struct_vdev_status_prop [] = {
 	{"name", "name of the vdev"},
 	{"vdev_type", "type of the vdev"},
 	{"guid", "GUID for the vdev"},
 	{"state", "State of the vdev"},
-	{"read_errors", "Number of read errors"},
-	{"write_errors", "Number of write errors"},
-	{"checksum_errors", "Number of checksum errors"},
-	{"dio_verify_errors", "Number of O_DIRECT checksum errors"},
-	{"slow_ios", "Number of slow I/Os. Leaf-only"},
+	{"stats", "Stats counters for vdev."},
 	{"children", "Tuple of vdevs that make up this vdev (if applicable)"},
 	{0},
 };
@@ -77,7 +97,7 @@ PyStructSequence_Desc struct_vdev_status_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_status",
 	.fields = struct_vdev_status_prop,
 	.doc = "Python pool vdev status structure",
-	.n_in_sequence = 10
+	.n_in_sequence = 6
 };
 
 static
@@ -85,10 +105,115 @@ boolean_t parse_vdev_stats(py_zfs_pool_t *pypool,
 			   nvlist_t *nv,
 			   vdev_stat_t *vs,
 			   boolean_t has_children,
-			   uint64_t guid,
 			   PyObject *pyvdev)
 {
 	PyObject *val = NULL;
+
+	val = PyLong_FromUnsignedLong(vs->vs_alloc);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 0, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_space);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 1, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_dspace);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 2, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_pspace);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 3, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_rsize);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 4, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_esize);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 5, val);
+
+	// Read errors
+	val = PyLong_FromUnsignedLong(vs->vs_read_errors);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 6, val);
+
+	// Write errors
+	val = PyLong_FromUnsignedLong(vs->vs_write_errors);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 7, val);
+
+	// checksum errors
+	val = PyLong_FromUnsignedLong(vs->vs_checksum_errors);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 8, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_dio_verify_errors);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 9, val);
+
+	if (has_children) {
+		// slow ios counter
+		PyStructSequence_SetItem(pyvdev, 10, Py_NewRef(Py_None));
+	} else {
+		// slow ios counter
+		val = PyLong_FromUnsignedLong(vs->vs_slow_ios);
+		if (val == NULL)
+			return B_FALSE;
+
+		PyStructSequence_SetItem(pyvdev, 10, val);
+	}
+
+	val = PyLong_FromUnsignedLong(vs->vs_self_healed);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 11, val);
+
+	return B_TRUE;
+}
+
+static
+boolean_t add_basic_vdev_props(pylibzfs_state_t *state,
+			       vdev_stat_t *vs,
+			       const char *name,
+			       const char *type,
+			       uint64_t guid,
+			       PyObject *pyvdev)
+{
+	PyObject *val;
+
+	val = PyUnicode_FromString(name);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 0, val);
+
+	val = PyUnicode_FromString(type);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 1, val);
 
 	val = PyLong_FromUnsignedLong(guid);
 	if (val == NULL)
@@ -96,47 +221,16 @@ boolean_t parse_vdev_stats(py_zfs_pool_t *pypool,
 
 	PyStructSequence_SetItem(pyvdev, 2, val);
 
-	// Read errors
-	val = PyLong_FromUnsignedLong(vs->vs_read_errors);
+	val = PyObject_CallFunction(state->vdev_state_enum,
+				    "i", vs->vs_state);
 	if (val == NULL)
 		return B_FALSE;
 
-	PyStructSequence_SetItem(pyvdev, 4, val);
-
-	// Write errors
-	val = PyLong_FromUnsignedLong(vs->vs_write_errors);
-	if (val == NULL)
-		return B_FALSE;
-
-	PyStructSequence_SetItem(pyvdev, 5, val);
-
-	// checksum errors
-	val = PyLong_FromUnsignedLong(vs->vs_checksum_errors);
-	if (val == NULL)
-		return B_FALSE;
-
-	PyStructSequence_SetItem(pyvdev, 6, val);
-
-	val = PyLong_FromUnsignedLong(vs->vs_dio_verify_errors);
-	if (val == NULL)
-		return B_FALSE;
-
-	PyStructSequence_SetItem(pyvdev, 7, val);
-
-	if (has_children) {
-		// slow ios counter
-		PyStructSequence_SetItem(pyvdev, 8, Py_NewRef(Py_None));
-	} else {
-		// slow ios counter
-		val = PyLong_FromUnsignedLong(vs->vs_slow_ios);
-		if (val == NULL)
-			return B_FALSE;
-
-		PyStructSequence_SetItem(pyvdev, 8, val);
-	}
+	PyStructSequence_SetItem(pyvdev, 3, val);
 
 	return B_TRUE;
 }
+
 
 static
 PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
@@ -150,9 +244,7 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	uint64_t guid;
 	char *vname = NULL;
 	PyObject *out = NULL;
-	PyObject *name = NULL;
-	PyObject *vdev_type = NULL;
-	PyObject *vdev_state = NULL;
+	PyObject *vdev_stats = NULL;
 	vdev_stat_t *vs;
 
 	Py_BEGIN_ALLOW_THREADS
@@ -179,33 +271,25 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	if (out == NULL)
 		goto fail;
 
-	name = PyUnicode_FromString(vname);
-	if (name == NULL)
+	if (!add_basic_vdev_props(state, vs, vname, type, guid, out))
 		goto fail;
 
-	// libzfs return copy of vdev name and so we need to free it.
-	free(name);
-	name = NULL;
-	PyStructSequence_SetItem(out, 0, name);
+	free(vname);
+	vname = NULL;
 
-	vdev_type = PyUnicode_FromString(type);
-	if (vdev_type == NULL)
+	vdev_stats = PyStructSequence_New(state->struct_vdev_stats_type);
+	if (vdev_stats == NULL)
 		goto fail;
 
-	PyStructSequence_SetItem(out, 1, vdev_type);
-
-	vdev_state = PyObject_CallFunction(state->vdev_state_enum,
-					   "i", vs->vs_state);
-	if (vdev_state == NULL)
+	if (!parse_vdev_stats(pypool, nv, vs, children, vdev_stats)) {
+		Py_CLEAR(vdev_stats);
 		goto fail;
+	}
 
-	PyStructSequence_SetItem(out, 3, vdev_state);
-
-	if (!parse_vdev_stats(pypool, nv, vs, children, guid, out))
-		goto fail;
+	PyStructSequence_SetItem(out, 4, vdev_stats);
 
 	if (children == 0)
-		PyStructSequence_SetItem(out, 9, Py_NewRef(Py_None));
+		PyStructSequence_SetItem(out, 5, Py_NewRef(Py_None));
 	else {
 		uint c;
 		int err;
@@ -248,13 +332,13 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 		if (child_tuple == NULL)
 			goto fail;
 
-		PyStructSequence_SetItem(out, 9, child_tuple);
+		PyStructSequence_SetItem(out, 5, child_tuple);
 	}
 
 	return out;
 fail:
 	Py_CLEAR(out);
-	free(name);  // allocated by libzfs using system malloc
+	free(vname);  // allocated by libzfs using system malloc
 	return NULL;
 }
 
@@ -825,4 +909,9 @@ void init_py_pool_status_state(pylibzfs_state_t *state)
 	PYZFS_ASSERT(obj, "Failed to create vdev status struct type");
 
 	state->struct_vdev_status_type = obj;
+
+	obj = PyStructSequence_NewType(&struct_vdev_stats_desc);
+	PYZFS_ASSERT(obj, "Failed to create vdev stats struct type");
+
+	state->struct_vdev_stats_type = obj;
 }
