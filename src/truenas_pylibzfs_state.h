@@ -79,6 +79,7 @@ typedef struct {
 	PyTypeObject *struct_zpool_status_type;
 	PyTypeObject *struct_vdev_status_type;
 	PyTypeObject *struct_vdev_stats_type;
+	PyTypeObject *struct_support_vdev_type;
 	PyObject *vdev_state_enum;
 } pylibzfs_state_t;
 

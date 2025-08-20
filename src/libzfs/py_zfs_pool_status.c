@@ -38,8 +38,14 @@ PyDoc_STRVAR(py_pool_status_files__doc__,
 "errors.\n"
 );
 
-PyDoc_STRVAR(py_pool_status_vdevs__doc__,
-"Struct sequence object containing information and status of vdevs making up pool\n"
+PyDoc_STRVAR(py_pool_status_storage__doc__,
+"Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects that comprise the topology\n"
+"of the storage pool. Each tuple member represents a top-level vdev.\n"
+);
+
+PyDoc_STRVAR(py_pool_status_support__doc__,
+PYLIBZFS_MODULE_NAME ".struct_support_vdev object containing information about\n"
+"the support vdevs in-use by the pool.\n"
 );
 
 PyStructSequence_Field struct_pool_status_prop [] = {
@@ -48,15 +54,33 @@ PyStructSequence_Field struct_pool_status_prop [] = {
 	{"action", py_pool_status_action__doc__},
 	{"message", py_pool_status_message__doc__},
 	{"corrupted_files", py_pool_status_files__doc__},
-	{"vdevs", py_pool_status_vdevs__doc__},
+	{"storage_vdevs", py_pool_status_storage__doc__},
+	{"support_vdevs", py_pool_status_support__doc__},
 	{0},
 };
+#define VDEVS_STORAGE_IDX 5
+#define VDEVS_SUPPORT_IDX 6
 
 PyStructSequence_Desc struct_pool_status_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_status",
 	.fields = struct_pool_status_prop,
 	.doc = "Python ZFS pool status structure",
-	.n_in_sequence = 6
+	.n_in_sequence = 7
+};
+
+PyStructSequence_Field struct_pool_support_vdev [] = {
+	{"cache", "L2ARC device."},
+	{"log", "Separate ZFS Intent Log device, AKA SLOG"},
+	{"special", "Special vdev type for metadata operations"},
+	{"dedup", "Special vdev type for the dedup table"},
+	{0},
+};
+
+PyStructSequence_Desc struct_pool_support_vdev_desc = {
+	.name = PYLIBZFS_MODULE_NAME ".struct_support_vdev",
+	.fields = struct_pool_support_vdev,
+	.doc = "Python ZFS pool support vdev structure",
+	.n_in_sequence = 4
 };
 
 PyStructSequence_Field struct_vdev_stats [] = {
@@ -80,7 +104,7 @@ PyStructSequence_Desc struct_vdev_stats_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_stats",
 	.fields = struct_vdev_stats,
 	.doc = "Python ZFS vdev stats structure",
-	.n_in_sequence = 12
+	.n_in_sequence = 13
 };
 
 PyStructSequence_Field struct_vdev_status_prop [] = {
@@ -92,13 +116,32 @@ PyStructSequence_Field struct_vdev_status_prop [] = {
 	{"children", "Tuple of vdevs that make up this vdev (if applicable)"},
 	{0},
 };
+#define STATS_IDX 4
+#define CHILDREN_IDX 5
 
 PyStructSequence_Desc struct_vdev_status_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_status",
+	.name = PYLIBZFS_MODULE_NAME ".struct_vdev",
 	.fields = struct_vdev_status_prop,
 	.doc = "Python pool vdev status structure",
 	.n_in_sequence = 6
 };
+
+/*
+ * Request mask values for getting vdev-related info
+ * Minimally, storage class or one of the support classes is required
+ */
+#define PY_VDEV_CLASS_STORAGE	0x01
+#define PY_VDEV_CLASS_LOG	0x02
+#define PY_VDEV_CLASS_SPARE	0x04
+#define PY_VDEV_CLASS_CACHE	0x08
+#define PY_VDEV_CLASS_SPECIAL	0x10
+#define PY_VDEV_CLASS_DEDUP	0x20
+#define PY_VDEV_CLASS_SUPPORT	(PY_VDEV_CLASS_LOG | PY_VDEV_CLASS_SPARE | \
+	PY_VDEV_CLASS_CACHE | PY_VDEV_CLASS_SPECIAL | PY_VDEV_CLASS_DEDUP )
+#define PY_VDEV_CLASS_ALL	(PY_VDEV_CLASS_STORAGE | PY_VDEV_CLASS_SUPPORT)
+#define PY_VDEV_DATA_WANT_STATS	0x40  // gather stats on vdevs
+
+#define PY_VDEV_MASK_ALL	(PY_VDEV_CLASS_ALL | PY_VDEV_DATA_WANT_STATS)
 
 static
 boolean_t parse_vdev_stats(py_zfs_pool_t *pypool,
@@ -172,23 +215,29 @@ boolean_t parse_vdev_stats(py_zfs_pool_t *pypool,
 
 	PyStructSequence_SetItem(pyvdev, 9, val);
 
+	val = PyLong_FromUnsignedLong(vs->vs_initialize_errors);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, 10, val);
+
 	if (has_children) {
 		// slow ios counter
-		PyStructSequence_SetItem(pyvdev, 10, Py_NewRef(Py_None));
+		PyStructSequence_SetItem(pyvdev, 11, Py_NewRef(Py_None));
 	} else {
 		// slow ios counter
 		val = PyLong_FromUnsignedLong(vs->vs_slow_ios);
 		if (val == NULL)
 			return B_FALSE;
 
-		PyStructSequence_SetItem(pyvdev, 10, val);
+		PyStructSequence_SetItem(pyvdev, 11, val);
 	}
 
 	val = PyLong_FromUnsignedLong(vs->vs_self_healed);
 	if (val == NULL)
 		return B_FALSE;
 
-	PyStructSequence_SetItem(pyvdev, 11, val);
+	PyStructSequence_SetItem(pyvdev, 12, val);
 
 	return B_TRUE;
 }
@@ -231,12 +280,21 @@ boolean_t add_basic_vdev_props(pylibzfs_state_t *state,
 	return B_TRUE;
 }
 
+// forward reference because we can have recursion in getting vdev status
+static
+PyObject *vdev_nvlist_array_to_list(py_zfs_pool_t *pypool,
+				    pylibzfs_state_t *state,
+				    nvlist_t **child,
+				    uint child_cnt,
+				    uint depth,
+				    uint request_mask);
 
 static
 PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 				 py_zfs_pool_t *pypool,
 				 nvlist_t *nv,
-				 uint depth)
+				 uint depth,
+				 uint request_mask)
 {
 	nvlist_t **child;
 	uint_t vsc, children;
@@ -281,9 +339,17 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	if (vdev_stats == NULL)
 		goto fail;
 
-	if (!parse_vdev_stats(pypool, nv, vs, children, vdev_stats)) {
-		Py_CLEAR(vdev_stats);
-		goto fail;
+	if (request_mask & PY_VDEV_DATA_WANT_STATS) {
+		vdev_stats = PyStructSequence_New(state->struct_vdev_stats_type);
+		if (vdev_stats == NULL)
+			goto fail;
+
+		if (!parse_vdev_stats(pypool, nv, vs, children, vdev_stats)) {
+			Py_CLEAR(vdev_stats);
+			goto fail;
+		}
+	} else {
+		vdev_stats = Py_NewRef(Py_None);
 	}
 
 	PyStructSequence_SetItem(out, 4, vdev_stats);
@@ -291,41 +357,15 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	if (children == 0)
 		PyStructSequence_SetItem(out, 5, Py_NewRef(Py_None));
 	else {
-		uint c;
-		int err;
-		PyObject *cl = PyList_New(0);
+		PyObject *cl = NULL;
 		PyObject *child_tuple = NULL;
-		if (cl == NULL)
-			goto fail;
 
-		for (c = 0; c < children; c++) {
-			PyObject *cvdev = NULL;
-			uint64_t islog = B_FALSE, ishole = B_FALSE;
-			nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_LOG,
-					     &islog);
-			nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_HOLE,
-					     &ishole);
-			if (islog || ishole)
-				continue;
-
-			if (nvlist_exists(child[c], ZPOOL_CONFIG_ALLOCATION_BIAS))
-				continue;
-
-			cvdev = gen_vdev_status_nvlist(state, pypool,
-						       child[c], depth + 1);
-			if (cvdev == NULL) {
-				Py_CLEAR(cl);
-				goto fail;
-			}
-
-			err = PyList_Append(cl, cvdev);
-
-			Py_XDECREF(cvdev);
-			if (err) {
-				Py_CLEAR(cl);
-				goto fail;
-			}
-		}
+		cl = vdev_nvlist_array_to_list(pypool,
+					       state,
+					       child,
+					       children,
+					       depth +1,
+					       request_mask);
 
 		child_tuple = PyList_AsTuple(cl);
 		Py_CLEAR(cl);
@@ -342,12 +382,268 @@ fail:
 	return NULL;
 }
 
+/*
+ * Most of the time vdevs are presented in the pool config as an
+ * array of nvlists that are retrieved via nvlist_lookup_nvlist_array().
+ * This returns an array of nvlists and its size. This function takes
+ * the results of this lookup and converts it into a python list of
+ * struct sequence objects for the nvlist array.
+ */
 static
-PyObject *pypool_vdev_status(py_zfs_pool_t *pypool)
+PyObject *vdev_nvlist_array_to_list(py_zfs_pool_t *pypool,
+				    pylibzfs_state_t *state,
+				    nvlist_t **child,
+				    uint child_cnt,
+				    uint depth,
+				    uint request_mask)
 {
-	PyObject *out = NULL;
-	nvlist_t *config, *nvroot;
+	PyObject *vdev_list = NULL;
+	uint c;
+	uint unknown = (request_mask & ~PY_VDEV_MASK_ALL);
+	uint storage_classes = (request_mask & PY_VDEV_CLASS_ALL);
+
+	PYZFS_ASSERT((storage_classes != 0), "No vdev types requested");
+	PYZFS_ASSERT((unknown == 0), "Unknown value for request mask");
+
+	vdev_list = PyList_New(0);
+	if (vdev_list == NULL)
+		return NULL;
+
+	for (c = 0; c < child_cnt; c++) {
+		PyObject *vdev = NULL;
+		uint64_t is_log = B_FALSE, is_hole = B_FALSE;
+		uint vdev_class = 0;
+		int err;
+		const char *bias = NULL;
+		const char *type = NULL;
+
+		// Bail out early if we can
+		nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_HOLE, &is_hole);
+		if (is_hole)
+			continue;
+
+		// Identify the vdev class in this item
+		nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_LOG, &is_log);
+		if (is_log) {
+			vdev_class = PY_VDEV_CLASS_LOG;
+		} else {
+			nvlist_lookup_string(child[c],
+				ZPOOL_CONFIG_ALLOCATION_BIAS, &bias);
+
+			nvlist_lookup_string(child[c], ZPOOL_CONFIG_TYPE,
+				&type);
+		}
+
+		// Don't report on indirect vdevs
+		if (!is_log && strcmp(type, VDEV_TYPE_INDIRECT) == 0) {
+			continue;
+		}
+
+		if (!is_log && (bias == NULL)) {
+			// For our purposes here L2ARC and STORAGE
+			// vdevs get flagged the same
+			vdev_class = PY_VDEV_CLASS_STORAGE | PY_VDEV_CLASS_CACHE;
+
+		} else if (!is_log) {
+			if (strcmp(bias, VDEV_ALLOC_BIAS_DEDUP) == 0) {
+				vdev_class = PY_VDEV_CLASS_DEDUP;
+
+			} else if (strcmp(bias, VDEV_ALLOC_BIAS_SPECIAL) == 0) {
+				vdev_class = PY_VDEV_CLASS_SPECIAL;
+			}
+		}
+
+		// Array of L2ARC devices is stored in separate nvlist and so we
+		// won't see them here. Caller will first request the array, then
+		// pass to this function.
+		PYZFS_ASSERT((vdev_class != 0), "Unable to determine vdev class");
+
+		if ((request_mask & vdev_class) == 0) {
+			// This is not the vdev we're looking for
+			continue;
+		}
+
+		// If we're here, we want to include this vdev in our list and
+		// so we should generate it
+		vdev = gen_vdev_status_nvlist(state, pypool,
+					      child[c], depth + 1,
+					      request_mask);
+
+		if (vdev == NULL) {
+			Py_DECREF(vdev_list);
+			return NULL;
+		}
+
+		err = PyList_Append(vdev_list, vdev);
+		Py_CLEAR(vdev);
+		if (err) {
+			Py_DECREF(vdev_list);
+			return NULL;
+		}
+	}
+
+	return vdev_list;
+}
+
+static
+boolean_t populate_support_vdevs(py_zfs_pool_t *pypool,
+				 pylibzfs_state_t *state,
+				 nvlist_t *nvl,
+				 PyObject *vdev_struct,
+				 boolean_t get_stats)
+{
+	uint_t children, cache_cnt;
+	nvlist_t **child, **cache;
+	PyObject *l_vdevs = NULL;
+	PyObject *s_vdevs = NULL;
+	PyObject *d_vdevs = NULL;
+	PyObject *c_vdevs = NULL;
+	PyObject *val = NULL;
+	uint mask = get_stats ? PY_VDEV_DATA_WANT_STATS : 0;
+
+	Py_BEGIN_ALLOW_THREADS
+	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) != 0)
+		children = 0;
+	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_L2CACHE,
+	    &cache, &cache_cnt) != 0)
+		cache_cnt = 0;
+	Py_END_ALLOW_THREADS
+
+	if (!children) {
+		// This shouldn't happen, but let's not philosphize deeply
+		// The pool has no vdevs and so it definitely doesn't have
+		// any "support" vdevs.
+		l_vdevs = PyList_New(0);
+		s_vdevs = PyList_New(0);
+		d_vdevs = PyList_New(0);
+	} else {
+		l_vdevs = vdev_nvlist_array_to_list(pypool,
+						    state,
+						    child,
+						    children,
+						    0,
+						    PY_VDEV_CLASS_LOG | mask);
+		s_vdevs = vdev_nvlist_array_to_list(pypool,
+						    state,
+						    child,
+						    children,
+						    0,
+						    PY_VDEV_CLASS_SPECIAL | mask);
+		d_vdevs = vdev_nvlist_array_to_list(pypool,
+						    state,
+						    child,
+						    children,
+						    0,
+						    PY_VDEV_CLASS_DEDUP | mask);
+	}
+
+	if (!cache_cnt)
+		c_vdevs = PyList_New(0);
+	else {
+		c_vdevs = vdev_nvlist_array_to_list(pypool,
+						    state,
+						    cache,
+						    cache_cnt,
+						    0,
+						    PY_VDEV_CLASS_CACHE | mask);
+	}
+
+	if (!l_vdevs || !s_vdevs || !d_vdevs || !c_vdevs)
+		goto fail;
+
+	val = PyList_AsTuple(c_vdevs);
+	Py_CLEAR(c_vdevs);
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(vdev_struct, 0, val);
+
+	val = PyList_AsTuple(l_vdevs);
+	Py_CLEAR(l_vdevs);
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(vdev_struct, 1, val);
+
+	val = PyList_AsTuple(s_vdevs);
+	Py_CLEAR(s_vdevs);
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(vdev_struct, 2, val);
+
+	val = PyList_AsTuple(d_vdevs);
+	Py_CLEAR(d_vdevs);
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(vdev_struct, 3, val);
+
+	return B_TRUE;
+fail:
+	Py_CLEAR(l_vdevs);
+	Py_CLEAR(s_vdevs);
+	Py_CLEAR(d_vdevs);
+	Py_CLEAR(d_vdevs);
+	return B_FALSE;
+}
+
+static
+PyObject *pypool_status_get_support_vdevs(py_zfs_pool_t *pypool,
+					  nvlist_t *nvl,
+					  boolean_t get_stats)
+{
 	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
+	PyObject *vdev_struct;
+
+	vdev_struct = PyStructSequence_New(state->struct_support_vdev_type);
+	if (vdev_struct == NULL)
+		return NULL;
+
+	if (!populate_support_vdevs(pypool, state, nvl, vdev_struct, get_stats))
+		Py_CLEAR(vdev_struct);
+
+	return vdev_struct;
+}
+
+static
+PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
+					  nvlist_t *nvl,
+					  boolean_t get_stats)
+{
+	uint_t children;
+	nvlist_t **child;
+	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
+	uint request_mask = PY_VDEV_CLASS_STORAGE;
+
+	if (get_stats)
+		request_mask |= PY_VDEV_DATA_WANT_STATS;
+
+	Py_BEGIN_ALLOW_THREADS
+	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) != 0)
+		children = 0;
+	Py_END_ALLOW_THREADS
+
+	PYZFS_ASSERT((children != 0), "No vdevs in pool!");
+
+	return vdev_nvlist_array_to_list(pypool,
+					 state,
+					 child,
+					 children,
+					 0,
+					 request_mask);
+}
+
+static
+boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
+				  PyObject *status_struct,
+				  boolean_t get_stats)
+{
+	PyObject *storage_vdevs = NULL;
+	PyObject *support_vdevs = NULL;
+	nvlist_t *config, *nvroot;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(pypool->pylibzfsp);
@@ -362,9 +658,23 @@ PyObject *pypool_vdev_status(py_zfs_pool_t *pypool)
 	PY_ZFS_UNLOCK(pypool->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	out = gen_vdev_status_nvlist(state, pypool, nvroot, 0);
+	storage_vdevs = pypool_status_get_storage_vdevs(pypool, nvroot, get_stats);
+	if (storage_vdevs == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(status_struct, VDEVS_STORAGE_IDX, storage_vdevs);
+
+	support_vdevs = pypool_status_get_support_vdevs(pypool, nvroot, get_stats);
+	if (support_vdevs == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(status_struct, VDEVS_SUPPORT_IDX, support_vdevs);
+
 	fnvlist_free(nvroot);
-	return out;
+	return B_TRUE;
+fail:
+	fnvlist_free(nvroot);
+	return B_FALSE;;
 }
 
 // generate tuple of corrupted files on pool
@@ -493,7 +803,8 @@ static
 PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 				 zpool_status_t reason,
 				 zpool_errata_t errata,
-				 const char *msgid)
+				 const char *msgid,
+				 boolean_t get_stats)
 {
 	PyObject *out = NULL;
 	PyObject *pyreason = NULL;
@@ -502,7 +813,6 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	PyObject *pyenum = NULL;
 	PyObject *pymsg = NULL;
 	PyObject *pyfiles = NULL;
-	PyObject *pyvdevs = NULL;
 	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
 
 	pyenum = PyObject_CallFunction(state->zpool_status_enum, "i", reason);
@@ -860,8 +1170,9 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	if (pyfiles == NULL)
 		goto fail;
 
-	pyvdevs = pypool_vdev_status(pypool);
-	if (pyvdevs == NULL)
+	if (!pypool_status_add_vdevs(pypool, out, get_stats))
+		// this needs to occur before setting references
+		// in the struct sequence otherwise we risk UAF
 		goto fail;
 
 	PyStructSequence_SET_ITEM(out, 0, pyenum);
@@ -869,7 +1180,6 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	PyStructSequence_SET_ITEM(out, 2, pyaction);
 	PyStructSequence_SET_ITEM(out, 3, pymsg);
 	PyStructSequence_SET_ITEM(out, 4, pyfiles);
-	PyStructSequence_SET_ITEM(out, 5, pyvdevs);
 
 	return out;
 
@@ -881,7 +1191,7 @@ fail:
 	return NULL;
 }
 
-PyObject *py_get_pool_status(py_zfs_pool_t *pypool)
+PyObject *py_get_pool_status(py_zfs_pool_t *pypool, boolean_t get_stats)
 {
 	zpool_status_t reason;
 	zpool_errata_t errata;
@@ -893,7 +1203,216 @@ PyObject *py_get_pool_status(py_zfs_pool_t *pypool)
 	PY_ZFS_UNLOCK(pypool->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	return populate_status_struct(pypool, reason, errata, msgid);
+	return populate_status_struct(pypool, reason, errata, msgid, get_stats);
+}
+
+/* create new dictionary containing references to info from struct sequence */
+static
+boolean_t py_vdev_add_stats(PyObject *vdev_dict,
+			    const char *key,
+			    PyObject *pystats)
+{
+	PyObject *stats_dict = NULL;
+	int idx, err;
+
+	stats_dict = PyDict_New();
+	if (stats_dict == NULL)
+		return B_FALSE;
+
+	for (idx = 0; idx < struct_vdev_stats_desc.n_in_sequence; idx++) {
+		const char *name = struct_vdev_stats[idx].name;
+		PyObject *val = PyStructSequence_GET_ITEM(pystats, idx);
+		PYZFS_ASSERT((val != NULL), "Unexpected NULL");
+
+		err = PyDict_SetItemString(stats_dict, name, val);
+		if (err) {
+			Py_CLEAR(stats_dict);
+			return B_FALSE;
+		}
+	}
+
+	err = PyDict_SetItemString(vdev_dict, key, stats_dict);
+	return err ? B_FALSE : B_TRUE;
+}
+
+static
+boolean_t py_vdevs_dict(PyObject *vdevs, const char *key, PyObject *dict_out);
+
+/* convert individual vdev to a dict and return it */
+static
+PyObject *py_vdev_to_dict(PyObject *vdev)
+
+{
+	PyObject *vdev_dict = NULL;
+	int idx, err;
+
+	vdev_dict = PyDict_New();
+	if (vdev_dict == NULL)
+		return NULL;
+
+	for (idx = 0; idx < struct_vdev_status_desc.n_in_sequence;
+	     idx++) {
+		PyObject *val = PyStructSequence_GET_ITEM(vdev, idx);
+		const char *name = struct_vdev_status_prop[idx].name;
+		PYZFS_ASSERT((val != NULL), "Unexpected NULL");
+
+		switch(idx) {
+		case STATS_IDX:
+			if (val == Py_None) {
+				err = PyDict_SetItemString(vdev_dict, name, val);
+				if (err)
+					goto fail;
+
+			} else if (!py_vdev_add_stats(vdev_dict, name, val)) {
+				goto fail;
+			}
+			break;
+		case CHILDREN_IDX:
+			if (val == Py_None) {
+				err = PyDict_SetItemString(vdev_dict, name, val);
+				if (err)
+					goto fail;
+
+			} else if (!py_vdevs_dict(val, name, vdev_dict)) {
+				goto fail;
+			}
+			break;
+		default:
+			err = PyDict_SetItemString(vdev_dict, name, val);
+			if (err)
+				goto fail;
+		}
+	}
+
+	return vdev_dict;
+
+fail:
+	Py_CLEAR(vdev_dict);
+	return NULL;
+}
+
+/* convert vdevs tuple (of vdev structs) to tuple of dictionaries */
+static
+boolean_t py_vdevs_dict(PyObject *vdevs, const char *key, PyObject *dict_out)
+{
+	PyObject *vdev = NULL;
+	PyObject *iterator = NULL;
+	PyObject *vdev_list = NULL;
+	PyObject *vdev_tuple = NULL;
+	int err;
+
+	// vdevs should be a tuple
+	iterator = PyObject_GetIter(vdevs);
+	if (!iterator)
+		return B_FALSE;
+
+	vdev_list = PyList_New(0);
+
+	while ((vdev = PyIter_Next(iterator))) {
+		PyObject *vdev_dict = NULL;
+
+		vdev_dict = py_vdev_to_dict(vdev);
+		Py_CLEAR(vdev);
+		if (vdev_dict == NULL)
+			goto fail;
+
+		err = PyList_Append(vdev_list, vdev_dict);
+		if (err)
+			goto fail;
+	}
+
+	Py_CLEAR(iterator);
+	vdev_tuple = PyList_AsTuple(vdev_list);
+	if (vdev_tuple == NULL)
+		goto fail;
+
+	Py_CLEAR(vdev_list);
+	err = PyDict_SetItemString(dict_out, key, vdev_tuple);
+	Py_CLEAR(vdev_tuple);
+	if (err)
+		goto fail;
+
+	return B_TRUE;
+fail:
+	Py_CLEAR(vdev);
+	Py_CLEAR(iterator);
+	Py_CLEAR(vdev_list);
+	Py_CLEAR(vdev_tuple);
+	return B_FALSE;
+}
+
+static
+boolean_t py_support_vdevs_dict(PyObject *py_support_vdevs,
+				const char *support_vdevs_key,
+				PyObject *dict_out)
+{
+	PyObject *vdevs_dict = NULL;
+	int idx, err;
+
+	vdevs_dict = PyDict_New();
+	if (vdevs_dict == NULL)
+		return B_FALSE;
+
+	for (idx = 0; idx < struct_pool_support_vdev_desc.n_in_sequence; idx++) {
+		const char *key = struct_pool_support_vdev[idx].name;
+		PyObject *val = PyStructSequence_GET_ITEM(py_support_vdevs, idx);
+
+		if (!py_vdevs_dict(val, key, vdevs_dict))
+			goto fail;
+
+	}
+
+	err = PyDict_SetItemString(dict_out, support_vdevs_key, vdevs_dict);
+	Py_CLEAR(vdevs_dict);
+	return err ? B_FALSE : B_TRUE;
+
+fail:
+	Py_CLEAR(vdevs_dict);
+	return B_FALSE;
+}
+
+PyObject *py_get_pool_status_dict(py_zfs_pool_t *pypool, boolean_t get_stats)
+{
+	int idx, err;
+	PyObject *out = NULL;
+
+	PyObject *status_obj = py_get_pool_status(pypool, get_stats);
+	if (status_obj == NULL)
+		return NULL;
+
+	out = PyDict_New();
+	if (out == NULL)
+		goto fail;
+
+	for (idx = 0; idx < struct_pool_status_desc.n_in_sequence; idx++) {
+		const char *name = struct_pool_status_prop[idx].name;
+		PyObject *val = PyStructSequence_GET_ITEM(status_obj, idx);
+		PYZFS_ASSERT((val != NULL), "Unexpected NULL");
+
+		// vdevs are a tuple that may require recursion
+		// so this means special handling
+		switch(idx) {
+		case VDEVS_STORAGE_IDX:
+			if (!py_vdevs_dict(val, name, out))
+				goto fail;
+			break;
+		case VDEVS_SUPPORT_IDX:
+			if (!py_support_vdevs_dict(val, name, out))
+				goto fail;
+			break;
+		default:
+			err = PyDict_SetItemString(out, name, val);
+			if (err)
+				goto fail;
+		}
+	}
+
+	return out;
+
+fail:
+	Py_CLEAR(out);
+	Py_CLEAR(status_obj);
+	return NULL;
 }
 
 void init_py_pool_status_state(pylibzfs_state_t *state)
@@ -914,4 +1433,9 @@ void init_py_pool_status_state(pylibzfs_state_t *state)
 	PYZFS_ASSERT(obj, "Failed to create vdev stats struct type");
 
 	state->struct_vdev_stats_type = obj;
+
+	obj = PyStructSequence_NewType(&struct_pool_support_vdev_desc);
+	PYZFS_ASSERT(obj, "Failed to create support vdev struct type");
+
+	state->struct_support_vdev_type = obj;
 }

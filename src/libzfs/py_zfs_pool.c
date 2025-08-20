@@ -97,20 +97,39 @@ PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 }
 
 PyDoc_STRVAR(py_zfs_pool_status__doc__,
-"status(*) -> struct_zpool_status\n"
-"--------------------------------\n\n"
+"status(*, asdict=False, get_stats=True) -> struct_zpool_status\n"
+"--------------------------------------------------------------\n\n"
 "Retrieve zpool status details\n\n"
 "Parameters\n"
 "----------\n"
-"None\n\n"
+"asdict: boolean, optional, default=False\n"
+"    Convert the status structs into a dictionary. \n\n"
+"get_stats: boolean, optional, default=True\n"
+"    Include cached vdev statistics in output \n\n"
 "Returns\n"
 "-------\n"
-"Initialized truenas_pylibzfs.struct_zpool_status object.\n"
+"Initialized truenas_pylibzfs.struct_zpool_status object\n"
+"or a dictionary\n"
 );
 static
-PyObject *py_zfs_pool_status(PyObject *self, PyObject *args)
+PyObject *py_zfs_pool_status(PyObject *self, PyObject *args, PyObject *kwargs)
 {
-	return py_get_pool_status((py_zfs_pool_t *)self);
+	boolean_t asdict = B_FALSE;
+	boolean_t get_stats = B_TRUE;
+	char *kwnames [] = {"asdict", "get_stats", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+					 "|$pp",
+					 kwnames,
+					 &asdict,
+					 &get_stats)) {
+		return NULL;
+	}
+
+	if (asdict)
+		return py_get_pool_status_dict((py_zfs_pool_t *)self, get_stats);
+
+	return py_get_pool_status((py_zfs_pool_t *)self, get_stats);
 }
 
 PyDoc_STRVAR(py_zfs_pool_root_vdev__doc__,
@@ -586,8 +605,8 @@ PyMethodDef zfs_pool_methods[] = {
 	},
 	{
 		.ml_name = "status",
-		.ml_meth = py_zfs_pool_status,
-		.ml_flags = METH_NOARGS,
+		.ml_meth = (PyCFunction)py_zfs_pool_status,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_status__doc__
 	},
 	{
