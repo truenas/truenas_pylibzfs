@@ -72,14 +72,92 @@ assert count == 3, f'count: {count}, channel_program_result: {res}'
 res = truenas_pylibzfs.lzc.run_channel_program(
     pool_name='dozer',
     script=destroy_snap,
-    script_arguments_dict={"recursive": True, "target": "dozer/foo", "defer": False},
+    script_arguments_dict={"recursive": True, "target": "dozer/foo", "defer": False,},
     readonly=False
 )
 
 count = count_snapshots(lz, ['dozer'])
-
 assert count == 0, f'count: {count}, channel_program_result: {res}'
 
+
+# Test pattern matching - direct
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=take_snap,
+    script_arguments=["dozer/foo", "now"],
+    readonly=False
+)
+
+count = count_snapshots(lz, ['dozer'])
+assert count == 3, f'count: {count}, channel_program_result: {res}'
+
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=take_snap,
+    script_arguments=["dozer/foo", "now2"],
+    readonly=False
+)
+
+count = count_snapshots(lz, ['dozer'])
+assert count == 6, f'count: {count}, channel_program_result: {res}'
+
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=destroy_snap,
+    script_arguments_dict={"recursive": True, "target": "dozer/foo", "defer": False, "pattern": "now"},
+    readonly=False
+)
+
+count = count_snapshots(lz, ['dozer'])
+assert count == 3, f'count: {count}, channel_program_result: {res}'
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=destroy_snap,
+    script_arguments_dict={"recursive": True, "target": "dozer/foo", "defer": False, "pattern": "now2"},
+    readonly=False
+)
+
+count = count_snapshots(lz, ['dozer'])
+assert count == 0, f'count: {count}, channel_program_result: {res}'
+
+# Test pattern matching - wildcard
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=take_snap,
+    script_arguments=["dozer/foo", "now"],
+    readonly=False
+)
+
+count = count_snapshots(lz, ['dozer'])
+assert count == 3, f'count: {count}, channel_program_result: {res}'
+
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=take_snap,
+    script_arguments=["dozer/foo", "now2"],
+    readonly=False
+)
+
+count = count_snapshots(lz, ['dozer'])
+assert count == 6, f'count: {count}, channel_program_result: {res}'
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=destroy_snap,
+    script_arguments_dict={"recursive": True, "target": "dozer/foo", "defer": False, "pattern": "now.*"},
+    readonly=False
+)
+
+count = count_snapshots(lz, ['dozer'])
+assert count == 0, f'count: {count}, channel_program_result: {res}'
+
+# CLEANUP
 rsrc = lz.open_resource(name='dozer/foo')
 
 # We need to recursively unmount the dataset first
