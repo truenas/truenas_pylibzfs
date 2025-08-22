@@ -185,7 +185,7 @@ void set_zfscore_exc(PyObject *module,
 		}
 	}
 
-	v = PyObject_CallFunction(state->zc_exc, "s", msg);
+	v = PyObject_CallFunction(state->zc_exc, "s:O", msg, errors_tuple);
 	if (v == NULL)
 		return;
 
