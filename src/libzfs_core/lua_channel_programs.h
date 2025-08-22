@@ -55,8 +55,7 @@ static const char RECURSIVE_DESTROY_LUA[] =
 /*
  * Lua channel program to take recursive snapshot
  */
-static const char RECURSIVE_SNAPSHOT_LUA[] =
-"succeeded = {}\n"
+static const char SNAPSHOT_TAKE_LUA[] =
 "failed = {}\n"
 "\n"
 "function snapshot_recursive(root, name)\n"
@@ -67,8 +66,6 @@ static const char RECURSIVE_SNAPSHOT_LUA[] =
 "    err = zfs.sync.snapshot(snapname)\n"
 "    if (err ~= 0) then\n"
 "        failed[snapname] = err\n"
-"    else\n"
-"        succeeded[snapname] = err\n"
 "    end\n"
 "end\n"
 "\n"
@@ -76,18 +73,49 @@ static const char RECURSIVE_SNAPSHOT_LUA[] =
 "argv = args[\"argv\"]\n"
 "snapshot_recursive(argv[1], argv[2])\n"
 "\n"
-"results = {}\n"
-"results[\"succeeded\"] = succeeded\n"
-"results[\"failed\"] = failed\n"
-"return results\n";
+"return failed\n";
 
+static const char SNAPSHOT_DESTROY_LUA[] =
+"failed = {}\n"
+"\n"
+"function snapshot_recursive(root, recurse)\n"
+"    if recurse then\n"
+"        for child in zfs.list.children(root) do\n"
+"            snapshot_recursive(child, recurse)\n"
+"        end\n"
+"    end\n"
+"    for snap in zfs.list.snapshots(root) do\n"
+"        -- iterate and destroy clones first\n"
+"        for clone in zfs.list.clones(snap) do\n"
+"            err = zfs.sync.destroy(clone)\n"
+"            if (err ~= 0) then\n"
+"                failed[clone] = err\n"
+"            end\n"
+"        end\n"
+"        -- now do the snapshot destroy\n"
+"        err = zfs.sync.destroy(snap)\n"
+"        if (err ~= 0) then\n"
+"            failed[snap] = err\n"
+"        end\n"
+"    end\n"
+"end\n"
+"\n"
+"args = ...\n"
+"target = args[\"target\"]\n"
+"recurse = args[\"recursive\"]\n"
+"defer = args[\"defer\"]\n"
+"snapshot_recursive(target, recurse)\n"
+"\n"
+"\n"
+"return failed\n";
 
 static const struct {
 	const char *name;
 	const char *script;
 } zcp_table[] = {
-	{ "RECURSIVE_DESTROY", RECURSIVE_DESTROY_LUA },
-	{ "RECURSIVE_SNAPSHOT", RECURSIVE_SNAPSHOT_LUA },
+	{ "DESTROY_RESOURCES", RECURSIVE_DESTROY_LUA },
+	{ "DESTROY_SNAPSHOTS", SNAPSHOT_DESTROY_LUA },
+	{ "TAKE_SNAPSHOTS", SNAPSHOT_TAKE_LUA },
 };
 
 #endif /* PY_ZFS_CORE_LUA_SCRIPT_H */
