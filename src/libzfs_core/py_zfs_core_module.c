@@ -310,6 +310,14 @@ boolean_t py_snapname_to_nvpair(nvlist_t *list,
 	if (!py_dsname)
 		return B_FALSE;
 
+	/*
+	 * Check that this we are only taking one snapshot of this
+	 * particular resource. The LZC operation will fail with
+	 * EXDEV if there are multiple snapshots of same one
+	 * e.g. {"dozer/share@a", "dozer/share@b"}.
+	 *
+	 * TL;DR, this check can't be removed.
+	 */
 	if (PySet_Contains(dsname_set, py_dsname)) {
 		Py_DECREF(py_dsname);
 		PyErr_Format(PyExc_ValueError,
