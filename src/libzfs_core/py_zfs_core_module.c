@@ -239,14 +239,18 @@ void set_zfscore_exc(PyObject *module,
 	return;
 }
 
-typedef boolean_t (*py_lzc_parse_f)(nvlist_t *list,
+enum pylzcop { ADD_SNAP, DEL_SNAP, ADD_HOLD, DEL_HOLD };
+
+typedef boolean_t (*py_lzc_parse_f)(enum pylzcop op,
+				    nvlist_t *list,
 				    PyObject *item,
 				    PyObject *dsname_set,
 				    char *pool_name,
 				    size_t pool_name_sz);
 
 static
-boolean_t py_snapname_to_nvpair(nvlist_t *list,
+boolean_t py_snapname_to_nvpair(enum pylzcop op,
+				nvlist_t *list,
 				PyObject *item,
 				PyObject *dsname_set,
 				char *pool_name,
@@ -310,13 +314,15 @@ boolean_t py_snapname_to_nvpair(nvlist_t *list,
 	if (!py_dsname)
 		return B_FALSE;
 
-	if (PySet_Contains(dsname_set, py_dsname)) {
-		Py_DECREF(py_dsname);
-		PyErr_Format(PyExc_ValueError,
-			     "%s: multiple snapshots of the same "
-			     "dataset is not permitted.",
-			     snap);
-		return B_FALSE;
+	if (op == ADD_SNAP) {
+		if (PySet_Contains(dsname_set, py_dsname)) {
+			Py_DECREF(py_dsname);
+			PyErr_Format(PyExc_ValueError,
+				     "%s: multiple snapshots of the same "
+				     "dataset is not permitted.",
+				     snap);
+			return B_FALSE;
+		}
 	}
 
 	err = PySet_Add(dsname_set, py_dsname);
@@ -332,7 +338,8 @@ boolean_t py_snapname_to_nvpair(nvlist_t *list,
 }
 
 static
-boolean_t py_entry_to_hold_nvpair(nvlist_t *list,
+boolean_t py_entry_to_hold_nvpair(enum pylzcop op,
+				  nvlist_t *list,
 				  PyObject *item,
 				  PyObject *snap_set,
 				  char *pool_name,
@@ -412,7 +419,8 @@ boolean_t py_entry_to_hold_nvpair(nvlist_t *list,
 }
 
 static
-boolean_t py_entry_to_rel_nvpair(nvlist_t *list,
+boolean_t py_entry_to_rel_nvpair(enum pylzcop op,
+				 nvlist_t *list,
 				 PyObject *item,
 				 PyObject *snap_set,
 				 char *pool_name,
@@ -493,6 +501,7 @@ boolean_t py_entry_to_rel_nvpair(nvlist_t *list,
 }
 static
 nvlist_t *py_iter_to_snaps(PyObject *obj,
+			   enum pylzcop op,
 			   char *pool,
 			   size_t pool_size,
 			   py_lzc_parse_f fn)
@@ -521,7 +530,7 @@ nvlist_t *py_iter_to_snaps(PyObject *obj,
 	while ((item = PyIter_Next(iterator))) {
 		boolean_t ok;
 
-		ok = fn(out, item, dsname_set, pool, pool_size);
+		ok = fn(op, out, item, dsname_set, pool, pool_size);
 		Py_DECREF(item);
 		if (!ok) {
 			fnvlist_free(out);
@@ -744,7 +753,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 		return NULL;
 	}
 
-	holds = py_iter_to_snaps(py_holds, pool, sizeof(pool),
+	holds = py_iter_to_snaps(py_holds, ADD_HOLD, pool, sizeof(pool),
 				 py_entry_to_hold_nvpair);
 	if (holds == NULL)
 		return NULL;
@@ -864,7 +873,7 @@ static PyObject *py_lzc_release_holds(PyObject *self,
 		return NULL;
 	}
 
-	holds = py_iter_to_snaps(py_holds, pool, sizeof(pool),
+	holds = py_iter_to_snaps(py_holds, DEL_HOLD, pool, sizeof(pool),
 				 py_entry_to_rel_nvpair);
 	if (holds == NULL)
 		return NULL;
@@ -975,7 +984,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 		return NULL;
 	}
 
-	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool),
+	snaps = py_iter_to_snaps(py_snaps, ADD_SNAP, pool, sizeof(pool),
 				 py_snapname_to_nvpair);
 	if (snaps == NULL)
 		return NULL;
@@ -1104,7 +1113,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 		return NULL;
 	}
 
-	snaps = py_iter_to_snaps(py_snaps, pool, sizeof(pool),
+	snaps = py_iter_to_snaps(py_snaps, DEL_SNAP, pool, sizeof(pool),
 				 py_snapname_to_nvpair);
 	if (snaps == NULL)
 		return NULL;
