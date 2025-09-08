@@ -27,3 +27,8 @@ enc.unload_key()
 enc.load_key(key=PASSKEY2)
 
 z.destroy_resource(name='dozer/enc')
+
+# Create a hex key-format dataset
+c = z.resource_cryptography_config(keyformat="hex", key="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+z.create_resource(name='dozer/enc', type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM, crypto=c)
+z.destroy_resource(name='dozer/enc')

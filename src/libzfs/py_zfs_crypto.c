@@ -202,6 +202,10 @@ boolean_t validate_keyformat(PyObject *py_keyformat,
 	if ((format != ZFS_KEYFORMAT_PASSPHRASE) || NULL_OR_NONE(py_iters)) {
 		info->format = format;
 		info->format_str = keyformat_str;
+		if (format != ZFS_KEYFORMAT_PASSPHRASE) {
+			// ensure that iterations are omitted if not passphrase
+			info->iters = 0;
+		}
 		return B_TRUE;
 	}
 
