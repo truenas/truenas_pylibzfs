@@ -584,6 +584,41 @@ PyObject *py_zfs_props_to_dict(py_zfs_obj_t *pyzfs, PyObject *pyprops)
 	return out;
 }
 
+boolean_t py_object_to_zfs_prop_t(PyObject *zfs_property_enum,
+				  PyObject *pyprop_in,
+				  zfs_prop_t *zprop_out)
+{
+	zfs_prop_t zprop;
+
+	if (PyUnicode_Check(pyprop_in)) {
+		const char *cprop = PyUnicode_AsUTF8(pyprop_in);
+		if (cprop == NULL)
+			return B_FALSE;
+
+		zprop = zfs_name_to_prop(cprop);
+	} else {
+		long lval;
+	        if (!PyObject_IsInstance(pyprop_in, zfs_property_enum)) {
+			PyObject *repr = PyObject_Repr(pyprop_in);
+			PyErr_Format(PyExc_TypeError,
+				     "%V: unexpected key type. "
+				     "Expected a truenas_pylibzfs.ZFSProperty "
+				     "instance.", repr, "UNKNOWN");
+
+			Py_XDECREF(repr);
+			return B_FALSE;
+		}
+		lval = PyLong_AsLong(pyprop_in);
+		PYZFS_ASSERT(
+			((lval >= 0) && (lval < ZFS_NUM_PROPS)),
+			"Unexpected ZFSProperty enum value"
+		);
+		zprop = (zfs_prop_t)lval;
+	}
+
+	*zprop_out = zprop;
+	return B_TRUE;
+}
 
 /* Refresh the properties of the ZFS resource */
 void py_zfs_props_refresh(py_zfs_resource_t *res)
