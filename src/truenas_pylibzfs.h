@@ -378,6 +378,21 @@ extern void free_py_zfs_obj(py_zfs_obj_t *obj);
  */
 extern PyObject *py_get_property_source(py_zfs_t *zfs, zprop_source_t sourcetype);
 
+/*
+ * @brief convert a given python object (string or ZFSProperty enum) into zfs_prop_t.
+ *
+ * @param[in]	py_prop_enum - reference to ZFS property enum from module state
+ * @param[in]	pyprop_in - object to convert
+ * @param[out]	zprop_out - zfs_prop_t of the property
+ *
+ * @return	returns boolean_t indicating success
+ *
+ * @note GIL must be held while calling this function.
+ */
+extern boolean_t py_object_to_zfs_prop_t(PyObject *py_prop_enum,
+					 PyObject *pyprop_in,
+					 zfs_prop_t *zprop_out);
+
 /* Provided by py_zfs_props.c */
 /*
  * @brief get the properties specified in prop_set for the ZFS object

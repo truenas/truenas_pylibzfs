@@ -536,6 +536,116 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 
 	Py_RETURN_NONE;
 }
+
+PyDoc_STRVAR(py_zfs_resource_inherit_prop__doc__,
+"inherit_property(*, property, received=False) -> None\n\n"
+"----------------------------------------------------\n\n"
+"Clears the specified property, causing it to be inherited from an ancestor,\n"
+"restored to default if no ancestor has the property set, or with \"received\"\n"
+"option reverted to the received value if one exists.  See zfsprops(7) for a\n"
+"listing of default values, and details on which properties can be inherited.\n"
+""
+"Parameters\n"
+"----------\n"
+"property: truenas_pylibzfs.ZFSProperty\n"
+"    The ZFS property to inherit.\n"
+"\n"
+"received, optional, default=False\n"
+"    Boolean value indicating whether to do alterate behavior of inheriting\n"
+"    from received value rather than ancestor.\n"
+""
+"Returns\n"
+"-------\n"
+"None\n"
+"\n"
+"Raises:\n"
+"-------\n"
+"ValueError:\n"
+"    No property was specified.\n"
+"ValueError:\n"
+"    One of the specified properties is not supported for the ZFS type of the\n"
+"    underlying ZFS resource. For example, setting a zvol property for a\n"
+"    ZFS filesystem.\n\n"
+"ZFSError:\n"
+"    The ZFS operation failed. This can happen for a variety of reasons.\n"
+);
+static
+PyObject *py_zfs_resource_inherit_property(PyObject *self,
+					   PyObject *args_unused,
+					   PyObject *kwargs)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	PyObject *pyprop;
+	const char *cprop;
+	zfs_prop_t zprop;
+	boolean_t received = B_FALSE;
+	py_zfs_error_t zfs_err;
+	pylibzfs_state_t *state = NULL;
+	int err;
+
+	char *kwnames [] = {
+		"property",
+		"received",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$Op",
+					 kwnames,
+					 &pyprop,
+					 &received)) {
+					 return NULL;
+	}
+
+	if (pyprop == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"property keyword argument is "
+				"required.");
+		return NULL;
+	}
+
+	state = py_get_module_state(res->obj.pylibzfsp);
+
+	if (!py_object_to_zfs_prop_t(state->zfs_property_enum, pyprop, &zprop))
+		return NULL;
+
+	if (zprop == ZPROP_USERPROP) {
+		cprop = PyUnicode_AsUTF8(pyprop);
+		if (cprop == NULL)
+			return NULL;
+	} else {
+		if (!py_zfs_prop_valid_for_type(zprop, res->obj.ctype))
+			return NULL;
+
+		cprop = zfs_prop_to_name(zprop);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME
+			".ZFSResource.inherit_property", "OO",
+			res->obj.name, kwargs) < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	err = zfs_prop_inherit(res->obj.zhp, cprop, received);
+	if (err) {
+		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	err = py_log_history_fmt(res->obj.pylibzfsp,
+				 "zfs inherit %s%s %s",
+				 received ? "-S" : "",
+				 cprop,
+				 zfs_get_name(res->obj.zhp));
+	if (err)
+		return NULL;
+
+	Py_RETURN_NONE;
+}
+
 static
 PyObject *py_get_userprops(py_zfs_resource_t *res)
 {
@@ -1069,6 +1179,12 @@ PyMethodDef zfs_resource_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_resource_refresh_props,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_resource_refresh_props__doc__
+	},
+	{
+		.ml_name = "inherit_property",
+		.ml_meth = (PyCFunction)py_zfs_resource_inherit_property,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_resource_inherit_prop__doc__
 	},
 	{
 		.ml_name = "asdict",
