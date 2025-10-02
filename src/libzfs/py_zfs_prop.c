@@ -237,6 +237,9 @@ PyObject *py_parse_zfs_prop(zfs_prop_t prop, char *propbuf, PyObject *raw)
 	/* literal "none", convert to None type */
 	if (strcmp(propbuf, LIBZFS_NONE_VALUE) == 0) {
 		Py_RETURN_NONE;
+	} else if (strcmp(propbuf, LIBZFS_INCONSISTENT_VALUE) == 0) {
+		// property can't be had because dds_inconsistent
+		Py_RETURN_NONE;
 	}
 
 	/* Begin custom property parsers */
@@ -303,6 +306,13 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 
 	Py_BEGIN_ALLOW_THREADS
 	/*
+	 * The below libzfs API calls do not properly set
+	 * errno in some cases. We want to catch case where
+	 * it's being explicilty set to ENOENT because of
+	 * dds_inconsistent
+	 */
+	errno = 0;
+	/*
 	 * In some edge cases this libzfs function call
 	 * will write a generally useless message into libzfs
 	 * error buffer. This means we need to take lock
@@ -356,14 +366,53 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 		 */
 		*sourcebuf = '\0';
 		sourcetype = ZPROP_SRC_NONE;
+	} else if (err && (errno == ENOENT)) {
+		/*
+		 * We may have in-progress replication and the property is
+		 * in inconsistent state. The ZFS cmd currently returns defaulted
+		 * values with a source of None. In our case we will set explicilty
+		 * to None but with special raw string of <INCONSISTENT>
+		 *
+		 * Affected properties (10/2025)
+		 * - ZFS_PROP_VERSION
+		 * - ZFS_PROP_NORMALIZE
+		 * - ZFS_PROP_UTF8ONLY
+		 * - ZFS_PROP_CASE
+		 * - ZFS_PROP_DEFAULTUSERQUOTA
+		 * - ZFS_PROP_DEFAULTGROUPQUOTA
+		 * - ZFS_PROP_DEFAULTPROJECTQUOTA
+		 * - ZFS_PROP_DEFAULTUSEROBJQUOTA
+		 * - ZFS_PROP_DEFAULTGROUPOBJQUOTA
+		 * - ZFS_PROP_DEFAULTPROJECTOBJQUOTA
+		 *
+		 * There is an open ticket (NAS-137848) to at least not
+		 * fail for immutable properties (e.g. ZFS_PROP_CASE)
+		 */
+		strlcpy(propbuf, LIBZFS_INCONSISTENT_VALUE, sizeof(propbuf));
+
+		/*
+		 * Make sure that our source buf is empty string.
+		 * We zero-initialize the buffer above, but it's better
+		 * to be extra sure.
+		 */
+		*sourcebuf = '\0';
+		sourcetype = ZPROP_SRC_NONE;
 	} else if (err) {
 		if (!py_zfs_prop_valid_for_type(prop, pyzfs->ctype))
 			return NULL;
 
+		/*
+		 * We cannot raise a ZFSException here since zfs_prop_get
+		 * does not reliably set the libzfs error information.
+		 *
+		 * Instead we raise a RuntimeError based on what errno info
+		 * we have.
+		 */
 		PyErr_Format(
 			PyExc_RuntimeError,
-			"%s: failed to get property.",
-			zfs_prop_to_name(prop)
+			"%s: failed to get property: %s.",
+			zfs_prop_to_name(prop),
+			errno ? strerror(errno) : "<UNKNOWN>"
 		);
 		return NULL;
 	}
