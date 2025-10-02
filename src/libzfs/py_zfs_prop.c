@@ -372,6 +372,21 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 		 * in inconsistent state. The ZFS cmd currently returns defaulted
 		 * values with a source of None. In our case we will set explicilty
 		 * to None but with special raw string of <INCONSISTENT>
+		 *
+		 * Affected properties (10/2025)
+		 * - ZFS_PROP_VERSION
+		 * - ZFS_PROP_NORMALIZE
+		 * - ZFS_PROP_UTF8ONLY
+		 * - ZFS_PROP_CASE
+		 * - ZFS_PROP_DEFAULTUSERQUOTA
+		 * - ZFS_PROP_DEFAULTGROUPQUOTA
+		 * - ZFS_PROP_DEFAULTPROJECTQUOTA
+		 * - ZFS_PROP_DEFAULTUSEROBJQUOTA
+		 * - ZFS_PROP_DEFAULTGROUPOBJQUOTA
+		 * - ZFS_PROP_DEFAULTPROJECTOBJQUOTA
+		 *
+		 * There is an open ticket (NAS-137848) to at least not
+		 * fail for immutable properties (e.g. ZFS_PROP_CASE)
 		 */
 		strlcpy(propbuf, LIBZFS_INCONSISTENT_VALUE, sizeof(propbuf));
 
