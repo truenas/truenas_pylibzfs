@@ -1009,7 +1009,7 @@ PyObject *py_zfs_resource_mount(PyObject *self,
 	int flags = 0;
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$OOp",
+					 "|$OOpp",
 					 kwnames,
 					 &py_mp,
 					 &py_mntopts,
