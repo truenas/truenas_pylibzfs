@@ -268,7 +268,7 @@ PyObject *py_zfs_dataset_crypto(PyObject *self, PyObject *args_unused)
 	if (obj->encrypted == Py_False)
 		Py_RETURN_NONE;
 
-        // PY_ZFS_LOCK needs held due to interaction with libzfs mnttab
+	// PY_ZFS_LOCK needs held due to interaction with libzfs mnttab
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(obj->pylibzfsp);
 	keyformat = zfs_prop_get_int(obj->zhp, ZFS_PROP_KEYFORMAT);
