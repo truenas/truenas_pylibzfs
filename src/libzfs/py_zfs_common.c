@@ -9,7 +9,7 @@ PyObject *py_zfs_promote(py_zfs_obj_t *obj)
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSResource.promote",
 			"O", obj->name) < 0) {
-			return NULL;
+		return NULL;
 	}
 
 	Py_BEGIN_ALLOW_THREADS
