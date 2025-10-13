@@ -51,7 +51,7 @@ PyDoc_STRVAR(py_zfs_volume_crypto__doc__,
 static
 PyObject *py_zfs_volume_crypto(PyObject *self, PyObject *args_unused)
 {
-	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_dataset_t *)self));
+	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_volume_t *)self));
 	uint64_t keyformat = ZFS_KEYFORMAT_NONE;
 
 	if (obj->encrypted == Py_False)
@@ -70,6 +70,13 @@ PyObject *py_zfs_volume_crypto(PyObject *self, PyObject *args_unused)
 }
 
 static
+PyObject *py_zfs_volume_promote(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_volume_t *)self));
+	return py_zfs_promote(obj);
+}
+
+static
 PyGetSetDef zfs_volume_getsetters[] = {
 	{ .name = NULL }
 };
@@ -81,6 +88,12 @@ PyMethodDef zfs_volume_methods[] = {
 		.ml_meth = py_zfs_volume_crypto,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_volume_crypto__doc__
+	},
+	{
+		.ml_name = "promote",
+		.ml_meth = py_zfs_volume_promote,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_promote__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
