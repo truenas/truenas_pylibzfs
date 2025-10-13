@@ -434,6 +434,37 @@ extern PyObject *py_zfs_mount(py_zfs_resource_t *res,
 			      PyObject *py_mntopts,
 			      int flags);
 
+/* py_zfs_common.c */
+PyDoc_STRVAR(py_zfs_promote__doc__,
+"promote() -> None\n"
+"-----------------\n"
+"Promote clone resource to no longer depend on origin snapshot.\n\n"
+"This reverses the clone parent-child dependency relationship, so that the \n"
+"origin dataset becomes a clone of the specified dataset.\n"
+"This allows you to remove the original parent of this resource.\n"
+"No new space is consumed by this operation, but the space accounting is \n"
+"adjusted.  The promoted clone must not have any conflicting snapshot names of\n"
+"its own. The rename() method can be used to rename any conflicting snapshots.\n"
+"\n"
+"Parameters\n"
+"----------\n"
+"    None\n\n"
+""
+"Returns\n"
+"-------\n"
+"    None\n\n"
+""
+"Raises\n"
+"------\n"
+"ZFSException:\n"
+"    EZFS_BADTYPE ZFSError is set if the ZFS resource is not a clone\n"
+"ZFSException:\n"
+"    EZFS_EXISTS ZFSError is set if the ZFS resource is encrypted and being\n"
+"    promoted outside of its encryption root. It is also set if the ZFS\n"
+"    resource name conflicts with an existing snapshot from parent.\n"
+);
+extern PyObject *py_zfs_promote(py_zfs_obj_t *obj);
+
 /* Set up propset module with frozensets */
 extern PyObject *py_setup_propset_module(PyObject *parent);
 

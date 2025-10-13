@@ -106,6 +106,133 @@ PyObject *py_zfs_snapshot_get_holds(PyObject *self, PyObject *args_unused)
 	return out;
 }
 
+PyDoc_STRVAR(py_zfs_snapshot_clone__doc__,
+"clone(*, name, properties=None) -> None\n"
+"---------------------------------------\n"
+"Clone snapshot of ZFS resource. See the Clones section of zfsconcepts(7) for details.\n\n"
+"Parameters:\n"
+"-----------\n"
+"name: str\n\n"
+"    Name of the target resource to create based on this snapshot. NOTE: must be\n"
+"    located on the same ZFS pool.\n"
+"\n"
+"properties: dict | truenas_pylibzfs.struct_zfs_props, optional\n"
+"    Properties and values to set. This can be formatted as either\n\n"
+"    a dictionary with the form: \n"
+"    `{key: value}`\n"
+"    or the form: \n"
+"    `{key: {\"raw\": value, \"value\": value}}`\n"
+"    in this case preference is given to the raw value\n"
+"\n"
+"    Alternatively the properties may also be provided in the form\n"
+"    of a struct_zfs_props instance as returned by get_properties()\n"
+"\n"
+"Returns:\n"
+"--------\n"
+"None\n"
+"\n"
+"Raises:\n"
+"-------\n"
+"ZFSException:\n"
+"    The clone operation failed. This can happen for a variety of reasons.\n"
+"TypeError:\n"
+"    Properties were specified and were not one of supported types documented above\n"
+"ValueError:\n"
+"    One of the specified properties is not supported for the ZFS type of the\n"
+"    ZFSResource of which this snapshot was taken. For example, setting a zvol\n"
+"    property on a clone of a snapshot of a dataset.\n"
+);
+static
+PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs)
+{
+	py_zfs_snapshot_t *ds = (py_zfs_snapshot_t *)self;
+	py_zfs_error_t zfs_err;
+	int err;
+	char *kwnames [] = {"name", "properties", NULL};
+	nvlist_t *nvl = NULL;
+	PyObject *pyprops = NULL;
+	PyObject *conv_str = NULL;
+	const char *cname = NULL;
+	pylibzfs_state_t *state = NULL;
+
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+					 "|$sO",
+					 kwnames,
+					 &cname,
+					 &pyprops)) {
+					 return NULL;
+	}
+
+	if (cname == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"name keyword argument is required.");
+		return NULL;
+	}
+
+	if (pyprops) {
+		nvl = py_zfsprops_to_nvlist(state,
+					    pyprops,
+					    ds->rsrc.obj.ctype,
+					    B_FALSE);
+		if (nvl == NULL) {
+			return NULL;
+		}
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME
+			".ZFSSnapshot.clone", "OO",
+			ds->rsrc.obj.name, kwargs) < 0) {
+		fnvlist_free(nvl);
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(ds->rsrc.obj.pylibzfsp);
+	err = zfs_clone(ds->rsrc.obj.zhp, cname, nvl);
+	if (err) {
+		py_get_zfs_error(ds->rsrc.obj.pylibzfsp->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(ds->rsrc.obj.pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_clone() failed");
+		fnvlist_free(nvl);
+		return NULL;
+	}
+
+	/* clone operation succeeded. Write history (including properties) */
+	if (nvl) {
+		conv_str = py_dump_nvlist(nvl, B_TRUE);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	fnvlist_free(nvl);
+	Py_END_ALLOW_THREADS
+
+
+	if (conv_str) {
+		const char *json = PyUnicode_AsUTF8(conv_str);
+		err = py_log_history_fmt(ds->rsrc.obj.pylibzfsp,
+					 "zfs clone %s -> %s with properties: %s",
+					 zfs_get_name(ds->rsrc.obj.zhp),
+					 cname, json ? json : "UNKNOWN");
+	} else {
+		err = py_log_history_fmt(ds->rsrc.obj.pylibzfsp,
+					 "zfs clone %s -> %s",
+					 zfs_get_name(ds->rsrc.obj.zhp), cname);
+	}
+
+	Py_XDECREF(conv_str);
+
+	// We may have encountered an error generating history message
+	if (err)
+		return NULL;
+
+	Py_RETURN_NONE;
+}
+
 static
 PyGetSetDef zfs_snapshot_getsetters[] = {
 	{ .name = NULL }
@@ -124,6 +251,12 @@ PyMethodDef zfs_snapshot_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_snapshot_get_clones,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_snapshot_get_clones__doc__
+	},
+	{
+		.ml_name = "clone",
+		.ml_meth = (PyCFunction)py_zfs_snapshot_clone,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_snapshot_clone__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

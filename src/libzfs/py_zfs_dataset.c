@@ -282,6 +282,13 @@ PyObject *py_zfs_dataset_crypto(PyObject *self, PyObject *args_unused)
 }
 
 static
+PyObject *py_zfs_dataset_promote(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_dataset_t *)self));
+	return py_zfs_promote(obj);
+}
+
+static
 PyGetSetDef zfs_dataset_getsetters[] = {
 	{ .name = NULL }
 };
@@ -305,6 +312,12 @@ PyMethodDef zfs_dataset_methods[] = {
 		.ml_meth = py_zfs_dataset_crypto,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_dataset_crypto__doc__
+	},
+	{
+		.ml_name = "promote",
+		.ml_meth = py_zfs_dataset_promote,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_promote__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
