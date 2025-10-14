@@ -128,6 +128,46 @@ static const char SNAPSHOT_DESTROY_LUA[] =
 "\n"
 "return out\n";
 
+static const char SNAPSHOT_ROLLBACK_LUA[] =
+"failed = {}\n"
+"destroyed = {}\n"
+"\n"
+"function rollback_atomic(root, txg)\n"
+"    for snap in zfs.list.snapshots(root) do\n"
+"        snap_txg, src = zfs.get_prop(snap, \"createtxg\")\n"
+"        if snap_txg > txg then\n"
+"            -- iterate and destroy clones first\n"
+"            for clone in zfs.list.clones(snap) do\n"
+"                err = zfs.sync.destroy(clone)\n"
+"                if (err ~= 0) then\n"
+"                    failed[clone] = err\n"
+"                end\n"
+"            end\n"
+"            -- now do the snapshot destroy\n"
+"            err = zfs.sync.destroy(snap)\n"
+"            if (err ~= 0) then\n"
+"                failed[snap] = err\n"
+"            else\n"
+"                destroyed[snap] = err\n"
+"            end\n"
+"        end\n"
+"    end\n"
+"end\n"
+"\n"
+"args = ...\n"
+"target = args[\"target\"]\n"
+"target_txg = args[\"txg\"]\n"
+"rollback_atomic(target, target_txg)\n"
+"\n"
+"\n"
+"out = {}\n"
+"out[\"destroyed\"] = destroyed\n"
+"out[\"failed\"] = failed\n"
+"out[\"rollback\"] = zfs.sync.rollback(target)\n"
+"\n"
+"return out\n";
+
+
 static const struct {
 	const char *name;
 	const char *script;
@@ -135,6 +175,7 @@ static const struct {
 	{ "DESTROY_RESOURCES", RECURSIVE_DESTROY_LUA },
 	{ "DESTROY_SNAPSHOTS", SNAPSHOT_DESTROY_LUA },
 	{ "TAKE_SNAPSHOTS", SNAPSHOT_TAKE_LUA },
+	{ "ROLLBACK_TO_TXG", SNAPSHOT_ROLLBACK_LUA },
 };
 
 #endif /* PY_ZFS_CORE_LUA_SCRIPT_H */
