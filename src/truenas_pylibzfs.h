@@ -10,6 +10,7 @@
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
 	ZFS_TYPE_SNAPSHOT
 #define MAX_HISTORY_PREFIX_LEN 25
+#define DEFAULT_HISTORY_PREFIX  "truenas-pylibzfs: "
 #define LIBZFS_NONE_VALUE "none"
 #define LIBZFS_INCONSISTENT_VALUE "<INCONSISTENT>"
 
@@ -278,6 +279,14 @@ extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
 
 /*
+ * internal implementation of py_log_history that can open a
+ * temporary libzfs handle if NULL. This is for use with libzfs core
+ * See comment on py_log_history_fmt below for more details
+ */
+extern int py_log_history_impl(libzfs_handle_t *hdl_in,
+			       const char *prefix,
+			       const char *fmt, ...);
+/*
  * @brief convenience function to write a message to the zpool history
  *
  * This function allows printf-style formatting of messages to be written
@@ -300,7 +309,14 @@ extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
  *     of a EINTR, otherwise a RuntimeError will be set with error text
  *     containing the history message and errno details.
  */
-extern int py_log_history_fmt(py_zfs_t *pyzfs, const char *fmt, ...);
+#define py_log_history_fmt(pyzfs, fmt, ...)\
+	({\
+	    pyzfs->history ? \
+	    py_log_history_impl(pyzfs->lzh,\
+	    pyzfs->history_prefix,\
+	    fmt,\
+	    __VA_ARGS__) : 0;\
+	})
 
 /* Provided by py_zfs_enum.c */
 extern int add_enum(PyObject *module,

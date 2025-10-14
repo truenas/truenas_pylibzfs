@@ -1450,6 +1450,125 @@ static PyObject *py_lzc_program(PyObject *self,
 	return py_out;
 }
 
+PyDoc_STRVAR(py_zfs_core_rollback__doc__,
+"rollback(*, resource_name, snapshot_name=None) -> str\n"
+"------------------------------------------------------------------\n\n"
+"Roll ZFS dataset back to snapshot.\n"
+"WARNING: this is a destructive change. All data written since the\n"
+"target snapshot was written will be discarded and the dataset will be\n"
+"reverted to state at time snapshot was taken.\n\n"
+""
+"Parameters\n"
+"----------\n"
+"resource_name: str\n"
+"    Target ZFS volume or filesystem for the rollback operation.\n"
+"snapshot_name: str | None, optional\n"
+"    If specified, the target ZFS dataset will be rolled back to this snapshot\n"
+"    If unspecified (the default), the ZFS dataset will be rolled back to the\n"
+"    most recent snapshot.\n"
+"\n"
+"Returns\n"
+"-------\n"
+"string containing the name of snapshot to which it was rolled back.\n\n"
+""
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    Target resource or snapshot does not exist.\n"
+"\n"
+"FileNotFoundError:\n"
+"    Target resource or snapshot does not exist.\n"
+"\n"
+"FileExistsError:\n"
+"    Rollback could not take place because the specified `snapshot_name` is\n"
+"    not the most recent snapshot.\n"
+"\n"
+"PermissionError:\n"
+"    User lacks permission to roll back dataset.\n"
+"\n"
+"OSError:\n"
+"    An Error occurred during the rollback operation.\n"
+"\n"
+"RuntimeError:\n"
+"    An Error occurred while writing the history file.\n"
+"\n"
+);
+static PyObject *py_lzc_rollback(PyObject *self,
+				 PyObject *args_unused,
+				 PyObject *kwargs)
+{
+	const char *crsrc = NULL;
+	const char *csnap = NULL;
+	char *kwnames [] = {
+		"resource_name",
+		"snapshot_name",
+		NULL
+	};
+	int err;  // these lzc ops return errno on failure
+	char snapret[ZFS_MAX_DATASET_NAME_LEN];
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$ss",
+					 kwnames,
+					 &crsrc,
+					 &csnap)) {
+		return NULL;
+	}
+
+	if (crsrc == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"resource_name field is required");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.rollback", "ss",
+			crsrc, csnap ? csnap : "<LATEST>") < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	if (csnap == NULL) {
+		err = lzc_rollback(crsrc, snapret, (int)sizeof(snapret));
+	} else {
+		snprintf(snapret, sizeof(snapret), "%s@%s", crsrc, csnap);
+		err = lzc_rollback_to(crsrc, snapret);
+	}
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		/*
+		 * Use OSError since we don't have anything more than errno
+		 * to work from
+		 */
+		PyObject *errstr = NULL;
+		PyObject *etuple = NULL;
+
+		errstr = PyUnicode_FromFormat("Failed to rollback %s to %s: %s",
+		    crsrc, csnap ? csnap : "<LATEST>", strerror(err));
+		if (errstr == NULL) {
+			return NULL;
+		}
+
+		etuple = Py_BuildValue("(iO)", err, errstr);
+		Py_DECREF(errstr);
+		if (etuple == NULL) {
+			return NULL;
+		}
+
+		PyErr_SetObject(PyExc_OSError, etuple);
+		Py_DECREF(etuple);
+		return NULL;
+	}
+
+	err = py_log_history_impl(NULL, NULL, "zfs rollback %s -> %s",
+				  crsrc, snapret);
+	if (err) {
+		return NULL;
+	}
+
+	return PyUnicode_FromString(snapret);
+}
+
 static int
 py_zfs_core_module_clear(PyObject *module)
 {
@@ -1499,6 +1618,12 @@ static PyMethodDef TruenasPylibzfsCoreMethods[] = {
 		.ml_meth = (PyCFunction)py_lzc_program,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_lzc_program__doc__
+	},
+	{
+		.ml_name = "rollback",
+		.ml_meth = (PyCFunction)py_lzc_rollback,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_core_rollback__doc__
 	},
 	{NULL}
 };
