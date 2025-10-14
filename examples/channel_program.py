@@ -197,4 +197,7 @@ res = truenas_pylibzfs.lzc.run_channel_program(
 
 print(res)
 
+# remount before checking for file existence
+rsrc.mount()
+
 assert not os.path.exists('/mnt/dozer/foo/canary')
