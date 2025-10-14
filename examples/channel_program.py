@@ -1,8 +1,10 @@
 import truenas_pylibzfs
+import os
 
 destroy_rsrc = truenas_pylibzfs.lzc.ChannelProgramEnum.DESTROY_RESOURCES
 destroy_snap = truenas_pylibzfs.lzc.ChannelProgramEnum.DESTROY_SNAPSHOTS
 take_snap = truenas_pylibzfs.lzc.ChannelProgramEnum.TAKE_SNAPSHOTS
+rollback_snap = truenas_pylibzfs.lzc.ChannelProgramEnum.ROLLBACK_TO_TXG
 
 lz = truenas_pylibzfs.open_handle()
 
@@ -169,3 +171,33 @@ truenas_pylibzfs.lzc.run_channel_program(
     script_arguments_dict={"recursive": True, "defer": True, "target": "dozer/foo"},
     readonly=False
 )
+
+# Now to test rollback to targeted snapshot
+lz.create_resource(name='dozer/foo', type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+
+truenas_pylibzfs.lzc.create_snapshots(snapshot_names={'dozer/foo@s1'})
+
+rsrc = lz.open_resource(name='dozer/foo')
+rsrc.mount()
+
+# Create a file
+with open('/mnt/dozer/foo/canary', 'w') as f:
+    f.write("DONUTS!")
+    f.flush()
+
+rsrc.unmount()
+truenas_pylibzfs.lzc.create_snapshots(snapshot_names={'dozer/foo@s2'})
+s = lz.open_resource(name='dozer/foo@s1')
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=rollback_snap,
+    script_arguments_dict={"target": "dozer/foo", "txg": s.createtxg},
+    readonly=False
+)
+
+print(res)
+
+# remount before checking for file existence
+rsrc.mount()
+
+assert not os.path.exists('/mnt/dozer/foo/canary')
