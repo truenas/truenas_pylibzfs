@@ -2,7 +2,6 @@
 #include "py_zfs_iter.h"
 
 #define	ZFS_STR	"<" PYLIBZFS_MODULE_NAME ".ZFS>"
-#define	DEFAULT_HISTORY_PREFIX	"truenas-pylibzfs: "
 
 PyObject *py_zfs_str(PyObject *self) {
 	return (PyUnicode_FromFormat(ZFS_STR));
