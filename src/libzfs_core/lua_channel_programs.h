@@ -31,7 +31,7 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "            end\n"
 "        end\n"
 "        -- now do the snapshot destroy\n"
-"        err = zfs.sync.destroy{snap, defer=true}\n"
+"        err = zfs.sync.destroy{snap, defer=defer}\n"
 "        if (err ~= 0) then\n"
 "            failed[snap] = err\n"
 "        end\n"
