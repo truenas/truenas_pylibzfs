@@ -1,4 +1,5 @@
 import truenas_pylibzfs
+import errno
 import os
 
 destroy_rsrc = truenas_pylibzfs.lzc.ChannelProgramEnum.DESTROY_RESOURCES
@@ -201,3 +202,49 @@ print(res)
 rsrc.mount()
 
 assert not os.path.exists('/mnt/dozer/foo/canary')
+HOLD = ('dozer/foo@s1', 'canary')
+
+# HOLDS testing
+truenas_pylibzfs.lzc.create_holds(holds={HOLD})
+
+# Unmount first
+rsrc.unmount(recursive=True)
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=destroy_rsrc,
+    script_arguments_dict={"recursive": True, "defer": True, "target": "dozer/foo"},
+    readonly=False
+)
+
+# {'return': {'holds': {'dozer/foo@s1': 'canary'}, 'failed': {'dozer/foo': 16}}}
+print(res)
+assert res['return']['holds'] == {'dozer/foo@s1': 'canary'}
+assert 'dozer/foo' in res['return']['failed']
+
+# EBUSY in this case means that it failed due to hold
+assert res['return']['failed']['dozer/foo'] == errno.EBUSY
+
+# Destroy was deferred due to the hold
+truenas_pylibzfs.lzc.release_holds(holds={HOLD})
+
+try:
+    lz.open_resource(name='dozer/foo@s1')
+except truenas_pylibzfs.ZFSException as exc:
+    assert exc.code == truenas_pylibzfs.ZFSError.EZFS_NOENT
+else:
+    raise RuntimeError('snapshot exists after deferred deletion')
+
+# now we have to re-destroy because deferred destroy is a snapshot thing
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=destroy_rsrc,
+    script_arguments_dict={"recursive": True, "defer": True, "target": "dozer/foo"},
+    readonly=False
+)
+
+# {'return': {'holds': {}, 'failed': {}}
+print(res)
+
+assert not res['return']['holds']
+assert not res['return']['failed']
