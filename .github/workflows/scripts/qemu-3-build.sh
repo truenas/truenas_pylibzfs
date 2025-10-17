@@ -70,8 +70,10 @@ echo "Building OpenZFS..."
 cd /tmp
 git clone https://github.com/truenas/zfs.git
 cd zfs
-# Move debian packaging files to root
-cp -r contrib/debian .
+# Copy debian packaging files to root
+cp -r contrib/debian debian
+# Run autogen
+sh autogen.sh
 # Build OpenZFS packages
 dpkg-buildpackage -us -uc -b
 # Install required libraries
