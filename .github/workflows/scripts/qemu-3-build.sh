@@ -68,14 +68,22 @@ sudo apt-get install -y \
 # Build and install OpenZFS
 echo "Building OpenZFS..."
 cd /tmp
-git clone --branch truenas/zfs-2.4-release https://github.com/truenas/zfs.git
+git clone --depth 1 --branch truenas/zfs-2.4-release https://github.com/truenas/zfs.git
 cd zfs
 # Copy debian packaging files to root
 cp -r contrib/debian debian
 # Run autogen
 sh autogen.sh
+# Configure
+./configure
+# Copy changelog and prepare rules
+cp contrib/debian/changelog debian/changelog
+sed 's/@CFGOPTS@/--enable-debuginfo/g' debian/rules.in > debian/rules
+chmod +x debian/rules
 # Build OpenZFS packages
 dpkg-buildpackage -us -uc -b
+# Remove unnecessary packages
+rm -f ../openzfs-zfs-dkms*.deb ../openzfs-zfs-dracut*.deb
 # Install required libraries
 sudo dpkg -i ../openzfs-libnvpair3_*.deb
 sudo dpkg -i ../openzfs-libuutil3_*.deb
