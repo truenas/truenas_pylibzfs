@@ -248,3 +248,43 @@ print(res)
 
 assert not res['return']['holds']
 assert not res['return']['failed']
+
+
+# now test clone detection
+SNAP = 'dozer/foo@s1'
+CLONE = 'dozer/clone'
+lz.create_resource(name='dozer/foo', type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+truenas_pylibzfs.lzc.create_snapshots(snapshot_names={SNAP})
+
+snap_rsrc = lz.open_resource(name=SNAP)
+snap_rsrc.clone(name=CLONE)
+
+clone = lz.open_resource(name=CLONE)
+clone.mount()
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=destroy_rsrc,
+    script_arguments_dict={"recursive": True, "defer": True, "target": "dozer/foo"},
+    readonly=False
+)
+
+# {'return': {'clones': {'dozer/clone': 16}, 'failed': {'dozer/foo': 16}, 'holds': {}}}
+print(res)
+
+# failed because clone mounted
+assert 'dozer/foo' in res['return']['failed']
+assert CLONE in res['return']['clones']
+assert res['return']['clones'][CLONE] == errno.EBUSY
+
+clone.unmount()
+
+res = truenas_pylibzfs.lzc.run_channel_program(
+    pool_name='dozer',
+    script=destroy_rsrc,
+    script_arguments_dict={"recursive": True, "defer": True, "target": "dozer/foo"},
+    readonly=False
+)
+
+assert not res['return']['clones']
+assert not res['return']['failed']
