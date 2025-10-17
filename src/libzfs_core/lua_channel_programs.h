@@ -25,7 +25,7 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "                clones[clone] = err\n"
 "            end\n"
 "        end\n"
-"        -- now get any holds if deferring\n"
+"        -- always track holds\n"
 "        for tag, ts in zfs.list.holds(snap) do\n"
 "             holds[snap] = tag\n"
 "        end\n"
