@@ -86,12 +86,12 @@ chmod +x debian/rules
 dpkg-buildpackage -us -uc -b
 # Remove unnecessary packages
 rm -f ../openzfs-zfs-dkms*.deb ../openzfs-zfs-dracut*.deb
-# Install required libraries
+# Install required libraries in correct dependency order
 sudo dpkg -i ../openzfs-libnvpair3_*.deb
 sudo dpkg -i ../openzfs-libuutil3_*.deb
-sudo dpkg -i ../openzfs-libzfsbootenv1_*.deb
 sudo dpkg -i ../openzfs-libzpool6_*.deb
 sudo dpkg -i ../openzfs-libzfs6_*.deb
+sudo dpkg -i ../openzfs-libzfsbootenv1_*.deb
 sudo dpkg -i ../openzfs-libzfs-dev_*.deb
 
 # Build truenas_pylibzfs
