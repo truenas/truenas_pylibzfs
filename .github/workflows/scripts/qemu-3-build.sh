@@ -84,8 +84,6 @@ sed 's/@CFGOPTS@/--enable-debuginfo/g' debian/rules.in > debian/rules
 chmod +x debian/rules
 # Build OpenZFS packages
 dpkg-buildpackage -us -uc -b
-# Remove unnecessary packages
-rm -f ../openzfs-zfs-dkms*.deb ../openzfs-zfs-dracut*.deb
 # Install required libraries in correct dependency order
 sudo dpkg -i ../openzfs-libnvpair3_*.deb
 sudo dpkg -i ../openzfs-libuutil3_*.deb
@@ -93,6 +91,12 @@ sudo dpkg -i ../openzfs-libzpool6_*.deb
 sudo dpkg -i ../openzfs-libzfs6_*.deb
 sudo dpkg -i ../openzfs-libzfsbootenv1_*.deb
 sudo dpkg -i ../openzfs-libzfs-dev_*.deb
+# Install DKMS package to build and load kernel modules
+sudo dpkg -i ../openzfs-zfs-dkms_*.deb || true
+# Wait for DKMS to build modules
+sleep 5
+# Load ZFS kernel module
+sudo modprobe zfs || true
 
 # Build truenas_pylibzfs
 echo "Building truenas_pylibzfs..."
