@@ -114,7 +114,7 @@ static const char SNAPSHOT_DESTROY_LUA[] =
 "                    clones[clone] = err\n"
 "                end\n"
 "            end\n"
-"            -- track holds if defer is set\n"
+"            -- always track holds\n"
 "            for tag, ts in zfs.list.holds(snap) do\n"
 "                holds[snap] = tag\n"
 "            end\n"
