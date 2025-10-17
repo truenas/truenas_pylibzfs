@@ -68,7 +68,7 @@ sudo apt-get install -y \
 # Build and install OpenZFS
 echo "Building OpenZFS..."
 cd /tmp
-git clone https://github.com/truenas/zfs.git
+git clone --branch truenas/zfs-2.4-release https://github.com/truenas/zfs.git
 cd zfs
 # Copy debian packaging files to root
 cp -r contrib/debian debian
