@@ -64,7 +64,8 @@ sudo apt-get install -y \
   python3-setuptools \
   python3-sphinx \
   git \
-  linux-headers-amd64
+  linux-headers-amd64 \
+  dkms
 
 # Build and install OpenZFS
 echo "Building OpenZFS..."
