@@ -1,0 +1,49 @@
+name: QEMU VM Tests
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qemu-test:
+    name: Debian Trixie QEMU Test
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: Setup QEMU
+      timeout-minutes: 10
+      run: bash .github/workflows/scripts/qemu-1-setup.sh
+
+    - name: Start Debian Trixie VM
+      timeout-minutes: 10
+      run: bash .github/workflows/scripts/qemu-2-start.sh
+
+    - name: Build and install truenas_pylibzfs
+      timeout-minutes: 30
+      run: bash .github/workflows/scripts/qemu-3-build.sh
+
+    - name: Run tests
+      timeout-minutes: 20
+      run: bash .github/workflows/scripts/qemu-4-test.sh
+
+    - name: Collect logs
+      if: always()
+      timeout-minutes: 5
+      run: bash .github/workflows/scripts/qemu-5-collect-logs.sh
+
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-logs-debian-trixie
+        path: /tmp/qemu-logs.tar.gz
+        if-no-files-found: ignore
+
+    - name: Test Summary
+      if: always()
+      run: bash .github/workflows/scripts/qemu-6-summary.sh
