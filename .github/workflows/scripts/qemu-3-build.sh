@@ -78,8 +78,14 @@ cd zfs
 ./configure --prefix=/usr --enable-pyzfs --enable-debuginfo
 # Build native debian packages
 make -j$(nproc) native-deb-kmod native-deb-utils
-# Install packages (excluding dkms and dracut)
+# Install packages (excluding dkms and dracut, but including kmod)
 sudo apt-get -y install $(find ../ | grep -E '\.deb$' | grep -Ev 'dkms|dracut')
+# Load ZFS kernel module
+echo "Loading ZFS kernel module..."
+sudo depmod -a
+sudo modprobe zfs
+# Verify module is loaded
+lsmod | grep zfs
 
 # Build truenas_pylibzfs
 echo "Building truenas_pylibzfs..."
