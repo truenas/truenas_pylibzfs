@@ -78,28 +78,49 @@ cd zfs
 ./configure --prefix=/usr --enable-pyzfs --enable-debuginfo
 # Build native debian packages
 make -j$(nproc) native-deb-kmod native-deb-utils
+
+echo "=========================================="
+echo "Installing OpenZFS packages..."
+echo "=========================================="
 # Install packages (excluding dkms and dracut, but including kmod)
 sudo apt-get -y install $(find ../ | grep -E '\.deb$' | grep -Ev 'dkms|dracut')
-# Load ZFS kernel module
+
+echo ""
+echo "=========================================="
 echo "Loading ZFS kernel module..."
+echo "=========================================="
+KVER=$(uname -r)
+echo "Kernel version: $KVER"
+echo "Running depmod..."
 sudo depmod -a
-# Try loading module with force-modversion to bypass signature check
-sudo modprobe --force-modversion zfs 2>&1 || {
-  echo "modprobe failed, trying insmod directly..."
-  KVER=$(uname -r)
-  # Find and load dependencies first
-  sudo insmod /lib/modules/$KVER/extra/zfs/spl/spl.ko 2>/dev/null || true
-  sudo insmod /lib/modules/$KVER/extra/zfs/avl/zavl.ko 2>/dev/null || true
-  sudo insmod /lib/modules/$KVER/extra/zfs/icp/zicp.ko 2>/dev/null || true
-  sudo insmod /lib/modules/$KVER/extra/zfs/lua/zlua.ko 2>/dev/null || true
-  sudo insmod /lib/modules/$KVER/extra/zfs/nvpair/znvpair.ko 2>/dev/null || true
-  sudo insmod /lib/modules/$KVER/extra/zfs/unicode/zunicode.ko 2>/dev/null || true
-  sudo insmod /lib/modules/$KVER/extra/zfs/zcommon/zcommon.ko 2>/dev/null || true
-  sudo insmod /lib/modules/$KVER/extra/zfs/zfs/zfs.ko 2>/dev/null || true
-}
-# Verify module is loaded
-lsmod | grep zfs || echo "Warning: ZFS module not loaded"
-dmesg | tail -10
+
+echo "Checking for ZFS modules..."
+find /lib/modules/$KVER -name "*.ko" | grep zfs || echo "No ZFS modules found!"
+
+echo "Attempting to load ZFS module with modprobe..."
+if sudo modprobe --force-modversion zfs 2>&1; then
+  echo "ZFS module loaded successfully with modprobe"
+else
+  echo "modprobe failed with exit code $?, trying insmod directly..."
+  echo "Loading ZFS module dependencies..."
+  sudo insmod /lib/modules/$KVER/extra/zfs/spl/spl.ko && echo "  spl.ko loaded" || echo "  spl.ko failed"
+  sudo insmod /lib/modules/$KVER/extra/zfs/avl/zavl.ko && echo "  zavl.ko loaded" || echo "  zavl.ko failed"
+  sudo insmod /lib/modules/$KVER/extra/zfs/icp/zicp.ko && echo "  zicp.ko loaded" || echo "  zicp.ko failed"
+  sudo insmod /lib/modules/$KVER/extra/zfs/lua/zlua.ko && echo "  zlua.ko loaded" || echo "  zlua.ko failed"
+  sudo insmod /lib/modules/$KVER/extra/zfs/nvpair/znvpair.ko && echo "  znvpair.ko loaded" || echo "  znvpair.ko failed"
+  sudo insmod /lib/modules/$KVER/extra/zfs/unicode/zunicode.ko && echo "  zunicode.ko loaded" || echo "  zunicode.ko failed"
+  sudo insmod /lib/modules/$KVER/extra/zfs/zcommon/zcommon.ko && echo "  zcommon.ko loaded" || echo "  zcommon.ko failed"
+  sudo insmod /lib/modules/$KVER/extra/zfs/zfs/zfs.ko && echo "  zfs.ko loaded" || echo "  zfs.ko failed"
+fi
+
+echo ""
+echo "Checking loaded modules:"
+lsmod | grep zfs || echo "ERROR: ZFS module not loaded!"
+
+echo ""
+echo "Recent kernel messages:"
+sudo dmesg | tail -20
+echo "=========================================="
 
 # Build truenas_pylibzfs
 echo "Building truenas_pylibzfs..."
