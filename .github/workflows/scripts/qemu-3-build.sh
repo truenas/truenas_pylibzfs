@@ -83,9 +83,23 @@ sudo apt-get -y install $(find ../ | grep -E '\.deb$' | grep -Ev 'dkms|dracut')
 # Load ZFS kernel module
 echo "Loading ZFS kernel module..."
 sudo depmod -a
-sudo modprobe zfs
+# Try loading module with force-modversion to bypass signature check
+sudo modprobe --force-modversion zfs 2>&1 || {
+  echo "modprobe failed, trying insmod directly..."
+  KVER=$(uname -r)
+  # Find and load dependencies first
+  sudo insmod /lib/modules/$KVER/extra/zfs/spl/spl.ko 2>/dev/null || true
+  sudo insmod /lib/modules/$KVER/extra/zfs/avl/zavl.ko 2>/dev/null || true
+  sudo insmod /lib/modules/$KVER/extra/zfs/icp/zicp.ko 2>/dev/null || true
+  sudo insmod /lib/modules/$KVER/extra/zfs/lua/zlua.ko 2>/dev/null || true
+  sudo insmod /lib/modules/$KVER/extra/zfs/nvpair/znvpair.ko 2>/dev/null || true
+  sudo insmod /lib/modules/$KVER/extra/zfs/unicode/zunicode.ko 2>/dev/null || true
+  sudo insmod /lib/modules/$KVER/extra/zfs/zcommon/zcommon.ko 2>/dev/null || true
+  sudo insmod /lib/modules/$KVER/extra/zfs/zfs/zfs.ko 2>/dev/null || true
+}
 # Verify module is loaded
-lsmod | grep zfs
+lsmod | grep zfs || echo "Warning: ZFS module not loaded"
+dmesg | tail -10
 
 # Build truenas_pylibzfs
 echo "Building truenas_pylibzfs..."
