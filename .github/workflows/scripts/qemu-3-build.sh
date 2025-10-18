@@ -72,31 +72,14 @@ echo "Building OpenZFS..."
 cd /tmp
 git clone --depth 1 --branch truenas/zfs-2.4-release https://github.com/truenas/zfs.git
 cd zfs
-# Copy debian packaging files to root
-cp -r contrib/debian debian
 # Run autogen
-sh autogen.sh
+./autogen.sh
 # Configure
-./configure
-# Copy changelog and prepare rules
-cp contrib/debian/changelog debian/changelog
-sed 's/@CFGOPTS@/--enable-debuginfo/g' debian/rules.in > debian/rules
-chmod +x debian/rules
-# Build OpenZFS packages
-dpkg-buildpackage -us -uc -b
-# Install required libraries in correct dependency order
-sudo dpkg -i ../openzfs-libnvpair3_*.deb
-sudo dpkg -i ../openzfs-libuutil3_*.deb
-sudo dpkg -i ../openzfs-libzpool6_*.deb
-sudo dpkg -i ../openzfs-libzfs6_*.deb
-sudo dpkg -i ../openzfs-libzfsbootenv1_*.deb
-sudo dpkg -i ../openzfs-libzfs-dev_*.deb
-# Install DKMS package to build and load kernel modules
-sudo dpkg -i ../openzfs-zfs-dkms_*.deb || true
-# Wait for DKMS to build modules
-sleep 5
-# Load ZFS kernel module
-sudo modprobe zfs || true
+./configure --prefix=/usr --enable-pyzfs --enable-debuginfo
+# Build native debian packages
+make -j$(nproc) native-deb-kmod native-deb-utils
+# Install packages (excluding dkms and dracut)
+sudo apt-get -y install $(find ../ | grep -E '\.deb$' | grep -Ev 'dkms|dracut')
 
 # Build truenas_pylibzfs
 echo "Building truenas_pylibzfs..."
