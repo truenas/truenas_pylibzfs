@@ -4,7 +4,6 @@ Priority: optional
 Maintainer: TrueNAS Engineering <dev@truenas.com>
 Build-Depends: debhelper-compat (= 12),
                dh-python,
-               cython3,
                libnvpair3,
                libuutil3,
                libzfs6,
