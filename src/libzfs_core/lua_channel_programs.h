@@ -9,6 +9,7 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "failed = {}\n"
 "holds = {}\n"
 "clones = {}\n"
+"inconsistent = {}\n"
 "\n"
 "function destroy_datasets(root, defer)\n"
 "    -- recurse into child datasets\n"
@@ -16,6 +17,13 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "        destroy_datasets(child, defer)\n"
 "    end\n"
 "\n"
+"    local incons, src\n"
+"    incons, src =  zfs.get_prop(root, \"inconsistent\")\n"
+"    if incons then\n"
+"        -- If we have in-progress zfs_recv we need to abort it first\n"
+"        inconsistent[root] = incons\n"
+"        return\n"
+"    end\n"
 "    -- iterate and destroy snapshots\n"
 "    for snap in zfs.list.snapshots(root) do\n"
 "        -- iterate and destroy clones first\n"
@@ -63,6 +71,7 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "out[\"failed\"] = failed\n"
 "out[\"holds\"] = holds\n"
 "out[\"clones\"] = clones\n"
+"out[\"inconsistent\"] = inconsistent\n"
 "return out\n";
 
 /*
