@@ -1,0 +1,69 @@
+name: QEMU VM Tests
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qemu-test:
+    name: Debian Trixie QEMU Test
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: Setup QEMU
+      timeout-minutes: 10
+      run: bash .github/workflows/scripts/qemu-1-setup.sh
+
+    - name: Get OpenZFS commit hash
+      id: zfs-hash
+      run: |
+        ZFS_COMMIT=$(git ls-remote https://github.com/truenas/zfs.git refs/heads/truenas/zfs-2.4-release | cut -f1)
+        echo "hash=$ZFS_COMMIT" >> $GITHUB_OUTPUT
+        echo "OpenZFS commit: $ZFS_COMMIT"
+
+    - name: Cache OpenZFS packages
+      id: cache-zfs
+      uses: actions/cache@v4
+      with:
+        path: /tmp/zfs-debs
+        key: zfs-debs-debian-trixie-${{ steps.zfs-hash.outputs.hash }}
+
+    - name: Start Debian Trixie VM
+      timeout-minutes: 10
+      run: bash .github/workflows/scripts/qemu-2-start.sh
+
+    - name: Build and install truenas_pylibzfs
+      timeout-minutes: 30
+      env:
+        ZFS_CACHE_HIT: ${{ steps.cache-zfs.outputs.cache-hit }}
+      run: bash .github/workflows/scripts/qemu-3-build.sh
+
+    - name: Restart VM to load kernel modules
+      timeout-minutes: 10
+      run: bash .github/workflows/scripts/qemu-3.5-restart.sh
+
+    - name: Run tests
+      timeout-minutes: 20
+      run: bash .github/workflows/scripts/qemu-4-test.sh
+
+    - name: Collect logs
+      if: always()
+      timeout-minutes: 5
+      run: bash .github/workflows/scripts/qemu-5-collect-logs.sh
+
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-logs-debian-trixie
+        path: /tmp/qemu-logs.tar.gz
+        if-no-files-found: ignore
+
+    - name: Test Summary
+      if: always()
+      run: bash .github/workflows/scripts/qemu-6-summary.sh
