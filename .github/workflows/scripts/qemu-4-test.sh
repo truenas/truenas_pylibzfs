@@ -12,7 +12,7 @@ echo "Running tests..."
 source /tmp/vm-info.sh
 
 # Run tests in VM
-ssh debian@$VM_IP 'bash -s' <<'REMOTE_SCRIPT'
+ssh debian@$VM_IP 'sudo bash -s' <<'REMOTE_SCRIPT'
 set -eu
 
 echo "=========================================="
@@ -36,7 +36,7 @@ fi
 echo "ZFS kernel module loaded successfully"
 lsmod | grep zfs
 
-cd ~/truenas_pylibzfs
+cd /home/debian/truenas_pylibzfs
 
 echo "=========================================="
 echo "Running verification tests"
