@@ -25,7 +25,7 @@ def test_create_dataset_with_properties(root_dataset):
     lz.destroy_resource(name=rsrc_name)
 
 
-def test_create_dataset_with_properties(dataset):
+def test_create_dataset_with_properties_from_other_dataset(dataset):
     propset = {
         truenas_pylibzfs.ZFSProperty.ACLMODE,
         truenas_pylibzfs.ZFSProperty.ACLTYPE
