@@ -75,6 +75,7 @@ sudo apt-get install -y \
   python3-cffi \
   python3-setuptools \
   python3-sphinx \
+  python3-pytest \
   git \
   linux-headers-amd64 \
   dkms
