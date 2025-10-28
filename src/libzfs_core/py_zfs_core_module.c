@@ -1710,9 +1710,15 @@ out:
 	return err;
 }
 
-PyObject *py_setup_lzc_module(PyObject *parent)
+/* Module initialization */
+PyMODINIT_FUNC
+PyInit_pylibzfs_core(void)
 {
+	PyObject *lzc = NULL;
+	PyObject *parent_module = NULL;
+	int err;
 	pylibzfs_core_state_t *state = NULL;
+
 	PyObject *mlzc = PyModule_Create(&truenas_pylibzfs_core);
 	if (mlzc == NULL)
 		return NULL;
@@ -1720,10 +1726,14 @@ PyObject *py_setup_lzc_module(PyObject *parent)
 	setup_zfs_core_exception(mlzc);
 
 	PYZFS_ASSERT((libzfs_core_init() == 0), "Failed to open libzfs_core fd");
-
 	state = get_lzc_mod_state(mlzc);
 
-	state->parent_module = Py_NewRef(parent);
+	state->parent_module = PyImport_ImportModule(PYLIBZFS_MODULE_NAME);
+	if (state->parent_module == NULL) {
+		Py_DECREF(mlzc);
+		return NULL;
+	}
+
 
 	if (PyModule_AddObjectRef(mlzc, "ZFSCoreException", state->zc_exc) < 0) {
 		Py_DECREF(mlzc);

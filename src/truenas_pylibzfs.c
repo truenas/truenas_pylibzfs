@@ -204,14 +204,6 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
-	lzc = py_setup_lzc_module(mpylibzfs);
-	err = PyModule_AddObjectRef(mpylibzfs, "lzc", lzc);
-	Py_XDECREF(lzc);
-	if (err) {
-		Py_DECREF(mpylibzfs);
-		return NULL;
-	}
-
 	zfs_exc = setup_zfs_exception();
 	err = PyModule_AddObjectRef(mpylibzfs, "ZFSException", zfs_exc);
 	Py_XDECREF(zfs_exc);
