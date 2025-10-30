@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 typedef struct {
 	PyObject *zfs_space_props;
 	PyObject *zfs_volume_props;

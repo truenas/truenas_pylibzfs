@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 
 
 PyObject *py_zfs_promote(py_zfs_obj_t *obj)

@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
 
 #define ZFS_SNAP_STR "<" PYLIBZFS_MODULE_NAME \

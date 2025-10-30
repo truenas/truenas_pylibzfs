@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 
 #define ZFS_VDEV_STR_PATH "<" PYLIBZFS_MODULE_NAME ".ZFSVdev(type=%U, path=%U)>"
 #define ZFS_VDEV_STR "<" PYLIBZFS_MODULE_NAME ".ZFSVdev(type=%U)"

@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 
 /* Create a dictionary for enum spec for the ZFSType enum */
 static
