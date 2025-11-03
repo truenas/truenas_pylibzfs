@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 #include <sys/zfs_context.h>
 #include <zone.h>
 

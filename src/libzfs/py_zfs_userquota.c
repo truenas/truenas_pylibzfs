@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 
 /*
  * Note we're intentionally leaving off Domain here to simplify API

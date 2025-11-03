@@ -39,5 +39,5 @@ truenas_pylibzfs = Extension(
 setup(name='truenas_pylibzfs',
       version='0.1',
       description='truenas_pylibzfs provides python bindings for libzfs for TrueNAS',
-      ext_modules=[truenas_pylibzfs])
+      ext_modules=[truenas_pylibzfs, truenas_pylibzfs_core])
 

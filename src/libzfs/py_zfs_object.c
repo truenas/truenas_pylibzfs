@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 
 #define ZFS_OBJECT_STR "<" PYLIBZFS_MODULE_NAME \
     ".ZFSObject(name=%U, pool=%U, type=%U)>"
