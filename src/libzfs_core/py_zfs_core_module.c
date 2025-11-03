@@ -1,4 +1,4 @@
-#include "../truenas_pylibzfs.h"
+#include "truenas_pylibzfs.h"
 #include "lua_channel_programs.h"
 
 typedef struct {
