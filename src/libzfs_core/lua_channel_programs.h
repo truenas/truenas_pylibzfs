@@ -9,6 +9,11 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "failed = {}\n"
 "holds = {}\n"
 "clones = {}\n"
+"rmdir_targets = {}\n"
+"\n"
+"function add_to_rmdir_targets(dsname)\n"
+"    table.insert(rmdir_targets, dsname)\n"
+"end\n"
 "\n"
 "function destroy_datasets(root, defer)\n"
 "    -- recurse into child datasets\n"
@@ -31,6 +36,8 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "            err = zfs.sync.destroy(clone)\n"
 "            if (err ~= 0) then\n"
 "                clones[clone] = err\n"
+"            else\n"
+"                add_to_rmdir_targets(clone)\n"
 "            end\n"
 "        end\n"
 "        -- snapshot may have deferred deletion pending clone destroy\n"
@@ -67,10 +74,12 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "        failed[target] = err\n"
 "    end\n"
 "end\n"
+"add_to_rmdir_targets(target)\n"
 "\n"
 "out[\"failed\"] = failed\n"
 "out[\"holds\"] = holds\n"
 "out[\"clones\"] = clones\n"
+"out[\"rmdir_targets\"] = rmdir_targets\n"
 "return out\n";
 
 /*
