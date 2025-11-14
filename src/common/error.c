@@ -89,21 +89,59 @@ void _set_exc_from_libzfs(py_zfs_error_t *zfs_err,
 	PyObject *v = NULL;
 	PyObject *args = NULL;
 	PyObject *attrs = NULL;
+	PyObject *action = NULL;
+	PyObject *desc = NULL;
 	const char *name = NULL;
 	PyObject *errstr = NULL;
 	int err;
 
 	name = zfs_error_name(zfs_err->code);
 
+	action = PyUnicode_FromString(zfs_err->action);
+	if (action == NULL) {
+		goto simple_err;
+	}
+
+	desc = PyUnicode_FromString(zfs_err->description);
+
+	// description may actually prompt UnicodeDecodeError due to strings
+	// like following:
+	// "invalid character '\357' in name"
+	// because zfs accidently munges a multibyte character.
+	if (desc == NULL) {
+		if (zfs_err->code == EZFS_INVALIDNAME) {
+			desc = PyUnicode_FromString(
+			    "Invalid multibyte character in name"
+			);
+		} else {
+			// Converting via PyUnicode_FromFormat will basically
+			// escape the invalid sequence.
+			desc = PyUnicode_FromFormat(
+			    "Python failed to parse the ZFS error "
+			    "description: [%s]. Please report an issue "
+			    "against the truenas_pylibzfs repository "
+			    "with this message.", zfs_err->description);
+		}
+
+		if (desc == NULL) {
+			// Pass whatever error is happening back up to user.
+			// Something is deeply wrong in python land
+			Py_DECREF(action);
+			return;
+		}
+
+		// We've handled the error condition so clear the PyErr
+		PyErr_Clear();
+	}
+
 	if (additional_info) {
 		errstr = PyUnicode_FromFormat(
-			"[%s]: %s - %s: %s",
+			"[%s]: %s - %U: %U",
 			name, additional_info,
-			zfs_err->action,
-			zfs_err->description
+			action, desc
 		);
 	} else {
-		errstr = Py_BuildValue("[%s]: %s", name, zfs_err->description);
+		errstr = Py_BuildValue("[%s]: %O", name, desc);
 	}
 	if (errstr == NULL) {
 		goto simple_err;
@@ -114,7 +152,7 @@ void _set_exc_from_libzfs(py_zfs_error_t *zfs_err,
 	 */
 	args = Py_BuildValue("(N)", errstr);
 	if (args == NULL) {
-		Py_DECREF(errstr);
+		Py_CLEAR(errstr);
 		goto simple_err;
 	}
 
@@ -125,70 +163,63 @@ void _set_exc_from_libzfs(py_zfs_error_t *zfs_err,
 	}
 
 	attrs = Py_BuildValue(
-		"(iOssss)",
+		"(iOss)",
 		zfs_err->code,
 		errstr,
 		name,
-		zfs_err->action,
-		zfs_err->description,
 		location
 	);
 
 	if (attrs == NULL) {
 		// Failed so we need to decref errstr
-		Py_XDECREF(v);
+		Py_CLEAR(v);
 		goto simple_err;
 	}
 
 	err = PyObject_SetAttrString(v, "code", PyTuple_GetItem(attrs, 0));
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
-		return;
+		goto err_out;
 	}
 
 	err = PyObject_SetAttrString(v, "err_str", PyTuple_GetItem(attrs, 1));
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
-		return;
+		goto err_out;
 	}
 
 	err = PyObject_SetAttrString(v, "name", PyTuple_GetItem(attrs, 2));
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
-		return;
+		goto err_out;
 	}
 
-	err = PyObject_SetAttrString(v, "action", PyTuple_GetItem(attrs, 3));
+	err = PyObject_SetAttrString(v, "action", action);
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
-		return;
+		goto err_out;
 	}
 
-	err = PyObject_SetAttrString(v, "description", PyTuple_GetItem(attrs, 4));
+	err = PyObject_SetAttrString(v, "description", desc);
 	if (err == -1) {
-		Py_CLEAR(args);
-		Py_CLEAR(v);
-		return;
+		goto err_out;
 	}
 
-	err = PyObject_SetAttrString(v, "location", PyTuple_GetItem(attrs, 5));
+	err = PyObject_SetAttrString(v, "location", PyTuple_GetItem(attrs, 3));
 	Py_CLEAR(args);
 	if (err == -1) {
-		Py_CLEAR(v);
-		return;
+		goto err_out;
 	}
 
 	PyErr_SetObject((PyObject *) Py_TYPE(v), v);
-	Py_DECREF(v);
-	Py_DECREF(attrs);
+
+err_out:
+	Py_XDECREF(action);
+	Py_XDECREF(desc);
+	Py_XDECREF(v);
+	Py_XDECREF(attrs);
 	return;
 
 simple_err:
 	// Absolute minimum for error format
+	Py_XDECREF(action);
+	Py_XDECREF(desc);
 	PyErr_Format(PyExc_ZFSError, "[%d]: %s", zfs_err->code, zfs_err->description);
 	return;
 
