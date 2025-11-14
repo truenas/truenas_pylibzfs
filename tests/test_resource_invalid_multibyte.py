@@ -1,5 +1,6 @@
 # Check fix for NAS-138554
 
+import pytest
 import truenas_pylibzfs
 
 ERRDESC = 'Invalid multibyte character'
