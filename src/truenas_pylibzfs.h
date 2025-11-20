@@ -13,6 +13,7 @@
 #define DEFAULT_HISTORY_PREFIX  "truenas-pylibzfs: "
 #define LIBZFS_NONE_VALUE "none"
 #define LIBZFS_INCONSISTENT_VALUE "<INCONSISTENT>"
+#define LIBZFS_IOERROR_VALUE "<IOERROR>"
 
 /*
  * Macro to handle extreme error case in module. This should only be invoked
