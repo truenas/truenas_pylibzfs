@@ -240,6 +240,10 @@ PyObject *py_parse_zfs_prop(zfs_prop_t prop, char *propbuf, PyObject *raw)
 	} else if (strcmp(propbuf, LIBZFS_INCONSISTENT_VALUE) == 0) {
 		// property can't be had because dds_inconsistent
 		Py_RETURN_NONE;
+	} else if (strcmp(propbuf, LIBZFS_IOERROR_VALUE) == 0) {
+		// property can't be had because ioctl is failing with I/O
+		// error probably due to pool corruption
+		Py_RETURN_NONE;
 	}
 
 	/* Begin custom property parsers */
@@ -395,6 +399,15 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 		 * We zero-initialize the buffer above, but it's better
 		 * to be extra sure.
 		 */
+		*sourcebuf = '\0';
+		sourcetype = ZPROP_SRC_NONE;
+	} else if (err && (errno == EIO)) {
+		/*
+		 * There may be pool corruption present that is triggering
+		 * I/O errors on ZFS ioctls (NAS-138625)
+		 */
+
+		strlcpy(propbuf, LIBZFS_IOERROR_VALUE, sizeof(propbuf));
 		*sourcebuf = '\0';
 		sourcetype = ZPROP_SRC_NONE;
 	} else if (err) {
