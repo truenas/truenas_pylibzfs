@@ -73,6 +73,14 @@ typedef struct {
 	 */
 	PyObject *dumps_fn;
 	PyObject *loads_fn;
+
+	/* Reference to zpool-related enums */
+	PyObject *zpool_status_enum;
+	PyTypeObject *struct_zpool_status_type;
+	PyTypeObject *struct_vdev_status_type;
+	PyTypeObject *struct_vdev_stats_type;
+	PyTypeObject *struct_support_vdev_type;
+	PyObject *vdev_state_enum;
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);
