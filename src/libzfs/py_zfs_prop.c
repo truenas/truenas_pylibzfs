@@ -423,8 +423,8 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 		 */
 		PyErr_Format(
 			PyExc_RuntimeError,
-			"%s: failed to get property: %s.",
-			zfs_prop_to_name(prop),
+			"%s: failed to get property on resource (%U): %s.",
+			zfs_prop_to_name(prop), pyzfs->name,
 			errno ? strerror(errno) : "<UNKNOWN>"
 		);
 		return NULL;
