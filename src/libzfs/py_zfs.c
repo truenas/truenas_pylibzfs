@@ -371,14 +371,16 @@ PyObject *py_zfs_resource_open(PyObject *self,
 }
 
 PyDoc_STRVAR(py_zfs_resource_destroy__doc__,
-"destroy_resource(*, name) -> bool\n\n"
+"destroy_resource(*, name, defer=False) -> bool\n\n"
 "----------------------------------------------\n\n"
 "Destroy the ZFS FILESYSTEM or VOLUME. This is a destructive operation that\n"
 "is irreversible.\n\n"
 "Parameters\n"
 "----------\n"
 "name: str, required\n"
-"    The name of the ZFS resource to destroy.\n\n"
+"    The name of the ZFS resource to destroy.\n"
+"defer: bool, optional\n"
+"    If True, defer the destruction of the resource. Default is False.\n\n"
 "Returns\n"
 "-------\n"
 "None\n\n"
@@ -402,14 +404,16 @@ PyObject *py_zfs_resource_destroy(PyObject *self,
 	zfs_handle_t *zfsp = NULL;
 	py_zfs_error_t zfs_err;
 	boolean_t destroyed = B_FALSE;
+	boolean_t defer = B_FALSE;
 	int err;
 
-	char *kwnames [] = { "name", NULL };
+	char *kwnames [] = { "name", "defer", NULL };
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$s",
+					 "|$sp",
 					 kwnames,
-					 &name)) {
+					 &name,
+					 &defer)) {
 		return NULL;
 	}
 
@@ -432,7 +436,7 @@ PyObject *py_zfs_resource_destroy(PyObject *self,
 	if (zfsp == NULL) {
 		py_get_zfs_error(plz->lzh, &zfs_err);
 	} else {
-		err = zfs_destroy(zfsp, B_FALSE);
+		err = zfs_destroy(zfsp, defer);
 		if (err) {
 			py_get_zfs_error(plz->lzh, &zfs_err);
 		} else {
