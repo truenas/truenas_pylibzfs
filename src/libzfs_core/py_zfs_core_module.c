@@ -690,7 +690,7 @@ PyDoc_STRVAR(py_zfs_core_create_holds__doc__,
 "-------------------------------------------------\n\n"
 "Bulk create \"user holds\" on snapshots. If there is a hold on a snapshot, the\n"
 "snapshot can not be destroyed; however, it may be marked for deletion by\n"
-"destroy_snapshots(snapshot_names={<snapshot_name>}, defer=True)\n"
+"destroy_snapshots(snapshot_names={<snapshot_name>}, defer_destroy=True)\n"
 "\n"
 "Multiple holds in the same operation for the same snapshot are not permitted.\n"
 "\n"
