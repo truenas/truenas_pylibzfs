@@ -352,7 +352,8 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 	    (prop == ZFS_PROP_KEYSTATUS) ||
 	    (prop == ZFS_PROP_ORIGIN) ||
 	    (prop == ZFS_PROP_REDACT_SNAPS) ||
-	    (prop == ZFS_PROP_RECEIVE_RESUME_TOKEN)
+	    (prop == ZFS_PROP_RECEIVE_RESUME_TOKEN) ||
+	    (prop == ZFS_PROP_ACLMODE)
 	)) {
 		/*
 		 * Serveral libzfs properties return failure if they
