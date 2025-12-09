@@ -145,6 +145,7 @@ typedef struct {
 
 extern PyTypeObject ZFS;
 extern PyTypeObject ZFSDataset;
+extern PyTypeObject ZFSEventIterator;
 extern PyTypeObject ZFSObject;
 extern PyTypeObject ZFSPool;
 extern PyTypeObject ZFSResource;

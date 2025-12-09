@@ -1,5 +1,6 @@
 #include "../truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
+#include "py_zfs_events.h"
 
 #define	ZFS_STR	"<" PYLIBZFS_MODULE_NAME ".ZFS>"
 
@@ -831,6 +832,80 @@ PyObject *py_zfs_rsrc_crypto_config(PyObject *self,
 	);
 }
 
+PyDoc_STRVAR(py_zfs_iter_events__doc__,
+"zpool_events(*, blocking=False) -> ZFSEventIterator\n\n"
+"---------------------------------------------------\n\n"
+"Create an iterator for ZFS pool events.\n\n"
+"This method returns a ZFSEventIterator that wraps zpool_events_next()\n"
+"from libzfs. The iterator yields dictionaries containing event data\n"
+"from the nvlist and the number of dropped events.\n\n"
+"Parameters\n"
+"----------\n"
+"blocking: bool, optional, default=False\n"
+"    If True, the iterator will block waiting for new events.\n"
+"    If False, the iterator will raise StopIteration when no events\n"
+"    are immediately available.\n\n"
+"skip_existing_events: bool, optional, default=False\n"
+"    If True, the iterator will seek to end of existing zpool events\n"
+"    and begin iterating at that point.\n"
+"    If False, the iterator will start at the beginning of zpool events\n"
+"    since boot.\n"
+"Returns\n"
+"-------\n"
+"ZFSEventIterator\n"
+"    An iterator object that yields event dictionaries.\n\n"
+"Raises:\n"
+"-------\n"
+"OSError:\n"
+"    Failed to open the ZFS event device.\n\n"
+"WARNING: when blocking is `True` the calling thread will block with\n"
+"GIL released and a libzfs handle lock held. Users should take care not to\n"
+"use same ZFS handle in a separate thread when using this feature.\n"
+);
+static
+PyObject *py_zfs_iter_events(PyObject *self,
+			      PyObject *args_unused,
+			      PyObject *kwargs)
+{
+	PyObject *iter_kwargs = NULL;
+	PyObject *result = NULL;
+	PyObject *args = NULL;
+	char *kwnames[] = {"blocking", "skip_existing_events", NULL};
+	boolean_t blocking = B_FALSE;
+	boolean_t skip_existing = B_FALSE;
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$pp",
+					 kwnames,
+					 &blocking,
+					 &skip_existing)) {
+		return NULL;
+	}
+
+	// Create kwargs dict with zfs_handle and blocking parameters
+	iter_kwargs = Py_BuildValue("{sOsOsO}",
+				    "zfs_handle", self,
+				    "blocking", blocking ? Py_True : Py_False,
+				    "skip_existing_events",
+				    skip_existing ? Py_True : Py_False);
+	if (iter_kwargs == NULL) {
+		return NULL;
+	}
+
+	args = PyTuple_New(0);
+	if (args == NULL) {
+		return NULL;
+	}
+
+	// Create the ZFSEventIterator instance
+	result = PyObject_Call((PyObject *)&ZFSEventIterator,
+			       args, iter_kwargs);
+
+	Py_DECREF(iter_kwargs);
+	Py_DECREF(args);
+
+	return result;
+}
 
 PyGetSetDef zfs_getsetters[] = {
 	{ .name = NULL }
@@ -882,6 +957,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_rsrc_crypto_config,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_rsrc_crypto_config__doc__
+	},
+	{
+		.ml_name = "zpool_events",
+		.ml_meth = (PyCFunction)py_zfs_iter_events,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_iter_events__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
