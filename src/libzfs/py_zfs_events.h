@@ -13,7 +13,7 @@ typedef struct {
 	PyObject_HEAD
 	py_zfs_t *pylibzfsp;
 	int zevent_fd;
-	unsigned flags;
+	boolean_t blocking;
 } py_zfs_event_iter_t;
 
 extern PyTypeObject ZFSEventIterator;

@@ -16,7 +16,7 @@ py_zfs_event_iter_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 	self = (py_zfs_event_iter_t *)type->tp_alloc(type, 0);
 	if (self != NULL) {
 		self->zevent_fd = -1;
-		self->flags = 0;
+		self->blocking = B_FALSE;
 		self->pylibzfsp = NULL;
 	}
 	return (PyObject *)self;
@@ -75,7 +75,7 @@ py_zfs_event_iter_init(PyObject *self_obj, PyObject *args, PyObject *kwds)
 	}
 
 	self->zevent_fd = fd;
-	self->flags = blocking ? 0 : ZEVENT_NONBLOCK;
+	self->blocking = blocking;
 	self->pylibzfsp = (py_zfs_t *)Py_NewRef(pyzfs);
 
 	return 0;
@@ -137,7 +137,7 @@ py_zfs_event_iter_next(PyObject *self_obj)
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(self->pylibzfsp);
 	error = zpool_events_next(self->pylibzfsp->lzh, &nvl, &dropped,
-	    self->flags, self->zevent_fd);
+	    self->blocking ? 0 : ZEVENT_NONBLOCK, self->zevent_fd);
 	if (error) {
 		py_get_zfs_error(self->pylibzfsp->lzh, &zfs_err);
 	}
