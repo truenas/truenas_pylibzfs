@@ -186,14 +186,95 @@ boolean_t get_prop_from_key(PyObject *zfs_property_enum,
 }
 
 static
+PyObject *py_propdict_key_val(PyObject *value_in)
+{
+	/*
+	 * we may have {"raw": "bob", "value": "bob"} or
+	 * "bob" here. We'll return a PyUnicode object for
+	 * the value
+	 *
+	 * Heavy lifting of PyUnicode conversion will be by
+	 * PyObject_Str
+	 */
+	if (PyDict_Check(value)) {
+		PyObject *pyval = NULL;
+		PyObject *pykey = NULL;
+		PyObject *out = NULL;
+
+		// preference given to "raw" key since it should always
+		// be a string
+		pykey = PyUnicode_FromString("raw");
+		if (pykey == NULL) {
+			return NULL;
+		}
+
+		pyval = PyDict_GetItem(value, pykey);
+		if (pyval == NULL) {
+			/* raw key wasn't present, try with "value" */
+			Py_DECREF(pykey);
+			pykey = PyUnicode_FromString("value");
+			if (pykey == NULL) {
+				return NULL;
+			}
+			pyval = PyDict_GetItem(value, pykey);
+		}
+		Py_DECREF(pykey);
+		if (pyval == NULL) {
+			PyErr_SetString(PyExc_ValueError,
+					"Property entry dict must "
+					"contain either a raw or value "
+					"key.");
+
+			return NULL;
+		}
+
+		out = PyObject_Str(pyval);
+		Py_DECREF(pyval);
+		return out;
+	}
+
+	return PyObject_Str(value_in);
+}
+
+static
 nvlist_t *py_zfsprops_dict_to_nvlist(pylibzfs_state_t *state,
 				     PyObject *pyprops,
 				     zfs_type_t type,
 				     boolean_t allow_ro)
 {
 	nvlist_t *nvl = fnvlist_alloc();
-	PyObject *key, *value;
+	PyObject *key, *value, *rokey;
 	Py_ssize_t pos = 0;
+	boolean_t has_ro = B_FALSE;
+
+	key = PyUnicode_FromString(zfs_prop_to_name(ZFS_PROP_READONLY));
+	if (key == NULL) {
+		fnvlist_free(nvl);
+		return NULL;
+	}
+
+	// PyDict_GetItem retrieves a *borrowed* reference. Do not DECREF
+	value = PyDict_GetItem(pyprops, key);
+	Py_DECREF(key);
+
+	if (value) {
+		// readonly attribute is being changed, place at head of nvlist
+		PyObject *pystrval;
+		const char *cval;
+		pystrval = py_propdict_key_val(value);
+		if (pystrval == NULL) {
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		cval = PyUnicode_AsUTF8(pystrval);
+		if (cval == NULL) {
+			fnvlist_free(nvl);
+			Py_DECREF(pystrval);
+		}
+		fnvlist_add_string(nvl, zfs_prop_to_name(ZFS_PROP_READONLY), cval);
+		Py_DECREF(pystrval);
+	}
 
 	while (PyDict_Next(pyprops, &pos, &key, &value)) {
 		PyObject *pystrval = NULL;
@@ -203,6 +284,11 @@ nvlist_t *py_zfsprops_dict_to_nvlist(pylibzfs_state_t *state,
 		if (!get_prop_from_key(state->zfs_property_enum, key, &zprop)) {
 			fnvlist_free(nvl);
 			return NULL;
+		}
+
+		if (zprop == ZFS_PROP_READONLY) {
+			// already handled above
+			continue;
 		}
 
 		if (zfs_prop_readonly(zprop) && !allow_ro) {
@@ -224,53 +310,9 @@ nvlist_t *py_zfsprops_dict_to_nvlist(pylibzfs_state_t *state,
 		 * that all variants of getting properties can be
 		 * converted directly into nvlist
 		 */
-		if (PyDict_Check(value)) {
-			PyObject *pyval = NULL;
-			PyObject *pykey = NULL;
-
-			/* first try with raw key */
-			pykey = PyUnicode_FromString("raw");
-			if (pykey == NULL) {
-				fnvlist_free(nvl);
-				return NULL;
-			}
-
-			pyval = PyDict_GetItem(value, pykey);
-			if (pyval == NULL) {
-				/* raw key wasn't present, try with "value" */
-				Py_DECREF(pykey);
-				pykey = PyUnicode_FromString("value");
-				if (pykey == NULL) {
-					fnvlist_free(nvl);
-					return NULL;
-				}
-				pyval = PyDict_GetItem(value, pykey);
-			}
-
-			Py_DECREF(pykey);
-
-			if (pyval == NULL) {
-				PyErr_SetString(PyExc_ValueError,
-						"Property entry dict must "
-						"contain either a raw or value "
-						"key.");
-
-				fnvlist_free(nvl);
-				return NULL;
-			}
-
-			pystrval = PyObject_Str(pyval);
-			if (pystrval == NULL) {
-				fnvlist_free(nvl);
-				return NULL;
-			}
-		} else {
-			// Have python do heavy lifting of converting to string
-			pystrval = PyObject_Str(value);
-			if (pystrval == NULL) {
-				fnvlist_free(nvl);
-				return NULL;
-			}
+		pystrval = py_propdict_key_val(value);
+		if (pystrval == NULL) {
+			return NULL;
 		}
 
 		cval = PyUnicode_AsUTF8(pystrval);
@@ -333,15 +375,39 @@ nvlist_t *py_zfsprops_struct_to_nvlist(pylibzfs_state_t *state,
 	nvlist_t *nvl = fnvlist_alloc();
 	int idx;
 
+	/*
+	 * we need to iterate the prop list twice, once to put in the
+	 * readonly property and once to do the remainder
+	 */
+	for (idx = 0; idx < state->struct_zfs_prop_desc.n_in_sequence; idx++) {
+		PyObject *value = NULL;
+		if (zfs_prop_table[idx].prop != ZFS_PROP_READONLY)
+			continue;
+
+		/* Py_None here means that the value of property isn't being set */
+		value = PyStructSequence_GET_ITEM(pyprops, idx);
+		if (value == Py_None)
+			break;
+
+		if (!py_prop_struct_to_nvlist(value, ZFS_PROP_READONLY, nvl)) {
+			fnvlist_free(nvl);
+			return NULL;
+		}
+		break;
+	}
+
 	for (idx = 0; idx < state->struct_zfs_prop_desc.n_in_sequence; idx++) {
 		const char *name = state->struct_prop_fields[idx].name;
 		zfs_prop_t zprop = zfs_prop_table[idx].prop;
 		PyObject *value = NULL;
 
+		// we handle ZFS_PROP_READONLY above
+		if (zprop == ZFS_PROP_READONLY)
+			continue;
+
                 // Check if this is a hidden property
 		if (strcmp(name, PyStructSequence_UnnamedField) == 0)
 			continue;
-
 		value = PyStructSequence_GET_ITEM(pyprops, idx);
 		if (value == Py_None)
 			continue;
