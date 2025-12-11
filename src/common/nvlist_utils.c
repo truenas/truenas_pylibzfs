@@ -196,7 +196,7 @@ PyObject *py_propdict_key_val(PyObject *value_in)
 	 * Heavy lifting of PyUnicode conversion will be by
 	 * PyObject_Str
 	 */
-	if (PyDict_Check(value)) {
+	if (PyDict_Check(value_in)) {
 		PyObject *pyval = NULL;
 		PyObject *pykey = NULL;
 		PyObject *out = NULL;
@@ -208,7 +208,8 @@ PyObject *py_propdict_key_val(PyObject *value_in)
 			return NULL;
 		}
 
-		pyval = PyDict_GetItem(value, pykey);
+		// PyDict_GetItem borrows a reference so we don't need DECREF
+		pyval = PyDict_GetItem(value_in, pykey);
 		if (pyval == NULL) {
 			/* raw key wasn't present, try with "value" */
 			Py_DECREF(pykey);
@@ -216,7 +217,7 @@ PyObject *py_propdict_key_val(PyObject *value_in)
 			if (pykey == NULL) {
 				return NULL;
 			}
-			pyval = PyDict_GetItem(value, pykey);
+			pyval = PyDict_GetItem(value_in, pykey);
 		}
 		Py_DECREF(pykey);
 		if (pyval == NULL) {
@@ -229,7 +230,6 @@ PyObject *py_propdict_key_val(PyObject *value_in)
 		}
 
 		out = PyObject_Str(pyval);
-		Py_DECREF(pyval);
 		return out;
 	}
 
