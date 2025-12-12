@@ -34,4 +34,4 @@ def test_update_zvol_ro_with_volsize(ro_zvol):
     """ verify that keeping same volsize will not impact changing ro """
     ro_zvol.set_properties(properties=update_props)
     # insert short sleep to prevent EZFS_BUSY
-    sleep(1)
+    time.sleep(1)
