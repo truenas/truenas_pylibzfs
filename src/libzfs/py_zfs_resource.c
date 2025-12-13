@@ -445,8 +445,10 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 					 PyObject *args_unused,
 					 PyObject *kwargs)
 {
+	static const char *volsz = NULL;
 	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
 	nvlist_t *nvl = NULL;
+	const char *cval = NULL;
 	PyObject *propsdict = NULL;
 	PyObject *conv_str = NULL;
 	pylibzfs_state_t *state = NULL;
@@ -459,6 +461,9 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 		"remount",
 		NULL
 	};
+
+	if (volsz == NULL)
+		volsz = zfs_prop_to_name(ZFS_PROP_VOLSIZE);
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
 					 "|$Op",
@@ -493,6 +498,29 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
+
+	/*
+	 * Sometimes API users will set all ZFS properties in a request.
+	 * If we include the volsize property on a readonly dataset, this
+	 * will cause spurious failures with EZFS_DSREADONLY. So we have
+	 * some logic here to pop that key out of payload if it matches
+	 * what's already on disk.
+	 */
+	if ((res->obj.ctype == ZFS_TYPE_VOLUME) &&
+	    nvlist_lookup_string(nvl, volsz, &cval) == 0) {
+		// propsize present in nvl payload. This property is problematic
+		// because it can't be set when zvol is readonly
+		char vsz[ZFS_MAXPROPLEN];
+
+		if (zfs_prop_get(res->obj.zhp, ZFS_PROP_VOLSIZE,
+		    vsz, sizeof(vsz), NULL, NULL, 0, B_TRUE) == 0) {
+			if (strcmp(vsz, cval) == 0) {
+				//propsize hasn't changed so let's just remove it
+				fnvlist_remove(nvl, volsz);
+			}
+		}
+	}
+
 	err = zfs_prop_set_list_flags(res->obj.zhp,
 				      nvl,
 				      remount ? 0 : ZFS_SET_NOMOUNT);
