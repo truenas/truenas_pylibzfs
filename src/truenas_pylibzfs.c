@@ -107,6 +107,82 @@ static PyObject *py_get_libzfs_handle(PyObject *self,
 	return (PyObject *)out;
 }
 
+
+PyDoc_STRVAR(py_fzfsrewrite__doc__,
+"fzfs_rewrite(fd, *, offset=0, length=0, physical=True) -> None\n"
+"---------------------------------------------------------------\n\n"
+"Rewrite a range of file as-is without modification.\n"
+"----------\n"
+"Parameters\n"
+"----------\n"
+"fd: int, required\n"
+"    open file descriptor of file to rewrite.\n"
+""
+"offset: int, optional, default=0\n"
+"    Offset of the range to rewrite.\n"
+""
+"length: int, optional, default=0\n"
+"    Data length to rewrite. 0 means to end of file.\n"
+""
+"physical: bool, optional, default=True\n"
+"    Perform physical rewrite, preserving logical birth time of blocks.\n"
+"    This avoids unnecessary inclusion in incremental streams. Physical\n"
+"    rewrite requires the physical_rewrite feature to be enabled on the pool\n"
+""
+"Returns\n"
+"-------\n"
+"    None\n\n"
+""
+"NOTE:\n"
+"Rewrite works by replacing an existing block with a new block of the same\n"
+"logical size. Changed dataset properties that operate on the data or\n"
+"metadata without changing the logical size will be applied. These include\n"
+"\"checksum\", \"compression\", \"dedup\", and \"copies\". Changes to\n"
+"properties that affect the size of a logical block, like \"recordsize\",\n"
+"will have no effect.\n\n"
+"Rewrite of cloned blocks and blocks that are part of any snapshots, same\n"
+"as some property changes may increase pool space usage. Holes that were\n"
+"never written or were previously zero-compressed are not rewritten and\n"
+"will remain holes even if compression is disabled.\n"
+);
+static PyObject *py_fzfs_rewrite(PyObject *self,
+				PyObject *args,
+				PyObject *kwargs)
+{
+	zfs_rewrite_args_t rewrite_args = {0};
+	boolean_t physical = B_FALSE;
+	int fd, err, async_err = 0;
+	char *kwlist[] = {"fd", "offset", "length", "physical", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+					 "i|$KKp",
+					 kwlist,
+					 &fd,
+                                         &rewrite_args.off,
+					 &rewrite_args.len,
+                                         &physical)) {
+                return NULL;
+        }
+
+	if (physical)
+		rewrite_args.flags = ZFS_REWRITE_PHYSICAL;
+
+	do {
+		Py_BEGIN_ALLOW_THREADS
+		err = ioctl(fd, ZFS_IOC_REWRITE, &rewrite_args);
+		Py_END_ALLOW_THREADS
+	} while (((err == -1) && errno == EINTR) && !(async_err = PyErr_CheckSignals()));
+
+	if (err) {
+		if (!async_err) {
+			PyErr_SetFromErrno(PyExc_OSError);
+		}
+		return NULL;
+	}
+
+	Py_RETURN_NONE;
+}
+
 /* Module method table */
 static PyMethodDef TruenasPylibzfsMethods[] = {
 	{
@@ -114,6 +190,12 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 		.ml_meth = (PyCFunction)py_get_libzfs_handle,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_get_libzfs_handle__doc__
+	},
+	{
+		.ml_name = "fzfs_rewrite",
+		.ml_meth = (PyCFunction)py_fzfs_rewrite,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_fzfs_rewrite__doc__
 	},
 	{NULL}
 };
