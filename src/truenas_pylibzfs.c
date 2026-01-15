@@ -190,6 +190,12 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
+	err = PyModule_AddObjectRef(mpylibzfs, "ZFS", (PyObject *)&ZFS);
+	if (err) {
+		Py_DECREF(mpylibzfs);
+		return NULL;
+	}
+
 	constants = PyModule_Create(&truenas_pylibzfs_constants);
 	if (constants != NULL)
 		add_constants(constants);
