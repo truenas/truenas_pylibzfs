@@ -158,11 +158,11 @@ static PyObject *py_fzfs_rewrite(PyObject *self,
 					 "i|$KKp",
 					 kwlist,
 					 &fd,
-                                         &rewrite_args.off,
+					 &rewrite_args.off,
 					 &rewrite_args.len,
-                                         &physical)) {
-                return NULL;
-        }
+					 &physical)) {
+		return NULL;
+	}
 
 	if (physical)
 		rewrite_args.flags = ZFS_REWRITE_PHYSICAL;
