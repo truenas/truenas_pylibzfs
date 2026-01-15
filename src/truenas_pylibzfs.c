@@ -150,7 +150,7 @@ static PyObject *py_fzfs_rewrite(PyObject *self,
 				PyObject *kwargs)
 {
 	zfs_rewrite_args_t rewrite_args = {0};
-	boolean_t physical = B_FALSE;
+	boolean_t physical = B_TRUE;
 	int fd, err, async_err = 0;
 	char *kwlist[] = {"fd", "offset", "length", "physical", NULL};
 
