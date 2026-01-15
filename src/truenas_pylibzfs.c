@@ -108,7 +108,7 @@ static PyObject *py_get_libzfs_handle(PyObject *self,
 }
 
 
-PyDoc_STRVAR(py_fzfsrewrite__doc__,
+PyDoc_STRVAR(py_fzfs_rewrite__doc__,
 "fzfs_rewrite(fd, *, offset=0, length=0, physical=True) -> None\n"
 "---------------------------------------------------------------\n\n"
 "Rewrite a range of file as-is without modification.\n"
