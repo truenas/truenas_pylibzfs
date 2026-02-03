@@ -482,7 +482,23 @@ class ZPOOLStatus(enum.IntEnum):
 
 def open_handle(history=..., history_prefix=..., mnttab_cache=...) -> ZFS: ...
 
+
+class ZFSPool:
+    """Represents a ZFS pool."""
+    @property
+    def name(self) -> str:
+        """Returns the name of the ZFS Pool."""
+        ...
+
+    def prefetch(self) -> None:
+        """Prefetch pool metadata (DDT and BRT) into ARC."""
+        ...
+
+
 class ZFS:
+    def open_pool(self, *, name: str) -> ZFSPool:
+        """Open a ZFS pool by name and return a ZFSPool object."""
+        ...
     def open_resource(self, **kwargs) -> Any: ...
     def create_resource(self, *, name, type, properties=None, crypto=None) -> None: ...
     def destroy_pool(self, *, name, force=False) -> None: ...

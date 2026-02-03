@@ -237,10 +237,15 @@ PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(py_zfs_pool_ddt_prefetch__doc__,
-"ddt_prefetch(*) -> None\n\n"
-"-----------------------\n\n"
-"Prefetch data of a specific type (DDT) for given pool.\n\n"
+PyDoc_STRVAR(py_zfs_pool_prefetch__doc__,
+"prefetch(*) -> None\n\n"
+"-------------------\n\n"
+"Prefetch pool metadata (DDT and BRT) into ARC.\n\n"
+"Loads both the Deduplication Table (DDT) and Block Reference Table (BRT)\n"
+"into the ARC to reduce latency of subsequent operations. This is equivalent\n"
+"to running 'zpool prefetch <pool>' without the -t flag.\n\n"
+"The DDT tracks deduplication metadata, while the BRT tracks block cloning\n"
+"metadata used for efficient copy-on-write operations.\n\n"
 "Parameters\n"
 "----------\n"
 "None\n\n"
@@ -253,26 +258,29 @@ PyDoc_STRVAR(py_zfs_pool_ddt_prefetch__doc__,
 "    A libzfs error that occurred while trying to perform the operation.\n"
 );
 static
-PyObject *py_zfs_pool_ddt_prefetch(PyObject *self, PyObject *args) {
+PyObject *py_zfs_pool_prefetch(PyObject *self, PyObject *args) {
 	int ret = 0, error;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
 
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.ddt_prefetch", "O",
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.prefetch", "O",
 	    p->name) < 0) {
 		return NULL;
 	}
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
+	// Prefetch DDT first, then BRT if DDT succeeds (matches zpool behavior)
 	ret = zpool_prefetch(p->zhp, ZPOOL_PREFETCH_DDT);
+	if (ret == 0)
+		ret = zpool_prefetch(p->zhp, ZPOOL_PREFETCH_BRT);
 	if (ret)
 		py_get_zfs_error(p->pylibzfsp->lzh, &err);
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
 	if (ret) {
-		set_exc_from_libzfs(&err, "zpool_ddt_prefetch() failed");
+		set_exc_from_libzfs(&err, "zpool_prefetch() failed");
 		return (NULL);
 	} else {
 		error = py_log_history_fmt(p->pylibzfsp,
@@ -610,10 +618,10 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_doc = py_zfs_pool_upgrade__doc__
 	},
 	{
-		.ml_name = "ddt_prefetch",
-		.ml_meth = py_zfs_pool_ddt_prefetch,
+		.ml_name = "prefetch",
+		.ml_meth = py_zfs_pool_prefetch,
 		.ml_flags = METH_NOARGS,
-		.ml_doc = py_zfs_pool_ddt_prefetch__doc__
+		.ml_doc = py_zfs_pool_prefetch__doc__
 	},
 	{
 		.ml_name = "ddt_prune",
