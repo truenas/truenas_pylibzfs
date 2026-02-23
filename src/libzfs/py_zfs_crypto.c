@@ -869,7 +869,8 @@ PyObject *py_zfs_enc_load_key(PyObject *self,
 			      PyObject *kwargs)
 {
 	py_zfs_obj_t *obj = py_enc_get_zfs_obj(((py_zfs_enc_t *)self));
-	py_load_key_common(obj, args_unused, kwargs, B_FALSE);
+	if (!py_load_key_common(obj, args_unused, kwargs, B_FALSE))
+		return NULL;
 	Py_RETURN_NONE;
 }
 
