@@ -27,16 +27,17 @@ def enc_dataset(data_pool1):
 
 
 def test_crypto_config_passphrase(root_dataset):
-    lz, root = root_dataset
+    lz, _ = root_dataset
     config = lz.resource_cryptography_config(keyformat='passphrase', key=PASSPHRASE)
     assert config.keyformat == 'passphrase'
     assert config.key == PASSPHRASE
     assert config.keylocation is None
-    assert config.pbkdf2iters >= 1300000
+    # None means "use the minimum (1300000)"; an explicit value is also valid
+    assert config.pbkdf2iters is None or config.pbkdf2iters >= 1300000
 
 
 def test_crypto_config_hex(root_dataset):
-    lz, root = root_dataset
+    lz, _ = root_dataset
     config = lz.resource_cryptography_config(keyformat='hex', key=HEX_KEY)
     assert config.keyformat == 'hex'
     assert config.key == HEX_KEY
@@ -61,7 +62,7 @@ def test_create_encrypted_filesystem(root_dataset):
 
 
 def test_crypto_info(enc_dataset):
-    lz, rsrc = enc_dataset
+    _, rsrc = enc_dataset
     enc = rsrc.crypto()
     info = enc.info()
     assert info.is_root is True
@@ -91,10 +92,9 @@ def test_asdict_crypto(enc_dataset):
 
 
 def test_check_key(enc_dataset):
-    lz, rsrc = enc_dataset
+    _, rsrc = enc_dataset
     enc = rsrc.crypto()
-    rsrc.unmount()
-    enc.unload_key()
+    rsrc.unmount()  # also unloads the key
 
     assert enc.check_key(key=PASSPHRASE) is True
     assert enc.check_key(key='wrongpassword') is False
@@ -103,11 +103,10 @@ def test_check_key(enc_dataset):
 
 
 def test_load_unload_key(enc_dataset):
-    lz, rsrc = enc_dataset
+    _, rsrc = enc_dataset
     enc = rsrc.crypto()
 
-    rsrc.unmount()
-    enc.unload_key()
+    rsrc.unmount()  # also unloads the key
     assert enc.info().key_is_loaded is False
 
     enc.load_key(key=PASSPHRASE)
@@ -126,8 +125,7 @@ def test_change_key(enc_dataset):
     enc.change_key(info=new_crypto)
 
     # Unload and verify only the new key works
-    rsrc.unmount()
-    enc.unload_key()
+    rsrc.unmount()  # also unloads the key
     enc.load_key(key=PASSPHRASE2)
     assert enc.info().key_is_loaded is True
 
