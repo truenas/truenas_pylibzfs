@@ -809,7 +809,7 @@ PyObject *py_zfs_rsrc_crypto_config(PyObject *self,
 		"keyformat",
 		"keylocation",
 		"key",
-		"pbkdf2_iters",
+		"pbkdf2iters",
 		NULL
 	};
 
