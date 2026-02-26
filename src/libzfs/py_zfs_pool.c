@@ -97,8 +97,8 @@ PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 }
 
 PyDoc_STRVAR(py_zfs_pool_status__doc__,
-"status(*, asdict=False, get_stats=True) -> struct_zpool_status | dict\n"
-"---------------------------------------------------------------------\n\n"
+"status(*, asdict=False, get_stats=True, follow_links=True) -> struct_zpool_status | dict\n"
+"----------------------------------------------------------------------------------------\n\n"
 "Retrieve health and configuration status of the zpool.\n\n"
 "Parameters\n"
 "----------\n"
@@ -110,6 +110,11 @@ PyDoc_STRVAR(py_zfs_pool_status__doc__,
 "    If True, include cached per-vdev I/O and error counters in the\n"
 "    output. When False, the 'stats' field of each vdev will be None,\n"
 "    which reduces overhead when only topology or health state is needed.\n\n"
+"follow_links: boolean, optional, default=True\n"
+"    If True, resolve symlinks in vdev path names (equivalent to\n"
+"    'zpool status -L'). Useful when vdevs are referenced by\n"
+"    /dev/disk/by-partuuid/ or similar symlinks and the resolved\n"
+"    /dev/<device> path is required.\n\n"
 "Returns\n"
 "-------\n"
 "truenas_pylibzfs.struct_zpool_status when asdict=False (default),\n"
@@ -120,20 +125,24 @@ PyObject *py_zfs_pool_status(PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	boolean_t asdict = B_FALSE;
 	boolean_t get_stats = B_TRUE;
-	char *kwnames [] = {"asdict", "get_stats", NULL};
+	boolean_t follow_links = B_TRUE;
+	char *kwnames [] = {"asdict", "get_stats", "follow_links", NULL};
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
-					 "|$pp",
+					 "|$ppp",
 					 kwnames,
 					 &asdict,
-					 &get_stats)) {
+					 &get_stats,
+					 &follow_links)) {
 		return NULL;
 	}
 
 	if (asdict)
-		return py_get_pool_status_dict((py_zfs_pool_t *)self, get_stats);
+		return py_get_pool_status_dict((py_zfs_pool_t *)self,
+		    get_stats, follow_links);
 
-	return py_get_pool_status((py_zfs_pool_t *)self, get_stats);
+	return py_get_pool_status((py_zfs_pool_t *)self, get_stats,
+	    follow_links);
 }
 
 PyDoc_STRVAR(py_zfs_pool_root_vdev__doc__,

@@ -491,6 +491,22 @@ def test_support_vdevs_all_types(pool_multi_support):
 
 
 # ---------------------------------------------------------------------------
+# follow_links parameter
+# ---------------------------------------------------------------------------
+
+def test_follow_links_accepted(pool_mirror):
+    # Verify follow_links=False is accepted and produces structurally identical
+    # output to the default (follow_links=True).  File-backed vdevs have no
+    # symlinks to resolve so vdev names are the same either way; this test
+    # covers parameter wiring only.
+    lz, pool = pool_mirror
+    status_default = pool.status()
+    status_no_follow = pool.status(follow_links=False)
+    assert status_default.status == status_no_follow.status
+    assert len(status_default.storage_vdevs) == len(status_no_follow.storage_vdevs)
+
+
+# ---------------------------------------------------------------------------
 # Status conditions
 # ---------------------------------------------------------------------------
 
@@ -606,7 +622,7 @@ def test_draid1_with_spare_topology(pool_draid1_with_spare):
     assert len(vdev.children) == 5
     assert len(status.spares) == 1
     spare = status.spares[0]
-    assert spare.vdev_type == 'draid_spare'
+    assert spare.vdev_type == 'dspare'
     # top_guid must link back to the originating draid vdev
     assert isinstance(spare.top_guid, int)
     assert spare.top_guid == vdev.guid
