@@ -29,9 +29,23 @@
         __PYZFS_ASSERT_IMPL(test, message, __location__);
 
 /*
+ * Compatibility shim: use PyMutex on Python 3.13+ (1 byte, zero-initialized,
+ * no destroy needed), fall back to pthread_mutex_t on older versions.
+ */
+#if PY_VERSION_HEX >= 0x030d0000
+typedef PyMutex py_zfs_lock_t;
+#define PY_ZFS_LOCK_INIT(lockp)    (0)
+#define PY_ZFS_LOCK_DESTROY(lockp) /* no-op */
+#else
+typedef pthread_mutex_t py_zfs_lock_t;
+#define PY_ZFS_LOCK_INIT(lockp)    pthread_mutex_init(lockp, NULL)
+#define PY_ZFS_LOCK_DESTROY(lockp) pthread_mutex_destroy(lockp)
+#endif
+
+/*
  * Wrapper around libzfs_handle_t
  * lzh: libzfs handle
- * zfs_lock: pthread_mutex for protecting libzfs handle
+ * zfs_lock: mutex for protecting libzfs handle
  *
  * NOTE: the libzfs_handle_t is potentially shared by multiple python objects.
  * The `zfs_lock` should be taken prior to any ZFS operation (e.g. zfs_rename)
@@ -41,7 +55,7 @@ typedef struct {
 	PyObject_HEAD
 	PyObject *module;
 	libzfs_handle_t *lzh;
-	pthread_mutex_t zfs_lock;
+	py_zfs_lock_t zfs_lock;
 	boolean_t mnttab_cache_enable;
 	int history;
 	char history_prefix[MAX_HISTORY_PREFIX_LEN];
@@ -52,6 +66,15 @@ typedef struct {
  * The following macros are to simplify code that locks and unlocks
  * py_zfs_t objects for operations using libzfs_handle_t.
  */
+#if PY_VERSION_HEX >= 0x030d0000
+#define PY_ZFS_LOCK(obj) do { \
+	PyMutex_Lock(&obj->zfs_lock); \
+} while (0);
+
+#define PY_ZFS_UNLOCK(obj) do { \
+	PyMutex_Unlock(&obj->zfs_lock); \
+} while (0);
+#else
 #define PY_ZFS_LOCK(obj) do { \
 	pthread_mutex_lock(&obj->zfs_lock); \
 } while (0);
@@ -59,6 +82,7 @@ typedef struct {
 #define PY_ZFS_UNLOCK(obj) do { \
 	pthread_mutex_unlock(&obj->zfs_lock); \
 } while (0);
+#endif
 
 /*
  * Common struct for resource objects and bookmarks.
@@ -164,12 +188,12 @@ extern PyTypeObject ZFSVolume;
  * py_zfs_error_t zfs_err;
  *
  * Py_BEGIN_ALLOW_THREADS // drop GIL
- * pthread_mutex_lock(&<zfs_lock>);  // take libzfs_handle_t lock
+ * PY_ZFS_LOCK(<zfs_obj>);  // take libzfs_handle_t lock
  * <Do ZFS operation>
  * if <error>
  *   py_get_zfs_error(<libzfs_handle_t>, &zfs_err);
  *
- * pthread_mutex_unlock(&<zfs_lock>);  / unlock
+ * PY_ZFS_UNLOCK(<zfs_obj>);  // unlock
  * Py_END_ALLOW_THREADS  // re-acquire GIL
  *
  * if <error> {
