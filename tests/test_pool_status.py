@@ -287,7 +287,8 @@ def test_status_asdict_keys(pool_stripe):
     assert isinstance(d['storage_vdevs'], tuple)
     for vdev in d['storage_vdevs']:
         assert isinstance(vdev, dict)
-        for vkey in ('name', 'vdev_type', 'guid', 'state', 'stats', 'children'):
+        for vkey in ('name', 'vdev_type', 'guid', 'state', 'stats',
+                     'children', 'top_guid'):
             assert vkey in vdev, f'vdev missing key: {vkey}'
 
     # support_vdevs should be a dict with the four categories
@@ -341,6 +342,15 @@ def test_vdev_guid_is_int(pool_mirror):
         for vdev in _all_vdevs(top_vdev):
             assert isinstance(vdev.guid, int), \
                 f'expected int guid for {vdev.name}, got {type(vdev.guid)}'
+
+
+def test_top_guid_none_for_non_draid_spare(pool_mirror):
+    lz, pool = pool_mirror
+    status = pool.status()
+    for top_vdev in status.storage_vdevs:
+        for vdev in _all_vdevs(top_vdev):
+            assert vdev.top_guid is None, \
+                f'expected top_guid=None for {vdev.name}, got {vdev.top_guid}'
 
 
 def test_corrupted_files_is_tuple(pool_stripe):
@@ -590,6 +600,13 @@ def test_draid1_with_spare_topology(pool_draid1_with_spare):
     vdev = status.storage_vdevs[0]
     assert vdev.vdev_type == 'draid1:3d:5c:1s'
     assert vdev.children is not None
+    # Children contains only the physical drives; the distributed spare
+    # virtual device is stored in ZPOOL_CONFIG_SPARES (ZPOOL_CONFIG_TOP_GUID
+    # links it back to this draid vdev) and surfaces in status.spares.
     assert len(vdev.children) == 5
-    spare_children = [c for c in vdev.children if c.vdev_type == 'draid_spare']
-    assert len(spare_children) == 1
+    assert len(status.spares) == 1
+    spare = status.spares[0]
+    assert spare.vdev_type == 'draid_spare'
+    # top_guid must link back to the originating draid vdev
+    assert isinstance(spare.top_guid, int)
+    assert spare.top_guid == vdev.guid

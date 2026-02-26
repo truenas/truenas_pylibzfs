@@ -4,6 +4,90 @@
  * ZFS pool status implementation for module
  *
  * The pool status is implemented as a struct sequence object in the C API.
+ *
+ * ---------------------------------------------------------------------------
+ * Struct layout — sample configurations
+ * ---------------------------------------------------------------------------
+ *
+ * Example 1: dRAID1 with distributed spare
+ *   zpool create pool draid1:3d:5c:1s sda sdb sdc sdd sde
+ *
+ * struct_zpool_status
+ * ├── status:           ZPOOL_STATUS_OK
+ * ├── reason:           None
+ * ├── action:           None
+ * ├── message:          None
+ * ├── corrupted_files:  ()
+ * ├── storage_vdevs:    (struct_vdev,)
+ * │   └── struct_vdev
+ * │       ├── name:      "draid1-0"
+ * │       ├── vdev_type: "draid1:3d:5c:1s"
+ * │       ├── guid:      0xAAAA  ◄──────────────────────────┐
+ * │       ├── state:     ONLINE                             │
+ * │       ├── stats:     struct_vdev_stats                  │
+ * │       ├── children:  (struct_vdev × 5)                  │
+ * │       │   └── struct_vdev  [one of five disk vdevs]     │
+ * │       │       ├── name:      "sda"                      │
+ * │       │       ├── vdev_type: "disk"                     │
+ * │       │       ├── guid:      0xBBBB                     │
+ * │       │       ├── state:     ONLINE                     │
+ * │       │       ├── stats:     struct_vdev_stats          │
+ * │       │       ├── children:  None                       │
+ * │       │       └── top_guid:  None                       │
+ * │       └── top_guid:  None                               │
+ * ├── support_vdevs:                                        │
+ * │   ├── cache:   ()                                       │
+ * │   ├── log:     ()                                       │
+ * │   ├── special: ()                                       │
+ * │   └── dedup:   ()                                       │
+ * └── spares:  (struct_vdev,)                               │
+ *     └── struct_vdev                                       │
+ *         ├── name:      "draid1-0-0"                       │
+ *         ├── vdev_type: "draid_spare"                      │
+ *         ├── guid:      0xCCCC                             │
+ *         ├── state:     AVAIL                              │
+ *         ├── stats:     struct_vdev_stats                  │
+ *         ├── children:  None                               │
+ *         └── top_guid:  0xAAAA  ────────────────────────────┘
+ *
+ * ---------------------------------------------------------------------------
+ *
+ * Example 2: 2× RAIDZ2 with cache and log
+ *   zpool create pool \
+ *     raidz2 sda sdb sdc sdd  raidz2 sde sdf sdg sdh \
+ *     cache sdi  log sdj
+ *
+ * struct_zpool_status
+ * ├── status:           ZPOOL_STATUS_OK
+ * ├── reason:           None
+ * ├── action:           None
+ * ├── message:          None
+ * ├── corrupted_files:  ()
+ * ├── storage_vdevs:    (struct_vdev, struct_vdev)
+ * │   ├── struct_vdev  [first raidz2]
+ * │   │   ├── name:      "raidz2-0"
+ * │   │   ├── vdev_type: "raidz2"
+ * │   │   ├── guid:      0xDDDD
+ * │   │   ├── state:     ONLINE
+ * │   │   ├── stats:     struct_vdev_stats
+ * │   │   ├── children:  (struct_vdev × 4)  [sda..sdd, vdev_type="disk"]
+ * │   │   └── top_guid:  None
+ * │   └── struct_vdev  [second raidz2]
+ * │       ├── name:      "raidz2-1"
+ * │       ├── vdev_type: "raidz2"
+ * │       ├── guid:      0xEEEE
+ * │       ├── state:     ONLINE
+ * │       ├── stats:     struct_vdev_stats
+ * │       ├── children:  (struct_vdev × 4)  [sde..sdh, vdev_type="disk"]
+ * │       └── top_guid:  None
+ * ├── support_vdevs:
+ * │   ├── cache:   (struct_vdev,)  [sdi, vdev_type="disk", top_guid=None]
+ * │   ├── log:     (struct_vdev,)  [sdj, vdev_type="disk", top_guid=None]
+ * │   ├── special: ()
+ * │   └── dedup:   ()
+ * └── spares:  ()
+ *
+ * ---------------------------------------------------------------------------
  */
 
 PyDoc_STRVAR(py_pool_status_status__doc__,
@@ -138,16 +222,21 @@ PyStructSequence_Field struct_vdev_status_prop [] = {
 	{"state", "State of the vdev"},
 	{"stats", "Stats counters for vdev."},
 	{"children", "Tuple of vdevs that make up this vdev (if applicable)"},
+	{"top_guid", "For draid_spare vdevs: GUID of the top-level dRAID vdev "
+	             "that owns this distributed spare (matches the guid field "
+	             "of the originating draid entry in storage_vdevs). "
+	             "None for all other vdev types."},
 	{0},
 };
-#define STATS_IDX 4
+#define STATS_IDX    4
 #define CHILDREN_IDX 5
+#define TOP_GUID_IDX 6
 
 PyStructSequence_Desc struct_vdev_status_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_vdev",
 	.fields = struct_vdev_status_prop,
 	.doc = "Python pool vdev status structure",
-	.n_in_sequence = 6
+	.n_in_sequence = 7
 };
 
 /*
@@ -432,6 +521,26 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 			goto fail;
 
 		PyStructSequence_SetItem(out, CHILDREN_IDX, child_tuple);
+	}
+
+	/*
+	 * top_guid: for draid_spare vdevs, the GUID of the top-level dRAID
+	 * vdev that owns this distributed spare (stored in the nvlist as
+	 * ZPOOL_CONFIG_TOP_GUID).  None for all other vdev types.
+	 */
+	if (strcmp(type, VDEV_TYPE_DRAID_SPARE) == 0) {
+		uint64_t top_guid;
+		PyObject *val;
+
+		verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_TOP_GUID,
+		    &top_guid) == 0);
+		val = PyLong_FromUnsignedLongLong(top_guid);
+		if (val == NULL)
+			goto fail;
+
+		PyStructSequence_SetItem(out, TOP_GUID_IDX, val);
+	} else {
+		PyStructSequence_SetItem(out, TOP_GUID_IDX, Py_NewRef(Py_None));
 	}
 
 	return out;
