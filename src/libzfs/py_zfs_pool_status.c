@@ -45,6 +45,11 @@ PYLIBZFS_MODULE_NAME ".struct_support_vdev object containing information about\n
 "the support vdevs in-use by the pool.\n"
 );
 
+PyDoc_STRVAR(py_pool_status_spares__doc__,
+"Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects for hot spare vdevs,\n"
+"or an empty tuple if no spares are configured.\n"
+);
+
 PyStructSequence_Field struct_pool_status_prop [] = {
 	{"status", py_pool_status_status__doc__},
 	{"reason", py_pool_status_reason__doc__},
@@ -53,16 +58,18 @@ PyStructSequence_Field struct_pool_status_prop [] = {
 	{"corrupted_files", py_pool_status_files__doc__},
 	{"storage_vdevs", py_pool_status_storage__doc__},
 	{"support_vdevs", py_pool_status_support__doc__},
+	{"spares", py_pool_status_spares__doc__},
 	{0},
 };
 #define VDEVS_STORAGE_IDX 5
 #define VDEVS_SUPPORT_IDX 6
+#define VDEVS_SPARES_IDX  7
 
 PyStructSequence_Desc struct_pool_status_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_status",
 	.fields = struct_pool_status_prop,
 	.doc = "Python ZFS pool status structure",
-	.n_in_sequence = 7
+	.n_in_sequence = 8
 };
 
 PyStructSequence_Field struct_pool_support_vdev [] = {
@@ -157,6 +164,12 @@ PyStructSequence_Desc struct_vdev_status_desc = {
 	PY_VDEV_CLASS_CACHE | PY_VDEV_CLASS_SPECIAL | PY_VDEV_CLASS_DEDUP )
 #define PY_VDEV_CLASS_ALL	(PY_VDEV_CLASS_STORAGE | PY_VDEV_CLASS_SUPPORT)
 #define PY_VDEV_DATA_WANT_STATS	0x40  // gather stats on vdevs
+
+/*
+ * Buffer large enough to hold a fully-qualified draid type name of the form
+ * "draid<parity>:<data>d:<children>c:<spares>s\0" with plenty of headroom.
+ */
+#define VDEV_TYPE_NAME_BUF_SIZE	64
 
 #define PY_VDEV_MASK_ALL	(PY_VDEV_CLASS_ALL | PY_VDEV_DATA_WANT_STATS)
 
@@ -316,7 +329,7 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	const char *type;
 	uint64_t guid, nparity;
 	char *vname = NULL;
-	char type_buf[32];
+	char type_buf[VDEV_TYPE_NAME_BUF_SIZE];
 	PyObject *out = NULL;
 	PyObject *vdev_stats = NULL;
 	vdev_stat_t *vs;
@@ -333,12 +346,29 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	 * For raidz vdevs the raw ZPOOL_CONFIG_TYPE is always "raidz"
 	 * regardless of parity level.  Append the parity count to match
 	 * the display name used by zpool(8) (e.g. "raidz1", "raidz2").
+	 *
+	 * For draid vdevs the raw ZPOOL_CONFIG_TYPE is always "draid"
+	 * regardless of redundancy.  Construct the full display name in the
+	 * same format as zpool_draid_name() (e.g. "draid2:4d:6c:0s").
 	 */
 	if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
 		verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NPARITY,
 		    &nparity) == 0);
 		(void) snprintf(type_buf, sizeof (type_buf), "%s%llu",
 		    type, (u_longlong_t)nparity);
+		type = type_buf;
+	} else if (strcmp(type, VDEV_TYPE_DRAID) == 0) {
+		uint64_t ndata, nspares;
+		verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NPARITY,
+		    &nparity) == 0);
+		verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_DRAID_NDATA,
+		    &ndata) == 0);
+		verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_DRAID_NSPARES,
+		    &nspares) == 0);
+		(void) snprintf(type_buf, sizeof (type_buf),
+		    "%s%llu:%llud:%lluc:%llus",
+		    type, (u_longlong_t)nparity, (u_longlong_t)ndata,
+		    (u_longlong_t)children, (u_longlong_t)nspares);
 		type = type_buf;
 	}
 
@@ -637,6 +667,43 @@ PyObject *pypool_status_get_support_vdevs(py_zfs_pool_t *pypool,
 }
 
 static
+PyObject *pypool_status_get_spare_vdevs(py_zfs_pool_t *pypool,
+					nvlist_t *nvl,
+					boolean_t get_stats)
+{
+	nvlist_t **spares;
+	uint_t nspares;
+	PyObject *vdev_list = NULL;
+	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
+	uint request_mask = PY_VDEV_CLASS_STORAGE;
+
+	if (get_stats)
+		request_mask |= PY_VDEV_DATA_WANT_STATS;
+
+	Py_BEGIN_ALLOW_THREADS
+	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_SPARES,
+	    &spares, &nspares) != 0)
+		nspares = 0;
+	Py_END_ALLOW_THREADS
+
+	if (nspares == 0)
+		vdev_list = PyList_New(0);
+	else
+		vdev_list = vdev_nvlist_array_to_list(pypool,
+						      state,
+						      spares,
+						      nspares,
+						      0,
+						      request_mask);
+	if (vdev_list == NULL)
+		return NULL;
+
+	PyObject *out = PyList_AsTuple(vdev_list);
+	Py_DECREF(vdev_list);
+	return out;
+}
+
+static
 PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
 					  nvlist_t *nvl,
 					  boolean_t get_stats)
@@ -666,12 +733,13 @@ PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
 }
 
 /*
- * @brief populate the storage_vdevs and support_vdevs fields of a
+ * @brief populate the storage_vdevs, support_vdevs, and spares fields of a
  * struct_zpool_status struct sequence.
  *
  * Takes a snapshot of the pool's vdev tree (under lock to guard against
- * concurrent config updates), then builds the storage and support vdev
- * tuples and inserts them at VDEVS_STORAGE_IDX and VDEVS_SUPPORT_IDX.
+ * concurrent config updates), then builds the storage, support, and spare vdev
+ * tuples and inserts them at VDEVS_STORAGE_IDX, VDEVS_SUPPORT_IDX, and
+ * VDEVS_SPARES_IDX.
  *
  * @param[in]  pypool        - open pool handle
  * @param[in]  status_struct - partially-populated struct_zpool_status object
@@ -689,6 +757,7 @@ boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
 {
 	PyObject *storage_vdevs = NULL;
 	PyObject *support_vdevs = NULL;
+	PyObject *spare_vdevs = NULL;
 	nvlist_t *config, *nvroot;
 
 	Py_BEGIN_ALLOW_THREADS
@@ -715,6 +784,12 @@ boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
 		goto fail;
 
 	PyStructSequence_SetItem(status_struct, VDEVS_SUPPORT_IDX, support_vdevs);
+
+	spare_vdevs = pypool_status_get_spare_vdevs(pypool, nvroot, get_stats);
+	if (spare_vdevs == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(status_struct, VDEVS_SPARES_IDX, spare_vdevs);
 
 	fnvlist_free(nvroot);
 	return B_TRUE;

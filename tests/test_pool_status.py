@@ -185,6 +185,53 @@ def pool_multi_support(make_disks):
         _destroy_pool()
 
 
+@pytest.fixture
+def pool_with_spare(make_disks):
+    disks = make_disks(3)
+    _create_pool(['mirror', disks[0], disks[1], 'spare', disks[2]])
+    lz, pool = _open_pool()
+    try:
+        yield lz, pool
+    finally:
+        _destroy_pool()
+
+
+@pytest.fixture
+def pool_draid1(make_disks):
+    """draid1 with 4 disks: draid1:3d:4c:0s"""
+    disks = make_disks(4)
+    _create_pool(['draid1:3d:4c:0s'] + disks)
+    lz, pool = _open_pool()
+    try:
+        yield lz, pool
+    finally:
+        _destroy_pool()
+
+
+@pytest.fixture
+def pool_draid2(make_disks):
+    """draid2 with 4 disks: draid2:2d:4c:0s"""
+    disks = make_disks(4)
+    _create_pool(['draid2:2d:4c:0s'] + disks)
+    lz, pool = _open_pool()
+    try:
+        yield lz, pool
+    finally:
+        _destroy_pool()
+
+
+@pytest.fixture
+def pool_draid1_with_spare(make_disks):
+    """draid1 with 5 disks and 1 distributed spare: draid1:3d:5c:1s"""
+    disks = make_disks(5)
+    _create_pool(['draid1:3d:5c:1s'] + disks)
+    lz, pool = _open_pool()
+    try:
+        yield lz, pool
+    finally:
+        _destroy_pool()
+
+
 # ---------------------------------------------------------------------------
 # Helper: recursively collect all vdevs (breadth-first)
 # ---------------------------------------------------------------------------
@@ -211,6 +258,7 @@ def test_status_fields_present(pool_stripe):
     assert hasattr(status, 'corrupted_files')
     assert hasattr(status, 'storage_vdevs')
     assert hasattr(status, 'support_vdevs')
+    assert hasattr(status, 'spares')
 
 
 def test_status_enum_type(pool_stripe):
@@ -232,7 +280,7 @@ def test_status_asdict_keys(pool_stripe):
     d = pool.status(asdict=True)
     assert isinstance(d, dict)
     for key in ('status', 'reason', 'action', 'message',
-                'corrupted_files', 'storage_vdevs', 'support_vdevs'):
+                'corrupted_files', 'storage_vdevs', 'support_vdevs', 'spares'):
         assert key in d, f'missing key: {key}'
 
     # storage_vdevs should be a tuple of dicts
@@ -247,6 +295,9 @@ def test_status_asdict_keys(pool_stripe):
     assert isinstance(sv, dict)
     for cat in ('cache', 'log', 'special', 'dedup'):
         assert cat in sv
+
+    # spares should be a tuple
+    assert isinstance(d['spares'], tuple)
 
 
 def test_status_get_stats_false(pool_mirror):
@@ -485,3 +536,60 @@ def test_slow_ios_none_for_parent_vdev(pool_mirror):
     for child in top_vdev.children:
         assert isinstance(child.stats.slow_ios, int), \
             f'expected int slow_ios for {child.name}, got {child.stats.slow_ios!r}'
+
+
+# ---------------------------------------------------------------------------
+# Hot spares
+# ---------------------------------------------------------------------------
+
+def test_spares_empty(pool_mirror):
+    lz, pool = pool_mirror
+    assert pool.status().spares == ()
+
+
+def test_spares_is_tuple(pool_with_spare):
+    lz, pool = pool_with_spare
+    assert isinstance(pool.status().spares, tuple)
+
+
+def test_spares_single(pool_with_spare):
+    lz, pool = pool_with_spare
+    spares = pool.status().spares
+    assert len(spares) == 1
+    assert spares[0].vdev_type == 'file'
+
+
+# ---------------------------------------------------------------------------
+# dRAID topology
+# ---------------------------------------------------------------------------
+
+def test_draid1_topology(pool_draid1):
+    lz, pool = pool_draid1
+    status = pool.status()
+    assert len(status.storage_vdevs) == 1
+    vdev = status.storage_vdevs[0]
+    assert vdev.vdev_type == 'draid1:3d:4c:0s'
+    assert vdev.children is not None
+    assert len(vdev.children) == 4
+
+
+def test_draid2_topology(pool_draid2):
+    lz, pool = pool_draid2
+    status = pool.status()
+    assert len(status.storage_vdevs) == 1
+    vdev = status.storage_vdevs[0]
+    assert vdev.vdev_type == 'draid2:2d:4c:0s'
+    assert vdev.children is not None
+    assert len(vdev.children) == 4
+
+
+def test_draid1_with_spare_topology(pool_draid1_with_spare):
+    lz, pool = pool_draid1_with_spare
+    status = pool.status()
+    assert len(status.storage_vdevs) == 1
+    vdev = status.storage_vdevs[0]
+    assert vdev.vdev_type == 'draid1:3d:5c:1s'
+    assert vdev.children is not None
+    assert len(vdev.children) == 5
+    spare_children = [c for c in vdev.children if c.vdev_type == 'draid_spare']
+    assert len(spare_children) == 1
