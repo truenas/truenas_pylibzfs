@@ -1,5 +1,6 @@
 import os
 import pytest
+import shutil
 import subprocess
 import tempfile
 import truenas_pylibzfs
@@ -37,7 +38,6 @@ def make_disks():
     yield _make
 
     for d in dirs:
-        import shutil
         shutil.rmtree(d, ignore_errors=True)
 
 
