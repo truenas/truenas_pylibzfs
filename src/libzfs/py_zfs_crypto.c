@@ -260,6 +260,7 @@ boolean_t validate_key_material(PyObject *py_key, zfs_crypto_change_info_t *info
 			PyErr_Format(PyExc_ValueError,
 				     "The raw key must be %d bytes long.",
 				     WRAPPING_KEY_LEN);
+			return B_FALSE;
 		}
 
 		// Raw bytes may theoretically contain embedded null
