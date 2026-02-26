@@ -410,5 +410,19 @@ static const struct {
 };
 _Static_assert(ZFS_NUM_USERQUOTA_PROPS -1 == ZFS_PROP_PROJECTOBJQUOTA);
 
+static const struct {
+	vdev_state_t state;
+	const char *name;
+} vdev_state_table[] = {
+	{ VDEV_STATE_UNKNOWN, "UNKNOWN" }, /* Uninitialized vdev */
+	{ VDEV_STATE_CLOSED, "CLOSED" }, /* Not currently open */
+	{ VDEV_STATE_OFFLINE, "OFFLINE" }, /* Not allowed to open */
+	{ VDEV_STATE_REMOVED, "REMOVED" }, /* Explicitly removed from system */
+	{ VDEV_STATE_CANT_OPEN, "CANT_OPEN" }, /* Tried to open, but failed */
+	{ VDEV_STATE_FAULTED, "FAULTED" }, /* External request to fault device */
+	{ VDEV_STATE_DEGRADED, "DEGRADED" }, /* vdev with unhealthy kids */
+	{ VDEV_STATE_HEALTHY, "ONLINE" }, /* C constant is HEALTHY; Python name matches zpool(8) output */
+};
+
 
 #endif /* _TRUENAS_PYLIBZFS_ENUMS_H */

@@ -253,6 +253,39 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the VDevState enum */
+static
+PyObject *vdev_state_table_to_dict(void)
+{
+	PyObject *state_dict = NULL;
+	int err;
+	uint i;
+
+	state_dict = PyDict_New();
+	if (state_dict == NULL)
+		return NULL;
+
+	for (i=0; i < ARRAY_SIZE(vdev_state_table); i++) {
+		PyObject *val = NULL;
+
+		val = PyLong_FromLong(vdev_state_table[i].state);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(state_dict,
+					   vdev_state_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return state_dict;
+fail:
+	Py_XDECREF(state_dict);
+	return NULL;
+}
+
 /* Create a dictionary for enum spec for the VDevAuxState enum */
 static
 PyObject *zfs_vdev_aux_table_to_dict(void)
@@ -343,7 +376,17 @@ out:
 	return args_out;
 }
 
+/*
+ * Add a single enum to module (the primary home, truenas_pylibzfs.enums) and
+ * optionally also to parent_module (truenas_pylibzfs root) for backwards
+ * compatibility.  Pass parent_module=NULL to register in the enums submodule
+ * only.
+ *
+ * If penum_out is non-NULL, a new reference to the created enum object is
+ * stored there for the caller to save in module state.
+ */
 int add_enum(PyObject *module,
+	     PyObject *parent_module,
 	     PyObject *enum_type,
 	     const char *class_name,
 	     PyObject *(*get_dict)(void),
@@ -352,6 +395,7 @@ int add_enum(PyObject *module,
 {
 	PyObject *args = NULL;
 	PyObject *enum_obj = NULL;
+	int err;
 
 	args = build_args_tuple_enum(class_name, get_dict);
 	if (args == NULL)
@@ -362,9 +406,21 @@ int add_enum(PyObject *module,
 	enum_obj = PyObject_Call(enum_type, args, kwargs);
 	Py_DECREF(args);
 
-	if (PyModule_AddObjectRef(module, class_name, enum_obj) == -1) {
+	// Always register in the enums submodule
+	err = PyModule_AddObjectRef(module, class_name, enum_obj);
+	if (err) {
 		Py_XDECREF(enum_obj);
 		return -1;
+	}
+
+	// Optionally also register in the root truenas_pylibzfs module
+	// for backwards compatibility with callers that import from there
+	if (parent_module != NULL) {
+		err = PyModule_AddObjectRef(parent_module, class_name, enum_obj);
+		if (err) {
+			Py_XDECREF(enum_obj);
+			return -1;
+		}
 	}
 
 	if (penum_out == NULL) {
@@ -376,11 +432,16 @@ int add_enum(PyObject *module,
 }
 
 /*
- * This function is used to add lookup tables form pylibzfs_enum.h
- * to the module as enum.IntEnum.
+ * Add all ZFS enum lookup tables from truenas_pylibzfs_enums.h as
+ * enum.IntEnum / enum.IntFlag types.
+ *
+ * module - the root truenas_pylibzfs module (used for backwards-compatible
+ *          re-export of selected enums and as the source of module state)
+ * emod   - the truenas_pylibzfs.enums submodule (primary registration target
+ *          for all enums)
  */
 int
-py_add_zfs_enums(PyObject *module)
+py_add_zfs_enums(PyObject *module, PyObject *emod)
 {
 	int err = -1;
 	PyObject *enum_mod = NULL;
@@ -409,55 +470,61 @@ py_add_zfs_enums(PyObject *module)
 	if (intflag_enum == NULL)
 		goto out;
 
-	err = add_enum(module, int_enum, "ZFSError",
+	err = add_enum(emod, module, int_enum, "ZFSError",
 		       zfs_err_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
-	err = add_enum(module, int_enum, "ZPOOLStatus",
-		       zpool_status_table_to_dict, kwargs, NULL);
+	err = add_enum(emod, module, int_enum, "ZPOOLStatus",
+		       zpool_status_table_to_dict, kwargs,
+		       &state->zpool_status_enum);
 	if (err)
 		goto out;
 
-	err = add_enum(module, int_enum, "ZFSType",
+	err = add_enum(emod, module, int_enum, "ZFSType",
 		       zfs_type_table_to_dict, kwargs,
 		       &state->zfs_type_enum);
 	if (err)
 		goto out;
 
-	err = add_enum(module, intflag_enum, "ZFSDOSFlag",
+	err = add_enum(emod, NULL, intflag_enum, "ZFSDOSFlag",
 		       zfs_dosflag_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
-	err = add_enum(module, int_enum, "ZFSProperty",
+	err = add_enum(emod, module, int_enum, "ZFSProperty",
 		       zfs_prop_table_to_dict, kwargs,
 		       &state->zfs_property_enum);
 	if (err)
 		goto out;
 
-	err = add_enum(module, int_enum, "ZPOOLProperty",
+	err = add_enum(emod, NULL, int_enum, "ZPOOLProperty",
 		       zpool_prop_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
-	err = add_enum(module, intflag_enum, "PropertySource",
+	err = add_enum(emod, module, intflag_enum, "PropertySource",
 		       zfs_prop_src_table_to_dict, kwargs,
 		       &state->zfs_property_src_enum);
 	if (err)
 		goto out;
 
-	err = add_enum(module, int_enum, "VDevAuxState",
+	err = add_enum(emod, NULL, int_enum, "VDevAuxState",
 			zfs_vdev_aux_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
 
-	err = add_enum(module, int_enum, "ZFSUserQuota",
+	err = add_enum(emod, module, int_enum, "ZFSUserQuota",
 		       uquota_table_to_dict, kwargs,
 		       &state->zfs_uquota_enum);
 	if (err)
 		goto out;
 
+	err = add_enum(emod, NULL, int_enum, "VDevState",
+		       vdev_state_table_to_dict, kwargs,
+		       &state->vdev_state_enum);
+	if (err)
+		goto out;
 out:
 	Py_XDECREF(kwargs);
 	Py_XDECREF(int_enum);
