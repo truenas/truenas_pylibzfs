@@ -475,7 +475,7 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 	if (err)
 		goto out;
 
-	err = add_enum(emod, NULL, int_enum, "ZPOOLStatus",
+	err = add_enum(emod, module, int_enum, "ZPOOLStatus",
 		       zpool_status_table_to_dict, kwargs,
 		       &state->zpool_status_enum);
 	if (err)
