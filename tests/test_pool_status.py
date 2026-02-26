@@ -3,7 +3,9 @@ import pytest
 import subprocess
 import tempfile
 import truenas_pylibzfs
-from truenas_pylibzfs.enums import ZPOOLStatus, VDevState
+
+ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
+VDevState = truenas_pylibzfs.VDevState
 
 POOL_NAME = 'testpool_status'
 DISK_SZ = 1024 * 1048576

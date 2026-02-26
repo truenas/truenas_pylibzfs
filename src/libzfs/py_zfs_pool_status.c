@@ -833,6 +833,7 @@ PyObject *py_collect_unsupported_feat(py_zfs_pool_t *pypool,
 	return pyfeat;
 }
 
+static
 /*
  * @brief build and return a struct_zpool_status struct sequence object
  *
