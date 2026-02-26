@@ -314,8 +314,9 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	nvlist_t **child;
 	uint_t vsc, children;
 	const char *type;
-	uint64_t guid;
+	uint64_t guid, nparity;
 	char *vname = NULL;
+	char type_buf[32];
 	PyObject *out = NULL;
 	PyObject *vdev_stats = NULL;
 	vdev_stat_t *vs;
@@ -327,6 +328,19 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	verify(nvlist_lookup_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
 	    (uint64_t **)&vs, &vsc) == 0);
 	verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type) == 0);
+
+	/*
+	 * For raidz vdevs the raw ZPOOL_CONFIG_TYPE is always "raidz"
+	 * regardless of parity level.  Append the parity count to match
+	 * the display name used by zpool(8) (e.g. "raidz1", "raidz2").
+	 */
+	if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
+		verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NPARITY,
+		    &nparity) == 0);
+		(void) snprintf(type_buf, sizeof (type_buf), "%s%llu",
+		    type, (u_longlong_t)nparity);
+		type = type_buf;
+	}
 
 	verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_GUID, &guid) == 0);
 	PY_ZFS_LOCK(pypool->pylibzfsp);

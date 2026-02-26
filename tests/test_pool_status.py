@@ -307,7 +307,7 @@ def test_stripe_topology(pool_stripe):
     status = pool.status()
     assert len(status.storage_vdevs) == 1
     vdev = status.storage_vdevs[0]
-    assert vdev.vdev_type == 'disk'
+    assert vdev.vdev_type == 'file'
     assert vdev.children is None
 
 
