@@ -261,7 +261,8 @@ PyStructSequence_Desc struct_vdev_status_desc = {
  */
 #define VDEV_TYPE_NAME_BUF_SIZE	64
 
-#define PY_VDEV_MASK_ALL	(PY_VDEV_CLASS_ALL | PY_VDEV_DATA_WANT_STATS)
+#define PY_VDEV_MASK_ALL	(PY_VDEV_CLASS_ALL | PY_VDEV_DATA_WANT_STATS | \
+	PY_VDEV_NAME_FOLLOW_LINKS)
 
 static
 boolean_t parse_vdev_stats(vdev_stat_t *vs,
