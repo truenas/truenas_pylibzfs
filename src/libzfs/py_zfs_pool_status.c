@@ -43,7 +43,7 @@
  * └── spares:  (struct_vdev,)                               │
  *     └── struct_vdev                                       │
  *         ├── name:      "draid1-0-0"                       │
- *         ├── vdev_type: "draid_spare"                      │
+ *         ├── vdev_type: "dspare"                           │
  *         ├── guid:      0xCCCC                             │
  *         ├── state:     AVAIL                              │
  *         ├── stats:     struct_vdev_stats                  │
@@ -222,7 +222,7 @@ PyStructSequence_Field struct_vdev_status_prop [] = {
 	{"state", "State of the vdev"},
 	{"stats", "Stats counters for vdev."},
 	{"children", "Tuple of vdevs that make up this vdev (if applicable)"},
-	{"top_guid", "For draid_spare vdevs: GUID of the top-level dRAID vdev "
+	{"top_guid", "For dspare vdevs: GUID of the top-level dRAID vdev "
 	             "that owns this distributed spare (matches the guid field "
 	             "of the originating draid entry in storage_vdevs). "
 	             "None for all other vdev types."},
@@ -476,6 +476,8 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 
 	if (strcmp(type, VDEV_TYPE_INDIRECT) == 0) {
 		free(vname);
+		PyErr_SetString(PyExc_RuntimeError,
+		    "Unexpected indirect vdev passed to gen_vdev_status_nvlist");
 		return NULL;
 	}
 
@@ -528,7 +530,7 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	}
 
 	/*
-	 * top_guid: for draid_spare vdevs, the GUID of the top-level dRAID
+	 * top_guid: for dspare vdevs, the GUID of the top-level dRAID
 	 * vdev that owns this distributed spare (stored in the nvlist as
 	 * ZPOOL_CONFIG_TOP_GUID).  None for all other vdev types.
 	 */
@@ -848,12 +850,18 @@ PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
 
 	PYZFS_ASSERT((children != 0), "No vdevs in pool!");
 
-	return vdev_nvlist_array_to_list(pypool,
-					 state,
-					 child,
-					 children,
-					 0,
-					 request_mask);
+	PyObject *vdev_list = vdev_nvlist_array_to_list(pypool,
+							state,
+							child,
+							children,
+							0,
+							request_mask);
+	if (vdev_list == NULL)
+		return NULL;
+
+	PyObject *out = PyList_AsTuple(vdev_list);
+	Py_DECREF(vdev_list);
+	return out;
 }
 
 /*
