@@ -226,6 +226,7 @@ boolean_t py_add_zpool_status_sets(pylibzfs_state_t *pstate,
 		ZPOOL_STATUS_UNSUP_FEAT_READ,
 		ZPOOL_STATUS_FAULTED_DEV_NR,
 		ZPOOL_STATUS_IO_FAILURE_MMP,
+		ZPOOL_STATUS_BAD_GUID_SUM,
 	};
 	static const zpool_status_t recoverable[] = {
 		ZPOOL_STATUS_MISSING_DEV_R,
