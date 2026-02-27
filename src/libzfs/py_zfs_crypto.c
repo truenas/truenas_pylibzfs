@@ -807,6 +807,7 @@ PyObject *py_load_key_common(py_zfs_obj_t *obj,
 {
 	const char *alt_keylocation = NULL;
 	Py_buffer key_buf = {0};
+	PyObject *rv = NULL;
 
 	char *kwnames [] = {
 		"key",
@@ -827,7 +828,7 @@ PyObject *py_load_key_common(py_zfs_obj_t *obj,
 			return NULL;
 	}
 
-	PyObject *rv = py_load_key_impl(obj,
+	rv = py_load_key_impl(obj,
 					(const char *)key_buf.buf,
 					(size_t)key_buf.len,
 					alt_keylocation,
