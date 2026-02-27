@@ -154,8 +154,19 @@ static const struct {
 	{ ZPOOL_STATUS_OK, "ZPOOL_STATUS_OK" },
 };
 
-/* Sometimes we get new zpool status codes.
- * If this gets triggered, we need to update lookup table
+/*
+ * Sometimes we get new zpool status codes.
+ * If this gets triggered, we need to update the lookup table above AND
+ * consider whether the new status belongs in ZPOOL_STATUS_RECOVERABLE or
+ * ZPOOL_STATUS_NONRECOVERABLE in src/common/py_zfs_prop_sets.c:
+ *
+ * - ZPOOL_STATUS_RECOVERABLE: errors that can be resolved through
+ *   administrative action (e.g. replacing a device, clearing I/O errors,
+ *   scrubbing) without restoring from backup.
+ *
+ * - ZPOOL_STATUS_NONRECOVERABLE: errors from which the pool cannot recover
+ *   without restoring from backup (e.g. missing/faulted devices with no
+ *   remaining redundancy, unsupported features preventing pool open).
  */
 #define LAST_ZPOOL_STATUS_T ZPOOL_STATUS_INCOMPATIBLE_FEAT
 _Static_assert(ZPOOL_STATUS_OK -1 == LAST_ZPOOL_STATUS_T);

@@ -9,6 +9,8 @@ typedef struct {
 	PyObject *zfs_filesystem_snapshot_readonly_props;
 	PyObject *zfs_volume_snapshot_props;
 	PyObject *zfs_volume_snapshot_readonly_props;
+	PyObject *zpool_status_nonrecoverable;
+	PyObject *zpool_status_recoverable;
 } pylibzfs_propset_t;
 
 
@@ -36,6 +38,8 @@ py_zfs_propset_module_clear(PyObject *module)
 	Py_CLEAR(state->zfs_filesystem_snapshot_readonly_props);
 	Py_CLEAR(state->zfs_volume_snapshot_props);
 	Py_CLEAR(state->zfs_volume_snapshot_readonly_props);
+	Py_CLEAR(state->zpool_status_nonrecoverable);
+	Py_CLEAR(state->zpool_status_recoverable);
 	return 0;
 }
 
@@ -210,12 +214,86 @@ error:
 }
 
 static
+boolean_t py_add_zpool_status_sets(pylibzfs_state_t *pstate,
+				    PyObject *module,
+				    pylibzfs_propset_t *state)
+{
+	static const zpool_status_t nonrecoverable[] = {
+		ZPOOL_STATUS_MISSING_DEV_NR,
+		ZPOOL_STATUS_CORRUPT_LABEL_NR,
+		ZPOOL_STATUS_CORRUPT_POOL,
+		ZPOOL_STATUS_VERSION_NEWER,
+		ZPOOL_STATUS_UNSUP_FEAT_READ,
+		ZPOOL_STATUS_FAULTED_DEV_NR,
+		ZPOOL_STATUS_IO_FAILURE_MMP,
+		ZPOOL_STATUS_BAD_GUID_SUM,
+	};
+	static const zpool_status_t recoverable[] = {
+		ZPOOL_STATUS_MISSING_DEV_R,
+		ZPOOL_STATUS_CORRUPT_LABEL_R,
+		ZPOOL_STATUS_FAULTED_DEV_R,
+		ZPOOL_STATUS_CORRUPT_DATA,
+		ZPOOL_STATUS_BAD_LOG,
+		ZPOOL_STATUS_IO_FAILURE_WAIT,
+		ZPOOL_STATUS_IO_FAILURE_CONTINUE,
+		ZPOOL_STATUS_FAILING_DEV,
+	};
+	PyObject *item = NULL;
+	int rv;
+
+	state->zpool_status_nonrecoverable = PyFrozenSet_New(NULL);
+	if (state->zpool_status_nonrecoverable == NULL)
+		return B_FALSE;
+
+	for (size_t i = 0; i < ARRAY_SIZE(nonrecoverable); i++) {
+		item = PyObject_CallFunction(
+		    pstate->zpool_status_enum, "i", nonrecoverable[i]);
+		if (item == NULL)
+			return B_FALSE;
+
+		rv = PySet_Add(state->zpool_status_nonrecoverable, item);
+		Py_DECREF(item);
+		if (rv < 0)
+			return B_FALSE;
+	}
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_STATUS_NONRECOVERABLE",
+	    state->zpool_status_nonrecoverable) < 0)
+		return B_FALSE;
+
+	state->zpool_status_recoverable = PyFrozenSet_New(NULL);
+	if (state->zpool_status_recoverable == NULL)
+		return B_FALSE;
+
+	for (size_t i = 0; i < ARRAY_SIZE(recoverable); i++) {
+		item = PyObject_CallFunction(
+		    pstate->zpool_status_enum, "i", recoverable[i]);
+		if (item == NULL)
+			return B_FALSE;
+
+		rv = PySet_Add(state->zpool_status_recoverable, item);
+		Py_DECREF(item);
+		if (rv < 0)
+			return B_FALSE;
+	}
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_STATUS_RECOVERABLE",
+	    state->zpool_status_recoverable) < 0)
+		return B_FALSE;
+
+	return B_TRUE;
+}
+
+static
 boolean_t py_init_propset_state(pylibzfs_state_t *pstate,
 				PyObject *module,
 				pylibzfs_propset_t *state)
 {
 
 	if (!py_add_zfs_propset(pstate, module, state))
+		return B_FALSE;
+
+	if (!py_add_zpool_status_sets(pstate, module, state))
 		return B_FALSE;
 
 	return B_TRUE;
@@ -235,6 +313,13 @@ PYLIBZFS_MODULE_NAME ".propset provides various frozen sets for ZFS and zpool\n"
 "\n"
 "- ZFS_SPACE_PROPERTIES: these properties provide the equivalent of the property\n"
 "   set returned by the command \"zfs get space\".\n"
+"\n"
+"- ZPOOL_STATUS_NONRECOVERABLE: ZPOOLStatus values indicating the pool cannot\n"
+"   recover without administrative intervention (e.g. restore from backup).\n"
+"\n"
+"- ZPOOL_STATUS_RECOVERABLE: ZPOOLStatus values indicating the pool has errors\n"
+"   that may be resolved through administrative action (e.g. replacing a\n"
+"   failed device, clearing I/O errors, or scrubbing).\n"
 );
 /* Module structure */
 static struct PyModuleDef truenas_pypropset = {
