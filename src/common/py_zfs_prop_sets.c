@@ -236,6 +236,7 @@ boolean_t py_add_zpool_status_sets(pylibzfs_state_t *pstate,
 		ZPOOL_STATUS_BAD_LOG,
 		ZPOOL_STATUS_IO_FAILURE_WAIT,
 		ZPOOL_STATUS_IO_FAILURE_CONTINUE,
+		ZPOOL_STATUS_FAILING_DEV,
 	};
 	PyObject *item = NULL;
 	int rv;
