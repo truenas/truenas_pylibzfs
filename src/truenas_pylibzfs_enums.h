@@ -371,8 +371,10 @@ static const struct {
 	{ ZPOOL_PROP_DEDUP_TABLE_QUOTA, "DEDUP_TABLE_QUOTA" },
 	{ ZPOOL_PROP_DEDUPCACHED, "DEDUPCACHED" },
 	{ ZPOOL_PROP_LAST_SCRUBBED_TXG, "LAST_SCRUBBED_TXG" },
+	{ ZPOOL_PROP_DEDUPUSED, "DEDUPUSED" },
+	{ ZPOOL_PROP_DEDUPSAVED, "DEDUPSAVED" },
 };
-_Static_assert(ZPOOL_NUM_PROPS -1 == ZPOOL_PROP_LAST_SCRUBBED_TXG);
+_Static_assert(ZPOOL_NUM_PROPS -1 == ZPOOL_PROP_DEDUPSAVED);
 
 static const struct {
 	zprop_source_t sourcetype;
@@ -407,6 +409,20 @@ static const struct {
 	{ ZFS_PROP_PROJECTOBJQUOTA, "PROJECTOBJ_QUOTA" },
 };
 _Static_assert(ZFS_NUM_USERQUOTA_PROPS -1 == ZFS_PROP_PROJECTOBJQUOTA);
+
+static const struct {
+	vdev_state_t state;
+	const char *name;
+} vdev_state_table[] = {
+	{ VDEV_STATE_UNKNOWN, "UNKNOWN" }, /* Uninitialized vdev */
+	{ VDEV_STATE_CLOSED, "CLOSED" }, /* Not currently open */
+	{ VDEV_STATE_OFFLINE, "OFFLINE" }, /* Not allowed to open */
+	{ VDEV_STATE_REMOVED, "REMOVED" }, /* Explicitly removed from system */
+	{ VDEV_STATE_CANT_OPEN, "CANT_OPEN" }, /* Tried to open, but failed */
+	{ VDEV_STATE_FAULTED, "FAULTED" }, /* External request to fault device */
+	{ VDEV_STATE_DEGRADED, "DEGRADED" }, /* vdev with unhealthy kids */
+	{ VDEV_STATE_HEALTHY, "ONLINE" }, /* C constant is HEALTHY; Python name matches zpool(8) output */
+};
 
 
 #endif /* _TRUENAS_PYLIBZFS_ENUMS_H */

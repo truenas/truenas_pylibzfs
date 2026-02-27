@@ -232,6 +232,13 @@ static struct PyModuleDef truenas_pylibzfs_constants = {
 	.m_doc = PYLIBZFS_MODULE_NAME ".constants" " provides constants related to libzfs.",
 };
 
+/* Enums module */
+static struct PyModuleDef truenas_pylibzfs_enums = {
+	.m_base = PyModuleDef_HEAD_INIT,
+	.m_name = PYLIBZFS_MODULE_NAME ".enums",
+	.m_doc = PYLIBZFS_MODULE_NAME ".enums provides enums related to libzfs.",
+};
+
 static
 int py_init_libzfs(void)
 {
@@ -259,6 +266,7 @@ PyInit_truenas_pylibzfs(void)
 {
 	PyObject *zfs_exc;
 	PyObject *constants = NULL;
+	PyObject *enums = NULL;
 	PyObject *lzc = NULL;
 	PyObject *propsets = NULL;
 	int err;
@@ -310,7 +318,18 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
-	if (py_add_zfs_enums(mpylibzfs)) {
+	enums = PyModule_Create(&truenas_pylibzfs_enums);
+	if (enums != NULL) {
+		if (py_add_zfs_enums(mpylibzfs, enums)) {
+			Py_DECREF(enums);
+			Py_DECREF(mpylibzfs);
+			return NULL;
+		}
+	}
+
+	err = PyModule_AddObjectRef(mpylibzfs, "enums", enums);
+	Py_XDECREF(enums);
+	if (err) {
 		Py_DECREF(mpylibzfs);
 		return NULL;
 	}

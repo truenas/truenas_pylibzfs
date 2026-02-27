@@ -96,6 +96,55 @@ PyObject *py_zfs_pool_root_dataset(PyObject *self, PyObject *args) {
 	return (out);
 }
 
+PyDoc_STRVAR(py_zfs_pool_status__doc__,
+"status(*, asdict=False, get_stats=True, follow_links=True) -> struct_zpool_status | dict\n"
+"----------------------------------------------------------------------------------------\n\n"
+"Retrieve health and configuration status of the zpool.\n\n"
+"Parameters\n"
+"----------\n"
+"asdict: boolean, optional, default=False\n"
+"    If True, return a plain dictionary instead of a struct_zpool_status\n"
+"    struct sequence. The dictionary has the same keys as the struct\n"
+"    sequence field names.\n\n"
+"get_stats: boolean, optional, default=True\n"
+"    If True, include cached per-vdev I/O and error counters in the\n"
+"    output. When False, the 'stats' field of each vdev will be None,\n"
+"    which reduces overhead when only topology or health state is needed.\n\n"
+"follow_links: boolean, optional, default=True\n"
+"    If True, resolve symlinks in vdev path names (equivalent to\n"
+"    'zpool status -L'). Useful when vdevs are referenced by\n"
+"    /dev/disk/by-partuuid/ or similar symlinks and the resolved\n"
+"    /dev/<device> path is required.\n\n"
+"Returns\n"
+"-------\n"
+"truenas_pylibzfs.struct_zpool_status when asdict=False (default),\n"
+"or a plain dict with equivalent contents when asdict=True.\n"
+);
+static
+PyObject *py_zfs_pool_status(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	boolean_t asdict = B_FALSE;
+	boolean_t get_stats = B_TRUE;
+	boolean_t follow_links = B_TRUE;
+	char *kwnames [] = {"asdict", "get_stats", "follow_links", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
+					 "|$ppp",
+					 kwnames,
+					 &asdict,
+					 &get_stats,
+					 &follow_links)) {
+		return NULL;
+	}
+
+	if (asdict)
+		return py_get_pool_status_dict((py_zfs_pool_t *)self,
+		    get_stats, follow_links);
+
+	return py_get_pool_status((py_zfs_pool_t *)self, get_stats,
+	    follow_links);
+}
+
 PyDoc_STRVAR(py_zfs_pool_root_vdev__doc__,
 "root_vdev(*) -> ZFSVdev\n\n"
 "-----------------------\n\n"
@@ -574,6 +623,12 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_name = "asdict",
 		.ml_meth = py_zfs_pool_asdict,
 		.ml_flags = METH_NOARGS
+	},
+	{
+		.ml_name = "status",
+		.ml_meth = (PyCFunction)py_zfs_pool_status,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_status__doc__
 	},
 	{
 		.ml_name = "root_dataset",

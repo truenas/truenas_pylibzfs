@@ -2,10 +2,51 @@ from collections.abc import Iterator
 import enum
 from typing import Any, Callable, ClassVar
 
+from . import enums
 from . import lzc
 from . import property_sets
 
-__all__ = ["lzc", "property_sets"]
+__all__ = ["enums", "lzc", "property_sets"]
+
+class struct_vdev_stats:
+    allocated: int
+    space: int
+    dspace: int
+    pspace: int
+    rsize: int
+    esize: int
+    read_errors: int
+    write_errors: int
+    checksum_errors: int
+    initialize_errors: int
+    dio_verify_errors: int
+    slow_ios: int | None
+    self_healed_bytes: int
+
+class struct_vdev:
+    name: str
+    vdev_type: str
+    guid: int
+    state: enums.VDevState
+    stats: struct_vdev_stats | None
+    children: tuple[struct_vdev, ...] | None
+    top_guid: int | None
+
+class struct_support_vdev:
+    cache: tuple[struct_vdev, ...]
+    log: tuple[struct_vdev, ...]
+    special: tuple[struct_vdev, ...]
+    dedup: tuple[struct_vdev, ...]
+
+class struct_zpool_status:
+    status: ZPOOLStatus
+    reason: str | None
+    action: str | None
+    message: str | None
+    corrupted_files: tuple[str, ...]
+    storage_vdevs: tuple[struct_vdev, ...]
+    support_vdevs: struct_support_vdev
+    spares: tuple[struct_vdev, ...]
 
 class PropertySource(enum.IntFlag):
     __new__: ClassVar[Callable] = ...
@@ -402,6 +443,8 @@ class ZPOOLProperty(enum.IntEnum):
     DEDUPRATIO: ClassVar[ZPOOLProperty] = ...
     DEDUP_TABLE_QUOTA: ClassVar[ZPOOLProperty] = ...
     DEDUP_TABLE_SIZE: ClassVar[ZPOOLProperty] = ...
+    DEDUPSAVED: ClassVar[ZPOOLProperty] = ...
+    DEDUPUSED: ClassVar[ZPOOLProperty] = ...
     DELEGATION: ClassVar[ZPOOLProperty] = ...
     EXPANDSZ: ClassVar[ZPOOLProperty] = ...
     FAILUREMODE: ClassVar[ZPOOLProperty] = ...
@@ -493,6 +536,14 @@ class ZFSPool:
     def prefetch(self) -> None:
         """Prefetch pool metadata (DDT and BRT) into ARC."""
         ...
+
+    def status(
+        self,
+        *,
+        asdict: bool = ...,
+        get_stats: bool = ...,
+        follow_links: bool = ...,
+    ) -> struct_zpool_status | dict: ...
 
 
 class struct_zfs_crypto_info:

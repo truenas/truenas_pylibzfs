@@ -1700,7 +1700,7 @@ py_add_lzc_enums(PyObject *module)
 	if (str_enum == NULL)
 		goto out;
 
-	err = add_enum(module, str_enum, "ChannelProgramEnum",
+	err = add_enum(module, NULL, str_enum, "ChannelProgramEnum",
 		       zcp_table_to_dict, kwargs,
 		       &state->zcp_enum);
 

@@ -37,18 +37,19 @@ int py_zfs_init(PyObject *type, PyObject *args, PyObject *kwds) {
 		return (-1);
 	}
 
-	Py_BEGIN_ALLOW_THREADS
-	strlcpy(zfs->history_prefix, history_prefix, MAX_HISTORY_PREFIX_LEN);
-	zfs->lzh = libzfs_init();
-	err = pthread_mutex_init(&zfs->zfs_lock, NULL);
-	Py_END_ALLOW_THREADS
-
+	err = PY_ZFS_LOCK_INIT(&zfs->zfs_lock);
 	if (err) {
 		PyErr_Format(PyExc_RuntimeError,
-			     "Failed to initialize pthread mutex: %s",
+			     "Failed to initialize mutex: %s",
 			     strerror(errno));
 		return (-1);
 	}
+
+	Py_BEGIN_ALLOW_THREADS
+	strlcpy(zfs->history_prefix, history_prefix, MAX_HISTORY_PREFIX_LEN);
+	zfs->lzh = libzfs_init();
+	Py_END_ALLOW_THREADS
+
 	return (0);
 }
 
@@ -61,7 +62,7 @@ void py_zfs_dealloc(py_zfs_t *self) {
 
 	Py_CLEAR(self->module);
 	self->lzh = NULL;
-	pthread_mutex_destroy(&self->zfs_lock);
+	PY_ZFS_LOCK_DESTROY(&self->zfs_lock);
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
