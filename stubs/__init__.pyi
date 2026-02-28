@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 import enum
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Literal
 
 from . import enums
 from . import lzc
@@ -41,7 +41,7 @@ class struct_support_vdev:
 class struct_zpool_feature:
     guid: str
     description: str
-    state: str
+    state: Literal["DISABLED", "ENABLED", "ACTIVE"]
 
 class struct_zpool_status:
     status: ZPOOLStatus
