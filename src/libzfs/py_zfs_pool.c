@@ -667,7 +667,6 @@ PyObject *py_zfs_pool_get_features(PyObject *self,
 	pylibzfs_state_t *state = py_get_module_state(p->pylibzfsp);
 	nvlist_t *features = NULL;
 	PyObject *dict_out = NULL;
-	boolean_t have_features;
 	boolean_t asdict = B_FALSE;
 	char *kwnames[] = {"asdict", NULL};
 
@@ -682,21 +681,21 @@ PyObject *py_zfs_pool_get_features(PyObject *self,
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
-	features = zpool_get_features(p->zhp);
+	nvlist_t *raw_features = zpool_get_features(p->zhp);
+	if (raw_features != NULL)
+		features = fnvlist_dup(raw_features);
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	have_features = (features != NULL);
-
 	dict_out = PyDict_New();
 	if (dict_out == NULL)
-		return NULL;
+		goto out;
 
 	for (int i = 0; i < SPA_FEATURES; i++) {
 		zfeature_info_t *feat = &spa_feature_table[i];
 
 		const char *feat_state;
-		if (!have_features ||
+		if (features == NULL ||
 		    !nvlist_exists(features, feat->fi_guid)) {
 			feat_state = "DISABLED";
 		} else {
@@ -744,19 +743,21 @@ PyObject *py_zfs_pool_get_features(PyObject *self,
 		}
 
 		if (entry == NULL) {
-			Py_DECREF(dict_out);
-			return NULL;
+			Py_CLEAR(dict_out);
+			goto out;
 		}
 
 		if (PyDict_SetItemString(dict_out, feat->fi_uname,
 		    entry) < 0) {
 			Py_DECREF(entry);
-			Py_DECREF(dict_out);
-			return NULL;
+			Py_CLEAR(dict_out);
+			goto out;
 		}
 		Py_DECREF(entry);
 	}
 
+out:
+	nvlist_free(features);
 	return dict_out;
 }
 
