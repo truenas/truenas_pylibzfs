@@ -10,7 +10,6 @@ static PyTypeObject *alltypes[] = {
 	&ZFSObject,
 	&ZFSPool,
 	&ZFSSnapshot,
-	&ZFSVdev,
 	&ZFSVolume,
 	NULL
 };
@@ -196,6 +195,12 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 		.ml_meth = (PyCFunction)py_fzfs_rewrite,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_fzfs_rewrite__doc__
+	},
+	{
+		.ml_name = "create_vdev_spec",
+		.ml_meth = (PyCFunction)py_create_vdev_spec,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = NULL
 	},
 	{NULL}
 };
