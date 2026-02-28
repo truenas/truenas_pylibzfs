@@ -577,8 +577,8 @@ extern PyObject *generate_crypto_config(py_zfs_t *pyzfs,
 
 /* provided by py_zfs_pool_status.c */
 extern PyObject *py_get_pool_status(py_zfs_pool_t *pypool, boolean_t get_stats,
-    boolean_t follow_links);
+    boolean_t follow_links, boolean_t full_path);
 extern PyObject *py_get_pool_status_dict(py_zfs_pool_t *pypool,
-    boolean_t get_stats, boolean_t follow_links);
+    boolean_t get_stats, boolean_t follow_links, boolean_t full_path);
 extern void init_py_pool_status_state(pylibzfs_state_t *state);
 #endif  /* _TRUENAS_PYLIBZFS_H */

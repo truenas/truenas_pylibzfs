@@ -254,6 +254,7 @@ PyStructSequence_Desc struct_vdev_status_desc = {
 #define PY_VDEV_CLASS_ALL	(PY_VDEV_CLASS_STORAGE | PY_VDEV_CLASS_SUPPORT)
 #define PY_VDEV_DATA_WANT_STATS		0x40  // gather stats on vdevs
 #define PY_VDEV_NAME_FOLLOW_LINKS	0x80  // resolve symlinks in vdev names
+#define PY_VDEV_NAME_PATH		0x100 // display full vdev path names
 
 /*
  * Buffer large enough to hold a fully-qualified draid type name of the form
@@ -262,7 +263,7 @@ PyStructSequence_Desc struct_vdev_status_desc = {
 #define VDEV_TYPE_NAME_BUF_SIZE	64
 
 #define PY_VDEV_MASK_ALL	(PY_VDEV_CLASS_ALL | PY_VDEV_DATA_WANT_STATS | \
-	PY_VDEV_NAME_FOLLOW_LINKS)
+	PY_VDEV_NAME_FOLLOW_LINKS | PY_VDEV_NAME_PATH)
 
 static
 boolean_t parse_vdev_stats(vdev_stat_t *vs,
@@ -469,7 +470,9 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 				pypool->zhp, nv,
 				VDEV_NAME_TYPE_ID |
 				((request_mask & PY_VDEV_NAME_FOLLOW_LINKS)
-				    ? VDEV_NAME_FOLLOW_LINKS : 0));
+				    ? VDEV_NAME_FOLLOW_LINKS : 0) |
+				((request_mask & PY_VDEV_NAME_PATH)
+				    ? VDEV_NAME_PATH : 0));
 	PY_ZFS_UNLOCK(pypool->pylibzfsp);
 
 	Py_END_ALLOW_THREADS
@@ -665,7 +668,8 @@ boolean_t populate_support_vdevs(py_zfs_pool_t *pypool,
 				 nvlist_t *nvl,
 				 PyObject *vdev_struct,
 				 boolean_t get_stats,
-				 boolean_t follow_links)
+				 boolean_t follow_links,
+				 boolean_t full_path)
 {
 	uint_t children, cache_cnt;
 	nvlist_t **child, **cache;
@@ -677,6 +681,8 @@ boolean_t populate_support_vdevs(py_zfs_pool_t *pypool,
 	uint mask = get_stats ? PY_VDEV_DATA_WANT_STATS : 0;
 	if (follow_links)
 		mask |= PY_VDEV_NAME_FOLLOW_LINKS;
+	if (full_path)
+		mask |= PY_VDEV_NAME_PATH;
 
 	Py_BEGIN_ALLOW_THREADS
 	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_CHILDREN,
@@ -770,7 +776,8 @@ static
 PyObject *pypool_status_get_support_vdevs(py_zfs_pool_t *pypool,
 					  nvlist_t *nvl,
 					  boolean_t get_stats,
-					  boolean_t follow_links)
+					  boolean_t follow_links,
+					  boolean_t full_path)
 {
 	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
 	PyObject *vdev_struct;
@@ -780,7 +787,7 @@ PyObject *pypool_status_get_support_vdevs(py_zfs_pool_t *pypool,
 		return NULL;
 
 	if (!populate_support_vdevs(pypool, state, nvl, vdev_struct,
-	    get_stats, follow_links))
+	    get_stats, follow_links, full_path))
 		Py_CLEAR(vdev_struct);
 
 	return vdev_struct;
@@ -790,7 +797,8 @@ static
 PyObject *pypool_status_get_spare_vdevs(py_zfs_pool_t *pypool,
 					nvlist_t *nvl,
 					boolean_t get_stats,
-					boolean_t follow_links)
+					boolean_t follow_links,
+					boolean_t full_path)
 {
 	nvlist_t **spares;
 	uint_t nspares;
@@ -802,6 +810,8 @@ PyObject *pypool_status_get_spare_vdevs(py_zfs_pool_t *pypool,
 		request_mask |= PY_VDEV_DATA_WANT_STATS;
 	if (follow_links)
 		request_mask |= PY_VDEV_NAME_FOLLOW_LINKS;
+	if (full_path)
+		request_mask |= PY_VDEV_NAME_PATH;
 
 	Py_BEGIN_ALLOW_THREADS
 	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_SPARES,
@@ -830,7 +840,8 @@ static
 PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
 					  nvlist_t *nvl,
 					  boolean_t get_stats,
-					  boolean_t follow_links)
+					  boolean_t follow_links,
+					  boolean_t full_path)
 {
 	uint_t children;
 	nvlist_t **child;
@@ -841,6 +852,8 @@ PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
 		request_mask |= PY_VDEV_DATA_WANT_STATS;
 	if (follow_links)
 		request_mask |= PY_VDEV_NAME_FOLLOW_LINKS;
+	if (full_path)
+		request_mask |= PY_VDEV_NAME_PATH;
 
 	Py_BEGIN_ALLOW_THREADS
 	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_CHILDREN,
@@ -878,6 +891,7 @@ PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
  *                             to write vdev fields into
  * @param[in]  get_stats     - include per-vdev I/O and error counters
  * @param[in]  follow_links  - resolve symlinks in vdev names (zpool status -L)
+ * @param[in]  full_path     - display full vdev path names (zpool status -P)
  *
  * @return  B_TRUE on success, B_FALSE with a Python exception set on failure.
  *
@@ -887,7 +901,8 @@ static
 boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
 				  PyObject *status_struct,
 				  boolean_t get_stats,
-				  boolean_t follow_links)
+				  boolean_t follow_links,
+				  boolean_t full_path)
 {
 	PyObject *storage_vdevs = NULL;
 	PyObject *support_vdevs = NULL;
@@ -908,21 +923,21 @@ boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
 	Py_END_ALLOW_THREADS
 
 	storage_vdevs = pypool_status_get_storage_vdevs(pypool, nvroot,
-	    get_stats, follow_links);
+	    get_stats, follow_links, full_path);
 	if (storage_vdevs == NULL)
 		goto fail;
 
 	PyStructSequence_SetItem(status_struct, VDEVS_STORAGE_IDX, storage_vdevs);
 
 	support_vdevs = pypool_status_get_support_vdevs(pypool, nvroot,
-	    get_stats, follow_links);
+	    get_stats, follow_links, full_path);
 	if (support_vdevs == NULL)
 		goto fail;
 
 	PyStructSequence_SetItem(status_struct, VDEVS_SUPPORT_IDX, support_vdevs);
 
 	spare_vdevs = pypool_status_get_spare_vdevs(pypool, nvroot,
-	    get_stats, follow_links);
+	    get_stats, follow_links, full_path);
 	if (spare_vdevs == NULL)
 		goto fail;
 
@@ -1074,6 +1089,7 @@ PyObject *py_collect_unsupported_feat(py_zfs_pool_t *pypool,
  * @param[in]  msgid     - openzfs.github.io message ID string, or NULL
  * @param[in]  get_stats    - include vdev I/O and error counters when B_TRUE
  * @param[in]  follow_links - resolve symlinks in vdev names when B_TRUE
+ * @param[in]  full_path    - display full vdev path names when B_TRUE
  *
  * @return  new reference to a struct_zpool_status object, or NULL with
  *          a Python exception set on failure.
@@ -1086,7 +1102,8 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 				 zpool_errata_t errata,
 				 const char *msgid,
 				 boolean_t get_stats,
-				 boolean_t follow_links)
+				 boolean_t follow_links,
+				 boolean_t full_path)
 {
 	PyObject *out = NULL;
 	PyObject *pyreason = NULL;
@@ -1479,7 +1496,8 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	if (pyfiles == NULL)
 		goto fail;
 
-	if (!pypool_status_add_vdevs(pypool, out, get_stats, follow_links))
+	if (!pypool_status_add_vdevs(pypool, out, get_stats, follow_links,
+	    full_path))
 		// this needs to occur before setting references
 		// in the struct sequence otherwise we risk UAF
 		goto fail;
@@ -1503,7 +1521,7 @@ fail:
 }
 
 PyObject *py_get_pool_status(py_zfs_pool_t *pypool, boolean_t get_stats,
-    boolean_t follow_links)
+    boolean_t follow_links, boolean_t full_path)
 {
 	zpool_status_t reason;
 	zpool_errata_t errata;
@@ -1516,7 +1534,7 @@ PyObject *py_get_pool_status(py_zfs_pool_t *pypool, boolean_t get_stats,
 	Py_END_ALLOW_THREADS
 
 	return populate_status_struct(pypool, reason, errata, msgid,
-	    get_stats, follow_links);
+	    get_stats, follow_links, full_path);
 }
 
 /* create new dictionary containing references to info from struct sequence */
@@ -1689,13 +1707,13 @@ fail:
 }
 
 PyObject *py_get_pool_status_dict(py_zfs_pool_t *pypool, boolean_t get_stats,
-    boolean_t follow_links)
+    boolean_t follow_links, boolean_t full_path)
 {
 	int idx, err;
 	PyObject *out = NULL;
 
 	PyObject *status_obj = py_get_pool_status(pypool, get_stats,
-	    follow_links);
+	    follow_links, full_path);
 	if (status_obj == NULL)
 		return NULL;
 
