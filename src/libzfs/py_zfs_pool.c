@@ -471,14 +471,16 @@ PyObject *py_zfs_pool_config(PyObject *self, PyObject *args)
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	pylibzfs_state_t *state = py_get_module_state(p->pylibzfsp);
 	PyObject *nvldump = NULL, *dict_out = NULL;
-	nvlist_t *zpool_config = NULL;
+	nvlist_t *config, *zpool_config = NULL;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
 	// We need to take a lock here because in MT case you can have
 	// one thread refresh pool stats and free the config while
 	// this thread dumps the nvlist to JSON.
-	zpool_config = zpool_get_config(p->zhp, NULL);
+	config = zpool_get_config(p->zhp, NULL);
+	PYZFS_ASSERT((config != NULL), "Unexpected NULL zpool config");
+	zpool_config = fnvlist_dup(config);
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
@@ -486,6 +488,8 @@ PyObject *py_zfs_pool_config(PyObject *self, PyObject *args)
 	nvldump = py_dump_nvlist(zpool_config, B_TRUE);
 	dict_out = PyObject_CallFunction(state->loads_fn, "O", nvldump);
 	Py_CLEAR(nvldump);
+
+	fnvlist_free(zpool_config);
 
 	return dict_out;
 }
