@@ -5,11 +5,11 @@ import subprocess
 import tempfile
 import truenas_pylibzfs
 
-POOL_NAME = 'testpool_features'
+POOL_NAME = "testpool_features"
 DISK_SZ = 1024 * 1048576
 
-VALID_STATES = {'DISABLED', 'ENABLED', 'ACTIVE'}
-WELL_KNOWN_FEATURES = {'async_destroy', 'lz4_compress'}
+VALID_STATES = {"DISABLED", "ENABLED", "ACTIVE"}
+WELL_KNOWN_FEATURES = {"async_destroy", "lz4_compress"}
 
 
 @pytest.fixture
@@ -17,12 +17,12 @@ def make_disks():
     dirs = []
 
     def _make(n):
-        d = tempfile.mkdtemp(prefix='pylibzfs_feat_disks_')
+        d = tempfile.mkdtemp(prefix="pylibzfs_feat_disks_")
         dirs.append(d)
         paths = []
         for i in range(n):
-            p = os.path.join(d, f'd{i}.img')
-            with open(p, 'w') as f:
+            p = os.path.join(d, f"d{i}.img")
+            with open(p, "w") as f:
                 os.ftruncate(f.fileno(), DISK_SZ)
             paths.append(p)
         return paths
@@ -36,16 +36,13 @@ def make_disks():
 @pytest.fixture
 def pool(make_disks):
     disks = make_disks(1)
-    subprocess.run(
-        ['zpool', 'create', '-f', POOL_NAME] + disks,
-        check=True
-    )
+    subprocess.run(["zpool", "create", "-f", POOL_NAME] + disks, check=True)
     lz = truenas_pylibzfs.open_handle()
     pool = lz.open_pool(name=POOL_NAME)
     try:
         yield lz, pool
     finally:
-        subprocess.run(['zpool', 'destroy', '-f', POOL_NAME], check=False)
+        subprocess.run(["zpool", "destroy", "-f", POOL_NAME], check=False)
 
 
 def test_get_features_returns_dict(pool):
@@ -60,25 +57,24 @@ def test_get_features_entry_is_struct(pool):
     features = p.get_features()
     for name, info in features.items():
         assert isinstance(name, str)
-        assert type(info).__name__ == 'struct_zpool_feature'
-        assert hasattr(info, 'guid')
-        assert hasattr(info, 'description')
-        assert hasattr(info, 'state')
+        assert type(info).__name__ == "struct_zpool_feature"
+        assert hasattr(info, "guid")
+        assert hasattr(info, "description")
+        assert hasattr(info, "state")
 
 
 def test_get_features_valid_states(pool):
     lz, p = pool
     features = p.get_features()
     for name, info in features.items():
-        assert info.state in VALID_STATES, \
-            f'{name} has invalid state: {info.state}'
+        assert info.state in VALID_STATES, f"{name} has invalid state: {info.state}"
 
 
 def test_get_features_well_known_present(pool):
     lz, p = pool
     features = p.get_features()
     for feat in WELL_KNOWN_FEATURES:
-        assert feat in features, f'expected well-known feature {feat!r} not found'
+        assert feat in features, f"expected well-known feature {feat!r} not found"
 
 
 def test_get_features_guid_is_string(pool):
@@ -94,5 +90,6 @@ def test_get_features_well_known_active_or_enabled(pool):
     lz, p = pool
     features = p.get_features()
     for feat in WELL_KNOWN_FEATURES:
-        assert features[feat].state in ('ENABLED', 'ACTIVE'), \
-            f'{feat} expected ENABLED or ACTIVE, got {features[feat].state}'
+        assert features[feat].state in ("ENABLED", "ACTIVE"), (
+            f"{feat} expected ENABLED or ACTIVE, got {features[feat].state}"
+        )
