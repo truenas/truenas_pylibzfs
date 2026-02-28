@@ -551,7 +551,7 @@ class ZFSPool:
         full_path: bool = ...,
     ) -> struct_zpool_status | dict: ...
 
-    def get_features(self) -> dict[str, struct_zpool_feature]:
+    def get_features(self, *, asdict: bool = ...) -> dict[str, struct_zpool_feature] | dict[str, dict[str, str]]:
         """Return dict of pool features with their state and metadata."""
         ...
 

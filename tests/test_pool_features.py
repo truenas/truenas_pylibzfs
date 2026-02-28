@@ -93,3 +93,23 @@ def test_get_features_well_known_active_or_enabled(pool):
         assert features[feat].state in ("ENABLED", "ACTIVE"), (
             f"{feat} expected ENABLED or ACTIVE, got {features[feat].state}"
         )
+
+
+def test_get_features_asdict(pool):
+    lz, p = pool
+    features = p.get_features(asdict=True)
+    assert isinstance(features, dict)
+    assert len(features) > 0
+    for name, info in features.items():
+        assert isinstance(name, str)
+        assert isinstance(info, dict)
+        assert info["state"] in VALID_STATES
+        assert isinstance(info["guid"], str)
+        assert isinstance(info["description"], str)
+
+
+def test_get_features_asdict_false_returns_struct(pool):
+    lz, p = pool
+    features = p.get_features(asdict=False)
+    for name, info in features.items():
+        assert type(info).__name__ == "struct_zpool_feature"

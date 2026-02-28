@@ -635,8 +635,8 @@ PyStructSequence_Desc struct_zpool_feature_desc = {
 #define	ZPOOL_FEAT_STATE_IDX	2
 
 PyDoc_STRVAR(py_zfs_pool_get_features__doc__,
-"get_features(*) -> dict\n\n"
-"-----------------------\n\n"
+"get_features(*, asdict=False) -> dict\n\n"
+"-------------------------------------\n\n"
 "Return a dictionary of all known ZFS pool features with their current state\n"
 "and metadata.\n\n"
 "Each key is the user-facing feature name (e.g. 'async_destroy'). Each value\n"
@@ -650,19 +650,31 @@ PyDoc_STRVAR(py_zfs_pool_get_features__doc__,
 "  - ACTIVE: feature is enabled and has one or more active references\n\n"
 "Parameters\n"
 "----------\n"
-"None\n\n"
+"asdict: boolean, optional, default=False\n"
+"    If True, each feature entry is a plain dict instead of a\n"
+"    struct_zpool_feature struct sequence.\n\n"
 "Returns\n"
 "-------\n"
-"dict\n\n"
+"dict[str, struct_zpool_feature] when asdict=False (default),\n"
+"or dict[str, dict[str, str]] when asdict=True.\n\n"
 );
 static
-PyObject *py_zfs_pool_get_features(PyObject *self, PyObject *args)
+PyObject *py_zfs_pool_get_features(PyObject *self,
+				   PyObject *args,
+				   PyObject *kwargs)
 {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	pylibzfs_state_t *state = py_get_module_state(p->pylibzfsp);
 	nvlist_t *features = NULL;
 	PyObject *dict_out = NULL;
 	boolean_t have_features;
+	boolean_t asdict = B_FALSE;
+	char *kwnames[] = {"asdict", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$p", kwnames,
+	    &asdict)) {
+		return NULL;
+	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.get_features",
 	    "O", p->name) < 0)
@@ -697,32 +709,44 @@ PyObject *py_zfs_pool_get_features(PyObject *self, PyObject *args)
 			}
 		}
 
-		PyObject *entry = PyStructSequence_New(
-		    state->struct_zpool_feature_type);
+		PyObject *entry;
+		if (asdict) {
+			entry = Py_BuildValue("{s:s, s:s, s:s}",
+			    "guid", feat->fi_guid,
+			    "description", feat->fi_desc,
+			    "state", feat_state);
+		} else {
+			entry = PyStructSequence_New(
+			    state->struct_zpool_feature_type);
+			if (entry != NULL) {
+				PyObject *guid_str =
+				    PyUnicode_FromString(feat->fi_guid);
+				PyObject *desc_str =
+				    PyUnicode_FromString(feat->fi_desc);
+				PyObject *state_str =
+				    PyUnicode_FromString(feat_state);
+				if (guid_str == NULL || desc_str == NULL ||
+				    state_str == NULL) {
+					Py_XDECREF(guid_str);
+					Py_XDECREF(desc_str);
+					Py_XDECREF(state_str);
+					Py_DECREF(entry);
+					entry = NULL;
+				} else {
+					PyStructSequence_SetItem(entry,
+					    ZPOOL_FEAT_GUID_IDX, guid_str);
+					PyStructSequence_SetItem(entry,
+					    ZPOOL_FEAT_DESC_IDX, desc_str);
+					PyStructSequence_SetItem(entry,
+					    ZPOOL_FEAT_STATE_IDX, state_str);
+				}
+			}
+		}
+
 		if (entry == NULL) {
 			Py_DECREF(dict_out);
 			return NULL;
 		}
-
-		PyObject *guid_str = PyUnicode_FromString(feat->fi_guid);
-		PyObject *desc_str = PyUnicode_FromString(feat->fi_desc);
-		PyObject *state_str = PyUnicode_FromString(feat_state);
-		if (guid_str == NULL || desc_str == NULL ||
-		    state_str == NULL) {
-			Py_XDECREF(guid_str);
-			Py_XDECREF(desc_str);
-			Py_XDECREF(state_str);
-			Py_DECREF(entry);
-			Py_DECREF(dict_out);
-			return NULL;
-		}
-
-		PyStructSequence_SetItem(entry, ZPOOL_FEAT_GUID_IDX,
-		    guid_str);
-		PyStructSequence_SetItem(entry, ZPOOL_FEAT_DESC_IDX,
-		    desc_str);
-		PyStructSequence_SetItem(entry, ZPOOL_FEAT_STATE_IDX,
-		    state_str);
 
 		if (PyDict_SetItemString(dict_out, feat->fi_uname,
 		    entry) < 0) {
@@ -813,8 +837,8 @@ PyMethodDef zfs_pool_methods[] = {
 	},
 	{
 		.ml_name = "get_features",
-		.ml_meth = py_zfs_pool_get_features,
-		.ml_flags = METH_NOARGS,
+		.ml_meth = (PyCFunction)py_zfs_pool_get_features,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_get_features__doc__
 	},
 	{ NULL, NULL, 0, NULL }
