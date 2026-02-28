@@ -38,6 +38,11 @@ class struct_support_vdev:
     special: tuple[struct_vdev, ...]
     dedup: tuple[struct_vdev, ...]
 
+class struct_zpool_feature:
+    guid: str
+    description: str
+    state: str
+
 class struct_zpool_status:
     status: ZPOOLStatus
     reason: str | None
@@ -545,6 +550,10 @@ class ZFSPool:
         follow_links: bool = ...,
         full_path: bool = ...,
     ) -> struct_zpool_status | dict: ...
+
+    def get_features(self) -> dict[str, struct_zpool_feature]:
+        """Return dict of pool features with their state and metadata."""
+        ...
 
 
 class ZFS:

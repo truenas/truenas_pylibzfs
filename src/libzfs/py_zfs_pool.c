@@ -616,6 +616,126 @@ PyObject *py_zfs_pool_sync(PyObject *self, PyObject *args)
 }
 
 
+PyStructSequence_Field struct_zpool_feature_prop[] = {
+	{"guid", "Feature GUID (e.g. 'com.delphix:async_destroy')"},
+	{"description", "Human-readable description of the feature"},
+	{"state", "One of 'DISABLED', 'ENABLED', or 'ACTIVE'"},
+	{0},
+};
+
+PyStructSequence_Desc struct_zpool_feature_desc = {
+	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_feature",
+	.fields = struct_zpool_feature_prop,
+	.doc = "ZFS pool feature with guid, description, and state",
+	.n_in_sequence = 3
+};
+
+#define	ZPOOL_FEAT_GUID_IDX	0
+#define	ZPOOL_FEAT_DESC_IDX	1
+#define	ZPOOL_FEAT_STATE_IDX	2
+
+PyDoc_STRVAR(py_zfs_pool_get_features__doc__,
+"get_features(*) -> dict\n\n"
+"-----------------------\n\n"
+"Return a dictionary of all known ZFS pool features with their current state\n"
+"and metadata.\n\n"
+"Each key is the user-facing feature name (e.g. 'async_destroy'). Each value\n"
+"is a struct_zpool_feature with attributes:\n"
+"  - guid: the feature GUID (e.g. 'com.delphix:async_destroy')\n"
+"  - description: human-readable description of the feature\n"
+"  - state: one of 'DISABLED', 'ENABLED', or 'ACTIVE'\n\n"
+"State semantics:\n"
+"  - DISABLED: feature is not enabled on this pool\n"
+"  - ENABLED: feature is enabled but has zero active references\n"
+"  - ACTIVE: feature is enabled and has one or more active references\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"dict\n\n"
+);
+static
+PyObject *py_zfs_pool_get_features(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	pylibzfs_state_t *state = py_get_module_state(p->pylibzfsp);
+	nvlist_t *features = NULL;
+	PyObject *dict_out = NULL;
+	boolean_t have_features;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.get_features",
+	    "O", p->name) < 0)
+		return NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	features = zpool_get_features(p->zhp);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	have_features = (features != NULL);
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (int i = 0; i < SPA_FEATURES; i++) {
+		zfeature_info_t *feat = &spa_feature_table[i];
+
+		const char *feat_state;
+		if (!have_features ||
+		    !nvlist_exists(features, feat->fi_guid)) {
+			feat_state = "DISABLED";
+		} else {
+			uint64_t refcount;
+			if (nvlist_lookup_uint64(features, feat->fi_guid,
+			    &refcount) == 0 && refcount > 0) {
+				feat_state = "ACTIVE";
+			} else {
+				feat_state = "ENABLED";
+			}
+		}
+
+		PyObject *entry = PyStructSequence_New(
+		    state->struct_zpool_feature_type);
+		if (entry == NULL) {
+			Py_DECREF(dict_out);
+			return NULL;
+		}
+
+		PyObject *guid_str = PyUnicode_FromString(feat->fi_guid);
+		PyObject *desc_str = PyUnicode_FromString(feat->fi_desc);
+		PyObject *state_str = PyUnicode_FromString(feat_state);
+		if (guid_str == NULL || desc_str == NULL ||
+		    state_str == NULL) {
+			Py_XDECREF(guid_str);
+			Py_XDECREF(desc_str);
+			Py_XDECREF(state_str);
+			Py_DECREF(entry);
+			Py_DECREF(dict_out);
+			return NULL;
+		}
+
+		PyStructSequence_SetItem(entry, ZPOOL_FEAT_GUID_IDX,
+		    guid_str);
+		PyStructSequence_SetItem(entry, ZPOOL_FEAT_DESC_IDX,
+		    desc_str);
+		PyStructSequence_SetItem(entry, ZPOOL_FEAT_STATE_IDX,
+		    state_str);
+
+		if (PyDict_SetItemString(dict_out, feat->fi_uname,
+		    entry) < 0) {
+			Py_DECREF(entry);
+			Py_DECREF(dict_out);
+			return NULL;
+		}
+		Py_DECREF(entry);
+	}
+
+	return dict_out;
+}
+
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
@@ -691,6 +811,12 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_ddt_prune__doc__
 	},
+	{
+		.ml_name = "get_features",
+		.ml_meth = py_zfs_pool_get_features,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_get_features__doc__
+	},
 	{ NULL, NULL, 0, NULL }
 };
 
@@ -732,4 +858,14 @@ py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp)
 
 	out->zhp = zhp;
 	return (out);
+}
+
+void init_py_pool_feature_state(pylibzfs_state_t *state)
+{
+	PyTypeObject *obj;
+
+	obj = PyStructSequence_NewType(&struct_zpool_feature_desc);
+	PYZFS_ASSERT(obj, "Failed to create zpool feature struct type");
+
+	state->struct_zpool_feature_type = obj;
 }

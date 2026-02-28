@@ -81,6 +81,9 @@ typedef struct {
 	PyTypeObject *struct_vdev_stats_type;
 	PyTypeObject *struct_support_vdev_type;
 	PyObject *vdev_state_enum;
+
+	/* Reference to named tuple for pool feature info */
+	PyTypeObject *struct_zpool_feature_type;
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);
