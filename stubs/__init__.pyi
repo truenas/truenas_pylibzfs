@@ -543,6 +543,7 @@ class ZFSPool:
         asdict: bool = ...,
         get_stats: bool = ...,
         follow_links: bool = ...,
+        full_path: bool = ...,
     ) -> struct_zpool_status | dict: ...
 
 

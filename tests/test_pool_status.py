@@ -506,6 +506,18 @@ def test_follow_links_accepted(pool_mirror):
     assert len(status_default.storage_vdevs) == len(status_no_follow.storage_vdevs)
 
 
+def test_full_path_accepted(pool_mirror):
+    # Verify full_path=False is accepted and produces structurally identical
+    # output to the default (full_path=True).  File-backed vdevs already use
+    # full paths so vdev names are the same either way; this test covers
+    # parameter wiring only.
+    lz, pool = pool_mirror
+    status_default = pool.status()
+    status_no_full_path = pool.status(full_path=False)
+    assert status_default.status == status_no_full_path.status
+    assert len(status_default.storage_vdevs) == len(status_no_full_path.storage_vdevs)
+
+
 # ---------------------------------------------------------------------------
 # Status conditions
 # ---------------------------------------------------------------------------
