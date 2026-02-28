@@ -10,7 +10,6 @@ static PyTypeObject *alltypes[] = {
 	&ZFSObject,
 	&ZFSPool,
 	&ZFSSnapshot,
-	&ZFSVdev,
 	&ZFSVolume,
 	NULL
 };
@@ -197,6 +196,12 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_fzfs_rewrite__doc__
 	},
+	{
+		.ml_name = "create_vdev_spec",
+		.ml_meth = (PyCFunction)py_create_vdev_spec,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = NULL
+	},
 	{NULL}
 };
 
@@ -337,6 +342,17 @@ PyInit_truenas_pylibzfs(void)
 	if (init_py_zfs_state(mpylibzfs) < 0) {
 		Py_DECREF(mpylibzfs);
 		return NULL;
+	}
+
+	{
+		pylibzfs_state_t *state =
+		    (pylibzfs_state_t *)PyModule_GetState(mpylibzfs);
+		err = PyModule_AddObjectRef(mpylibzfs, "struct_vdev_create_spec",
+		    (PyObject *)state->struct_vdev_create_spec_type);
+		if (err) {
+			Py_DECREF(mpylibzfs);
+			return NULL;
+		}
 	}
 
 	propsets = py_setup_propset_module(mpylibzfs);
