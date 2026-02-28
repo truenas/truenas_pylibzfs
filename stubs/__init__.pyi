@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 import enum
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Literal
 
 from . import enums
 from . import lzc
@@ -37,6 +37,11 @@ class struct_support_vdev:
     log: tuple[struct_vdev, ...]
     special: tuple[struct_vdev, ...]
     dedup: tuple[struct_vdev, ...]
+
+class struct_zpool_feature:
+    guid: str
+    description: str
+    state: Literal["DISABLED", "ENABLED", "ACTIVE"]
 
 class struct_zpool_status:
     status: ZPOOLStatus
@@ -545,6 +550,10 @@ class ZFSPool:
         follow_links: bool = ...,
         full_path: bool = ...,
     ) -> struct_zpool_status | dict: ...
+
+    def get_features(self, *, asdict: bool = ...) -> dict[str, struct_zpool_feature] | dict[str, dict[str, str]]:
+        """Return dict of pool features with their state and metadata."""
+        ...
 
 
 class ZFS:

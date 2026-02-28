@@ -12,6 +12,7 @@
 #define _GNU_SOURCE
 
 #include <libzfs.h>
+#include <zfeature_common.h>
 #include <Python.h>
 #if PY_VERSION_HEX < 0x030d0000
 #include <pthread.h>

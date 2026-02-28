@@ -581,4 +581,7 @@ extern PyObject *py_get_pool_status(py_zfs_pool_t *pypool, boolean_t get_stats,
 extern PyObject *py_get_pool_status_dict(py_zfs_pool_t *pypool,
     boolean_t get_stats, boolean_t follow_links, boolean_t full_path);
 extern void init_py_pool_status_state(pylibzfs_state_t *state);
+
+/* provided by py_zfs_pool.c */
+extern void init_py_pool_feature_state(pylibzfs_state_t *state);
 #endif  /* _TRUENAS_PYLIBZFS_H */

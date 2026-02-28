@@ -193,6 +193,7 @@ int init_py_zfs_state(PyObject *module)
 	init_py_struct_prop_state(state);
 	init_py_struct_userquota_state(state);
 	init_py_pool_status_state(state);
+	init_py_pool_feature_state(state);
 	module_init_zfs_crypto(module);
 
 	return 0;
