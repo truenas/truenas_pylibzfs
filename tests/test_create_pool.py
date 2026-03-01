@@ -18,6 +18,7 @@ import truenas_pylibzfs
 ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
 VDevType = truenas_pylibzfs.VDevType
 ZPOOLProperty = truenas_pylibzfs.enums.ZPOOLProperty
+ZFSProperty = truenas_pylibzfs.ZFSProperty
 
 POOL_NAME = "test_create_pool_pylibzfs"
 DISK_SZ = 128 * 1024 * 1024  # 128 MiB
@@ -174,6 +175,88 @@ def test_create_vdev_spec_draid_missing_name():
     ]
     with pytest.raises(ValueError):
         truenas_pylibzfs.create_vdev_spec(vdev_type="draid1", children=disks)
+
+
+# S1-1: vdev_type=None → ValueError ("vdev_type keyword argument is required")
+def test_create_vdev_spec_vdev_type_none():
+    with pytest.raises(ValueError):
+        truenas_pylibzfs.create_vdev_spec(vdev_type=None)
+
+
+# S1-2: vdev_type=42 (not str/VDevType) → TypeError ("vdev_type must be a string")
+def test_create_vdev_spec_vdev_type_not_string():
+    with pytest.raises(TypeError):
+        truenas_pylibzfs.create_vdev_spec(vdev_type=42)
+
+
+# S1-3: name=42 (non-str) → TypeError ("name must be a string or None")
+def test_create_vdev_spec_name_not_string():
+    with pytest.raises(TypeError):
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=42)
+
+
+# S1-4: children=42 (non-sequence) → TypeError ("children must be a sequence")
+def test_create_vdev_spec_children_not_sequence():
+    with pytest.raises(TypeError):
+        truenas_pylibzfs.create_vdev_spec(vdev_type="mirror", children=42)
+
+
+# S1-5: raidz1 with name="x" set → ValueError ("must have name=None")
+def test_create_vdev_spec_raidz_with_name():
+    disks = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/d{i}.img")
+        for i in range(3)
+    ]
+    with pytest.raises(ValueError):
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type="raidz1", name="x", children=disks
+        )
+
+
+# S1-6: draid1 name "0d:1s" (ndata=0) → ValueError ("dRAID ndata must be > 0")
+def test_create_vdev_spec_draid_ndata_zero():
+    disks = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/d{i}.img")
+        for i in range(4)
+    ]
+    with pytest.raises(ValueError, match="ndata must be > 0"):
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type="draid1", name="0d:1s", children=disks
+        )
+
+
+# S1-7: draid1 "3d:2s" with 4 children (needs 3+1+2=6) → ValueError
+def test_create_vdev_spec_draid_too_few_children():
+    disks = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/d{i}.img")
+        for i in range(4)
+    ]
+    with pytest.raises(ValueError, match="requires at least"):
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type="draid1", name="3d:2s", children=disks
+        )
+
+
+# S1-8: draid3 happy path ("2d:0s" needs 2+3+0=5 children)
+def test_create_vdev_spec_draid3():
+    disks = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/d{i}.img")
+        for i in range(5)
+    ]
+    spec = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="draid3", name="2d:0s", children=disks
+    )
+    assert spec.vdev_type == "draid3"
+    assert spec.name == "2d:0s"
+    assert len(spec.children) == 5
+
+
+# S1-9: disk type leaf spec happy path (WHOLE_DISK branch runs only at create time)
+def test_create_vdev_spec_disk():
+    spec = truenas_pylibzfs.create_vdev_spec(vdev_type="disk", name="/dev/sda")
+    assert spec.vdev_type == "disk"
+    assert spec.name == "/dev/sda"
+    assert spec.children is None
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +468,129 @@ def test_create_pool_dedup_insufficient_parity():
         )
 
 
+# S2-1: storage_vdevs=[] → ValueError ("storage_vdevs must be non-empty")
+def test_create_pool_storage_empty():
+    lz = truenas_pylibzfs.open_handle()
+    with pytest.raises(ValueError, match="non-empty"):
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[])
+
+
+# S2-2: log vdev = mirror → valid (no ValueError); libzfs may fail with ZFSException
+def test_create_pool_log_mirror_accepted():
+    lz = truenas_pylibzfs.open_handle()
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="file", name="/tmp/s.img"
+    )
+    c1 = truenas_pylibzfs.create_vdev_spec(vdev_type="file", name="/tmp/c1.img")
+    c2 = truenas_pylibzfs.create_vdev_spec(vdev_type="file", name="/tmp/c2.img")
+    log_mirror = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="mirror", children=[c1, c2]
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            log_vdevs=[log_mirror],
+        )
+    except (truenas_pylibzfs.ZFSException, OSError):
+        pass  # libzfs rejection with fake paths is acceptable
+    except ValueError:
+        raise  # Python-level topology check must NOT fire
+    finally:
+        _destroy()
+
+
+# S2-3: special leaf + leaf storage (both parity 0) → valid topology
+def test_create_pool_special_leaf_accepted():
+    lz = truenas_pylibzfs.open_handle()
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="file", name="/tmp/s.img"
+    )
+    special = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="file", name="/tmp/sp.img"
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            special_vdevs=[special],
+        )
+    except (truenas_pylibzfs.ZFSException, OSError):
+        pass
+    except ValueError:
+        raise
+    finally:
+        _destroy()
+
+
+# S2-4: dedup leaf + leaf storage (both parity 0) → valid topology
+def test_create_pool_dedup_leaf_accepted():
+    lz = truenas_pylibzfs.open_handle()
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="file", name="/tmp/s.img"
+    )
+    dedup = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="file", name="/tmp/dd.img"
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            dedup_vdevs=[dedup],
+        )
+    except (truenas_pylibzfs.ZFSException, OSError):
+        pass
+    except ValueError:
+        raise
+    finally:
+        _destroy()
+
+
+# S2-5: properties={b"key": "on"} (bytes key) → TypeError
+def test_create_pool_properties_bytes_key():
+    lz = truenas_pylibzfs.open_handle()
+    disk = truenas_pylibzfs.create_vdev_spec(vdev_type="file", name="/tmp/x.img")
+    with pytest.raises(TypeError, match="Pool property keys must be str or ZPoolProperty"):
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[disk],
+            properties={b"key": "on"},
+        )
+
+
+# S2-6: properties={"bogus_prop": "on"} (invalid name) → ValueError
+def test_create_pool_properties_invalid_name():
+    lz = truenas_pylibzfs.open_handle()
+    disk = truenas_pylibzfs.create_vdev_spec(vdev_type="file", name="/tmp/x.img")
+    with pytest.raises(ValueError, match="not a valid zpool property"):
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[disk],
+            properties={"bogus_prop": "on"},
+        )
+
+
+# S2-7: mixed dRAID + raidz storage → ValueError ("all vdevs must share the same type")
+def test_create_pool_mixed_draid_raidz_storage():
+    lz = truenas_pylibzfs.open_handle()
+    draid_children = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/d{i}.img")
+        for i in range(4)
+    ]
+    draid = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="draid1", name="3d:0s", children=draid_children
+    )
+    raidz_children = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/r{i}.img")
+        for i in range(3)
+    ]
+    raidz = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="raidz1", children=raidz_children
+    )
+    with pytest.raises(ValueError):
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[draid, raidz])
+
+
 # ---------------------------------------------------------------------------
 # Section 3 — successful pool creation (needs make_disks)
 # ---------------------------------------------------------------------------
@@ -495,7 +701,9 @@ def test_create_pool_with_cache(make_disks):
             cache_vdevs=[_spec(disks[2])],
         )
         pool = lz.open_pool(name=POOL_NAME)
-        assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.support_vdevs.cache) == 1
     finally:
         _destroy()
 
@@ -514,7 +722,9 @@ def test_create_pool_with_log(make_disks):
             log_vdevs=[_spec(disks[2])],
         )
         pool = lz.open_pool(name=POOL_NAME)
-        assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.support_vdevs.log) == 1
     finally:
         _destroy()
 
@@ -533,7 +743,9 @@ def test_create_pool_with_spare(make_disks):
             spare_vdevs=[_spec(disks[2])],
         )
         pool = lz.open_pool(name=POOL_NAME)
-        assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.spares) == 1
     finally:
         _destroy()
 
@@ -556,7 +768,9 @@ def test_create_pool_with_special(make_disks):
             special_vdevs=[special_mirror],
         )
         pool = lz.open_pool(name=POOL_NAME)
-        assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.support_vdevs.special) == 1
     finally:
         _destroy()
 
@@ -663,6 +877,181 @@ def test_create_pool_properties_enum_key(make_disks):
         _destroy()
 
 
+# S3-1: dedup_vdevs success path (raidz1 storage + raidz1 dedup, 6 disks)
+def test_create_pool_with_dedup(make_disks):
+    disks = make_disks(6)
+    lz = truenas_pylibzfs.open_handle()
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1,
+        children=[_spec(disks[0]), _spec(disks[1]), _spec(disks[2])],
+    )
+    dedup = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1,
+        children=[_spec(disks[3]), _spec(disks[4]), _spec(disks[5])],
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            dedup_vdevs=[dedup],
+        )
+        pool = lz.open_pool(name=POOL_NAME)
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.support_vdevs.dedup) == 1
+    finally:
+        _destroy()
+
+
+# S3-2: dRAID3 pool creation ("2d:0s" needs 2+3+0=5 children)
+def test_create_pool_draid3(make_disks):
+    disks = make_disks(5)
+    lz = truenas_pylibzfs.open_handle()
+    draid = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.DRAID3,
+        name="2d:0s",
+        children=[_spec(d) for d in disks],
+    )
+    try:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[draid])
+        pool = lz.open_pool(name=POOL_NAME)
+        assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
+    finally:
+        _destroy()
+
+
+# S3-3: log mirror pool (mirror storage + mirror log)
+def test_create_pool_with_log_mirror(make_disks):
+    disks = make_disks(4)
+    lz = truenas_pylibzfs.open_handle()
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.MIRROR,
+        children=[_spec(disks[0]), _spec(disks[1])],
+    )
+    log_mirror = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.MIRROR,
+        children=[_spec(disks[2]), _spec(disks[3])],
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            log_vdevs=[log_mirror],
+        )
+        pool = lz.open_pool(name=POOL_NAME)
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.support_vdevs.log) == 1
+    finally:
+        _destroy()
+
+
+# S3-4: pool already exists → ZFSException from zpool_create()
+def test_create_pool_already_exists(make_disks):
+    disks = make_disks(2)
+    lz = truenas_pylibzfs.open_handle()
+    try:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[_spec(disks[0])])
+        with pytest.raises(truenas_pylibzfs.ZFSException):
+            lz.create_pool(name=POOL_NAME, storage_vdevs=[_spec(disks[1])])
+    finally:
+        _destroy()
+
+
+# S3-5: filesystem_properties parameter
+def test_create_pool_filesystem_properties(make_disks):
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_spec(disks[0])],
+            filesystem_properties={ZFSProperty.ACLMODE: "restricted"},
+        )
+        pool = lz.open_pool(name=POOL_NAME)
+        assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
+    finally:
+        _destroy()
+
+
+# S3-6: two raidz1 vdevs (same type, same child count — 2× raidz1/3)
+def test_create_pool_two_raidz1(make_disks):
+    disks = make_disks(6)
+    lz = truenas_pylibzfs.open_handle()
+    rz1 = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1,
+        children=[_spec(disks[0]), _spec(disks[1]), _spec(disks[2])],
+    )
+    rz2 = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1,
+        children=[_spec(disks[3]), _spec(disks[4]), _spec(disks[5])],
+    )
+    try:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[rz1, rz2])
+        pool = lz.open_pool(name=POOL_NAME)
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.storage_vdevs) == 2
+    finally:
+        _destroy()
+
+
+# S3-7: cache + log simultaneously (mirror storage)
+def test_create_pool_with_cache_and_log(make_disks):
+    disks = make_disks(4)
+    lz = truenas_pylibzfs.open_handle()
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.MIRROR,
+        children=[_spec(disks[0]), _spec(disks[1])],
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            cache_vdevs=[_spec(disks[2])],
+            log_vdevs=[_spec(disks[3])],
+        )
+        pool = lz.open_pool(name=POOL_NAME)
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.support_vdevs.cache) == 1
+        assert len(status.support_vdevs.log) == 1
+    finally:
+        _destroy()
+
+
+# S3-8: special + dedup simultaneously (raidz1 storage, 9 disks)
+def test_create_pool_with_special_and_dedup(make_disks):
+    disks = make_disks(9)
+    lz = truenas_pylibzfs.open_handle()
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1,
+        children=[_spec(disks[0]), _spec(disks[1]), _spec(disks[2])],
+    )
+    special = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1,
+        children=[_spec(disks[3]), _spec(disks[4]), _spec(disks[5])],
+    )
+    dedup = truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1,
+        children=[_spec(disks[6]), _spec(disks[7]), _spec(disks[8])],
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            special_vdevs=[special],
+            dedup_vdevs=[dedup],
+        )
+        pool = lz.open_pool(name=POOL_NAME)
+        status = pool.status()
+        assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+        assert len(status.support_vdevs.special) == 1
+        assert len(status.support_vdevs.dedup) == 1
+    finally:
+        _destroy()
+
+
 # ---------------------------------------------------------------------------
 # Section 4 — force=True bypass
 # ---------------------------------------------------------------------------
@@ -687,5 +1076,21 @@ def test_create_pool_force_bypasses_topology_check(make_disks):
         pass  # libzfs rejection is acceptable
     except ValueError:
         raise  # Python-level check must NOT fire with force=True
+    finally:
+        _destroy()
+
+
+# S4-1: force=True with a valid topology: assert pool is actually created
+def test_create_pool_force_valid_topology(make_disks):
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_spec(disks[0])],
+            force=True,
+        )
+        pool = lz.open_pool(name=POOL_NAME)
+        assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
     finally:
         _destroy()
