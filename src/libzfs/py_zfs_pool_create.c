@@ -670,8 +670,8 @@ validate_pool_topology(
 static nvlist_t *
 build_vdev_spec_nvlist(PyObject *spec)
 {
-	PyObject *py_name     = PyStructSequence_GET_ITEM(spec, VCSPEC_NAME_IDX);
-	PyObject *py_type     = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+	PyObject *py_name = PyStructSequence_GET_ITEM(spec, VCSPEC_NAME_IDX);
+	PyObject *py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 	PyObject *py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
 	const char *path = NULL;
 	const char *name_str = NULL;
@@ -707,8 +707,12 @@ build_vdev_spec_nvlist(PyObject *spec)
 		 */
 		if (PyUnicode_CompareWithASCIIString(py_type,
 		    VDEV_TYPE_DISK) == 0) {
+			boolean_t whole_disk;
+			Py_BEGIN_ALLOW_THREADS
+			whole_disk = zfs_dev_is_whole_disk(path);
+			Py_END_ALLOW_THREADS
 			fnvlist_add_uint64(nvl, ZPOOL_CONFIG_WHOLE_DISK,
-			    (uint64_t)zfs_dev_is_whole_disk(path));
+			    (uint64_t)whole_disk);
 		}
 		return nvl;
 	}
@@ -812,7 +816,7 @@ build_nvlist_array(PyObject *seq, Py_ssize_t n)
 	nvlist_t **arr = NULL;
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
-	Py_ssize_t i, j;
+	Py_ssize_t i = 0, j;
 
 	arr = PyMem_RawCalloc(n, sizeof (nvlist_t *));
 	if (arr == NULL) {
@@ -826,7 +830,6 @@ build_nvlist_array(PyObject *seq, Py_ssize_t n)
 		return NULL;
 	}
 
-	i = 0;
 	while ((spec = PyIter_Next(iterator))) {
 		arr[i] = build_vdev_spec_nvlist(spec);
 		Py_DECREF(spec);
@@ -997,8 +1000,8 @@ PyObject *
 py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	pylibzfs_state_t *state = NULL;
-	PyObject *py_vtype    = NULL;
-	PyObject *py_name     = Py_None;
+	PyObject *py_vtype = NULL;
+	PyObject *py_name = Py_None;
 	PyObject *py_children = Py_None;
 	PyObject *children_tuple = NULL;
 	PyObject *fast = NULL;
@@ -1237,16 +1240,19 @@ build_pool_root_nvlist(
 	 * fnvlist_add_nvlist_array copies its inputs; all intermediate arrays
 	 * can be freed now that the root nvlist is complete.
 	 */
+	Py_BEGIN_ALLOW_THREADS
 	free_nvlist_array(storage_nvls, storage_n);
 	free_nvlist_array(log_nvls, log_n);
 	free_nvlist_array(special_nvls, special_n);
 	free_nvlist_array(dedup_nvls, dedup_n);
 	free_nvlist_array(spare_nvls, spare_n);
 	free_nvlist_array(cache_nvls, cache_n);
+	Py_END_ALLOW_THREADS
 
 	return root_nvl;
 
 fail:
+	Py_BEGIN_ALLOW_THREADS
 	free_nvlist_array(storage_nvls, storage_n);
 	free_nvlist_array(log_nvls, log_n);
 	free_nvlist_array(special_nvls, special_n);
@@ -1255,7 +1261,38 @@ fail:
 	free_nvlist_array(cache_nvls, cache_n);
 	fnvlist_free(root_nvl);
 	PyMem_RawFree(children);
+	Py_END_ALLOW_THREADS
 	return NULL;
+}
+
+/*
+ * Build a props nvlist suitable for zpool_create(), pre-populated with
+ * feature@<fi_uname>=enabled for every feature the running kernel module
+ * supports.
+ *
+ * Always returns a new nvlist_t; fnvlist_alloc() and fnvlist_add_string()
+ * are fatal variants that abort() on allocation failure.
+ */
+static nvlist_t *
+build_default_pool_props(void)
+{
+	nvlist_t *props;
+	char propname[MAXPATHLEN];
+
+	props = fnvlist_alloc();
+
+	for (spa_feature_t i = 0; i < SPA_FEATURES; i++) {
+		zfeature_info_t *feat = &spa_feature_table[i];
+
+		if (!feat->fi_zfs_mod_supported)
+			continue;
+
+		(void) snprintf(propname, sizeof (propname),
+		    "feature@%s", feat->fi_uname);
+		fnvlist_add_string(props, propname, ZFS_FEATURE_ENABLED);
+	}
+
+	return props;
 }
 
 PyObject *
@@ -1265,21 +1302,21 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 	pylibzfs_state_t *state = py_get_module_state(plz);
 
 	const char *pool_name = NULL;
-	PyObject *py_storage  = NULL;
-	PyObject *py_cache    = NULL;
-	PyObject *py_log      = NULL;
-	PyObject *py_special  = NULL;
-	PyObject *py_dedup    = NULL;
-	PyObject *py_spare    = NULL;
-	PyObject *py_props    = NULL;
-	PyObject *py_fsprops  = NULL;
+	PyObject *py_storage = NULL;
+	PyObject *py_cache = NULL;
+	PyObject *py_log = NULL;
+	PyObject *py_special = NULL;
+	PyObject *py_dedup = NULL;
+	PyObject *py_spare = NULL;
+	PyObject *py_props = NULL;
+	PyObject *py_fsprops = NULL;
 	boolean_t force = B_FALSE;
 
 	PyObject *storage_seq = NULL, *cache_seq = NULL, *log_seq = NULL;
 	PyObject *special_seq = NULL, *dedup_seq = NULL, *spare_seq = NULL;
 
-	nvlist_t *root_nvl    = NULL;
-	nvlist_t *props_nvl   = NULL;
+	nvlist_t *root_nvl = NULL;
+	nvlist_t *props_nvl = NULL;
 	nvlist_t *fsprops_nvl = NULL;
 
 	py_zfs_error_t zfs_err;
@@ -1347,10 +1384,18 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 	if (root_nvl == NULL)
 		goto fail;
 
+	/* Cannot fail: fnvlist_alloc() aborts on OOM */
+	Py_BEGIN_ALLOW_THREADS
+	props_nvl = build_default_pool_props();
+	Py_END_ALLOW_THREADS
+
 	if (py_props != NULL && py_props != Py_None) {
-		props_nvl = py_zpoolprops_to_nvlist(py_props);
-		if (props_nvl == NULL)
+		nvlist_t *user_props = py_zpoolprops_to_nvlist(py_props);
+		if (user_props == NULL)
 			goto fail;
+		/* Merge caller props on top of defaults; caller wins on collision */
+		fnvlist_merge(props_nvl, user_props);
+		fnvlist_free(user_props);
 	}
 
 	if (py_fsprops != NULL && py_fsprops != Py_None) {
@@ -1366,12 +1411,14 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 	    props_nvl, fsprops_nvl);
 	if (err)
 		py_get_zfs_error(plz->lzh, &zfs_err);
-	PY_ZFS_UNLOCK(plz);
-	Py_END_ALLOW_THREADS
 
 	fnvlist_free(root_nvl);
 	fnvlist_free(props_nvl);
 	fnvlist_free(fsprops_nvl);
+
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
 	Py_XDECREF(storage_seq);
 	Py_XDECREF(cache_seq);
 	Py_XDECREF(log_seq);
