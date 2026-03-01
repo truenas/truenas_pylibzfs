@@ -965,6 +965,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_iter_events__doc__
 	},
+	{
+		.ml_name = "create_pool",
+		.ml_meth = (PyCFunction)py_zfs_create_pool,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = NULL
+	},
 	{ NULL, NULL, 0, NULL }
 };
 

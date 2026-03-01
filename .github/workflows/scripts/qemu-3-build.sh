@@ -76,6 +76,7 @@ sudo apt-get install -y \
   python3-setuptools \
   python3-sphinx \
   python3-pytest \
+  python3-pytest-timeout \
   git \
   linux-headers-amd64 \
   dkms
