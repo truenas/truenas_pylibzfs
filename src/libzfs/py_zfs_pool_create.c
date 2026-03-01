@@ -2,7 +2,6 @@
 #include <errno.h>
 #include <libzutil.h>
 #include <stdlib.h>
-#include <string.h>
 
 /*
  * py_zfs_pool_create.c — pool creation API
@@ -63,49 +62,51 @@ static PyStructSequence_Desc vdev_create_spec_desc = {
  * -------------------------------------------------------------------------- */
 
 static boolean_t
-is_leaf_type(const char *t)
+is_leaf_type(PyObject *py_type)
 {
-	return (strcmp(t, "disk") == 0 || strcmp(t, "file") == 0);
+	return (PyUnicode_CompareWithASCIIString(py_type, "disk") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "file") == 0);
 }
 
 static boolean_t
-is_mirror_type(const char *t)
+is_mirror_type(PyObject *py_type)
 {
-	return (strcmp(t, "mirror") == 0);
-}
-
-/*
- * Matches "raidz1", "raidz2", "raidz3".
- */
-static boolean_t
-is_raidz_type(const char *t)
-{
-	return (strncmp(t, "raidz", 5) == 0 &&
-	    strlen(t) == 6 &&
-	    (t[5] >= '1' && t[5] <= '3'));
+	return (PyUnicode_CompareWithASCIIString(py_type, "mirror") == 0);
 }
 
 /*
- * Matches "draid1", "draid2", "draid3".
+ * Matches "raidz1", "raidz2", "raidz3" — explicitly enumerated for clarity.
  */
 static boolean_t
-is_draid_type(const char *t)
+is_raidz_type(PyObject *py_type)
 {
-	return (strncmp(t, "draid", 5) == 0 &&
-	    strlen(t) == 6 &&
-	    (t[5] >= '1' && t[5] <= '3'));
+	return (PyUnicode_CompareWithASCIIString(py_type, "raidz1") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "raidz2") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "raidz3") == 0);
+}
+
+/*
+ * Matches "draid1", "draid2", "draid3" — explicitly enumerated for clarity.
+ */
+static boolean_t
+is_draid_type(PyObject *py_type)
+{
+	return (PyUnicode_CompareWithASCIIString(py_type, "draid1") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "draid2") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "draid3") == 0);
 }
 
 static boolean_t
-is_virtual_type(const char *t)
+is_virtual_type(PyObject *py_type)
 {
-	return (is_mirror_type(t) || is_raidz_type(t) || is_draid_type(t));
+	return (is_mirror_type(py_type) || is_raidz_type(py_type) ||
+	    is_draid_type(py_type));
 }
 
 static boolean_t
-is_valid_vdev_type(const char *t)
+is_valid_vdev_type(PyObject *py_type)
 {
-	return (is_leaf_type(t) || is_virtual_type(t));
+	return (is_leaf_type(py_type) || is_virtual_type(py_type));
 }
 
 /*
@@ -118,15 +119,21 @@ is_valid_vdev_type(const char *t)
  * Returns -1 for unrecognised types (should never occur after validation).
  */
 static int
-vdev_parity_level(const char *vtype)
+vdev_parity_level(PyObject *py_type)
 {
-	if (is_leaf_type(vtype))
+	if (is_leaf_type(py_type))
 		return (0);
-	if (is_mirror_type(vtype))
+	if (is_mirror_type(py_type))
 		return (1);
-	/* raidz{1,2,3} and draid{1,2,3} encode the parity digit in vtype[5] */
-	if (is_raidz_type(vtype) || is_draid_type(vtype))
-		return ((int)(vtype[5] - '0'));
+	if (PyUnicode_CompareWithASCIIString(py_type, "raidz1") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "draid1") == 0)
+		return (1);
+	if (PyUnicode_CompareWithASCIIString(py_type, "raidz2") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "draid2") == 0)
+		return (2);
+	if (PyUnicode_CompareWithASCIIString(py_type, "raidz3") == 0 ||
+	    PyUnicode_CompareWithASCIIString(py_type, "draid3") == 0)
+		return (3);
 	return (-1);
 }
 
@@ -195,7 +202,6 @@ validate_single_spec(pylibzfs_state_t *state, PyObject *spec,
 	PyObject *py_type = NULL;
 	PyObject *py_children = NULL;
 	PyObject *child = NULL;
-	const char *vtype = NULL;
 	const char *name_str = NULL;
 	draid_config_t cfg;
 	uint64_t n_uint;
@@ -219,41 +225,37 @@ validate_single_spec(pylibzfs_state_t *state, PyObject *spec,
 		return B_FALSE;
 	}
 
-	vtype = PyUnicode_AsUTF8(py_type);
-	if (vtype == NULL)
-		return B_FALSE;
-
 	/* ---- Leaf vdevs ---- */
-	if (is_leaf_type(vtype)) {
+	if (is_leaf_type(py_type)) {
 		if (py_name == Py_None || !PyUnicode_Check(py_name)) {
 			PyErr_Format(PyExc_ValueError,
-			    "%s: leaf vdev type \"%s\" requires a non-None "
+			    "%s: leaf vdev type \"%U\" requires a non-None "
 			    "\"name\" (device path)",
-			    context, vtype);
+			    context, py_type);
 			return B_FALSE;
 		}
 		if (py_children != Py_None) {
 			PyErr_Format(PyExc_ValueError,
-			    "%s: leaf vdev type \"%s\" must not have children",
-			    context, vtype);
+			    "%s: leaf vdev type \"%U\" must not have children",
+			    context, py_type);
 			return B_FALSE;
 		}
 		return B_TRUE;
 	}
 
 	/* ---- Virtual vdevs (mirror / raidz / draid) ---- */
-	if (is_virtual_type(vtype)) {
+	if (is_virtual_type(py_type)) {
 		if (py_children == Py_None || !PyTuple_Check(py_children)) {
 			PyErr_Format(PyExc_ValueError,
-			    "%s: virtual vdev type \"%s\" requires children "
+			    "%s: virtual vdev type \"%U\" requires children "
 			    "(got None or non-tuple)",
-			    context, vtype);
+			    context, py_type);
 			return B_FALSE;
 		}
 
 		n = PyTuple_Size(py_children);
 
-		if (is_draid_type(vtype)) {
+		if (is_draid_type(py_type)) {
 			/*
 			 * dRAID: name must be a parseable config string of
 			 * the form "<ndata>d:<nspares>s" (e.g. "3d:1s").
@@ -279,7 +281,7 @@ validate_single_spec(pylibzfs_state_t *state, PyObject *spec,
 			}
 
 			n_uint = (uint64_t)n;
-			parity_level = (uint64_t)(vtype[5] - '0');
+			parity_level = (uint64_t)vdev_parity_level(py_type);
 
 			if (cfg.ndata == 0) {
 				PyErr_Format(PyExc_ValueError,
@@ -323,8 +325,8 @@ validate_single_spec(pylibzfs_state_t *state, PyObject *spec,
 			 */
 			if (py_name != Py_None) {
 				PyErr_Format(PyExc_ValueError,
-				    "%s: vdev type \"%s\" must have name=None",
-				    context, vtype);
+				    "%s: vdev type \"%U\" must have name=None",
+				    context, py_type);
 				return B_FALSE;
 			}
 		}
@@ -341,10 +343,10 @@ validate_single_spec(pylibzfs_state_t *state, PyObject *spec,
 
 	/* Unknown type */
 	PyErr_Format(PyExc_ValueError,
-	    "%s: unknown vdev_type \"%s\". Must be one of: "
+	    "%s: unknown vdev_type \"%U\". Must be one of: "
 	    "disk, file, mirror, raidz1, raidz2, raidz3, "
 	    "draid1, draid2, draid3",
-	    context, vtype);
+	    context, py_type);
 	return B_FALSE;
 }
 
@@ -361,7 +363,6 @@ validate_all_leaf(PyObject *seq, const char *context)
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
-	const char *vtype = NULL;
 
 	iterator = PyObject_GetIter(seq);
 	if (iterator == NULL)
@@ -369,20 +370,16 @@ validate_all_leaf(PyObject *seq, const char *context)
 
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-		vtype = PyUnicode_AsUTF8(py_type);
-		Py_DECREF(spec);
-		if (vtype == NULL) {
-			Py_DECREF(iterator);
-			return B_FALSE;
-		}
-		if (!is_leaf_type(vtype)) {
+		if (!is_leaf_type(py_type)) {
 			PyErr_Format(PyExc_ValueError,
 			    "%s: vdev must be leaf type (disk or file), "
-			    "got \"%s\"",
-			    context, vtype);
+			    "got \"%U\"",
+			    context, py_type);
+			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
+		Py_DECREF(spec);
 	}
 	Py_DECREF(iterator);
 	return B_TRUE;
@@ -397,7 +394,6 @@ validate_log_vdevs(PyObject *seq)
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
-	const char *vtype = NULL;
 
 	iterator = PyObject_GetIter(seq);
 	if (iterator == NULL)
@@ -405,20 +401,16 @@ validate_log_vdevs(PyObject *seq)
 
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-		vtype = PyUnicode_AsUTF8(py_type);
-		Py_DECREF(spec);
-		if (vtype == NULL) {
-			Py_DECREF(iterator);
-			return B_FALSE;
-		}
-		if (!is_leaf_type(vtype) && !is_mirror_type(vtype)) {
+		if (!is_leaf_type(py_type) && !is_mirror_type(py_type)) {
 			PyErr_Format(PyExc_ValueError,
 			    "log_vdevs: log vdev must be leaf or mirror, "
-			    "got \"%s\"",
-			    vtype);
+			    "got \"%U\"",
+			    py_type);
+			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
+		Py_DECREF(spec);
 	}
 	Py_DECREF(iterator);
 	return B_TRUE;
@@ -431,12 +423,11 @@ validate_log_vdevs(PyObject *seq)
  */
 static boolean_t
 validate_special_dedup_vdevs(PyObject *seq,
-    const char *context, const char *storage_vtype, int storage_parity)
+    const char *context, PyObject *storage_py_type, int storage_parity)
 {
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
-	const char *vtype = NULL;
 	int parity;
 
 	iterator = PyObject_GetIter(seq);
@@ -445,42 +436,41 @@ validate_special_dedup_vdevs(PyObject *seq,
 
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-		vtype = PyUnicode_AsUTF8(py_type);
-		Py_DECREF(spec);
-		if (vtype == NULL) {
-			Py_DECREF(iterator);
-			return B_FALSE;
-		}
 
-		if (is_draid_type(vtype)) {
+		if (is_draid_type(py_type)) {
 			PyErr_Format(PyExc_ValueError,
 			    "%s: dRAID is not permitted for special or "
 			    "dedup vdevs",
 			    context);
+			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
 
-		if (!is_leaf_type(vtype) && !is_mirror_type(vtype) &&
-		    !is_raidz_type(vtype)) {
+		if (!is_leaf_type(py_type) && !is_mirror_type(py_type) &&
+		    !is_raidz_type(py_type)) {
 			PyErr_Format(PyExc_ValueError,
 			    "%s: vdev must be leaf, mirror, or raidz type, "
-			    "got \"%s\"",
-			    context, vtype);
+			    "got \"%U\"",
+			    context, py_type);
+			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
 
-		parity = vdev_parity_level(vtype);
+		parity = vdev_parity_level(py_type);
 		if (parity < storage_parity) {
 			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev type \"%s\" (parity %d) provides less "
-			    "redundancy than storage type \"%s\" (parity %d)",
-			    context, vtype, parity,
-			    storage_vtype, storage_parity);
+			    "%s: vdev type \"%U\" (parity %d) provides less "
+			    "redundancy than storage type \"%U\" (parity %d)",
+			    context, py_type, parity,
+			    storage_py_type, storage_parity);
+			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
+
+		Py_DECREF(spec);
 	}
 	Py_DECREF(iterator);
 	return B_TRUE;
@@ -490,7 +480,7 @@ validate_special_dedup_vdevs(PyObject *seq,
  * Check the minimum child count for a storage vdev by type.
  */
 static boolean_t
-validate_storage_min_children(PyObject *spec, const char *vtype)
+validate_storage_min_children(PyObject *spec, PyObject *py_type)
 {
 	PyObject *py_children = NULL;
 	Py_ssize_t nch;
@@ -498,22 +488,25 @@ validate_storage_min_children(PyObject *spec, const char *vtype)
 	py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
 	nch = (py_children != Py_None) ? PyTuple_Size(py_children) : 0;
 
-	if (is_mirror_type(vtype) && nch < 2) {
+	if (is_mirror_type(py_type) && nch < 2) {
 		PyErr_Format(PyExc_ValueError,
 		    "mirror vdev requires at least 2 children, got %zd", nch);
 		return B_FALSE;
 	}
-	if (strcmp(vtype, "raidz1") == 0 && nch < 2) {
+	if (PyUnicode_CompareWithASCIIString(py_type, "raidz1") == 0 &&
+	    nch < 2) {
 		PyErr_Format(PyExc_ValueError,
 		    "raidz1 vdev requires at least 2 children, got %zd", nch);
 		return B_FALSE;
 	}
-	if (strcmp(vtype, "raidz2") == 0 && nch < 3) {
+	if (PyUnicode_CompareWithASCIIString(py_type, "raidz2") == 0 &&
+	    nch < 3) {
 		PyErr_Format(PyExc_ValueError,
 		    "raidz2 vdev requires at least 3 children, got %zd", nch);
 		return B_FALSE;
 	}
-	if (strcmp(vtype, "raidz3") == 0 && nch < 4) {
+	if (PyUnicode_CompareWithASCIIString(py_type, "raidz3") == 0 &&
+	    nch < 4) {
 		PyErr_Format(PyExc_ValueError,
 		    "raidz3 vdev requires at least 4 children, got %zd", nch);
 		return B_FALSE;
@@ -543,8 +536,12 @@ validate_pool_topology(
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
 	PyObject *py_children = NULL;
-	const char *vtype = NULL;
-	const char *first_type = NULL;
+	/*
+	 * first_py_type is a borrowed reference from the first spec's type
+	 * field.  It remains valid for the duration of the loop because
+	 * storage_seq (a PySequence_Fast sequence) keeps all items alive.
+	 */
+	PyObject *first_py_type = NULL;
 	Py_ssize_t nch = 0;
 	Py_ssize_t first_child_count = -1;
 	int storage_parity = 0;
@@ -569,51 +566,55 @@ validate_pool_topology(
 
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-		vtype = PyUnicode_AsUTF8(py_type);
-		if (vtype == NULL) {
-			Py_DECREF(spec);
-			Py_DECREF(iterator);
-			return B_FALSE;
-		}
 
 		/* Min children for this vdev type */
-		if (!validate_storage_min_children(spec, vtype)) {
+		if (!validate_storage_min_children(spec, py_type)) {
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
 
 		/* All storage vdevs must have the same child count */
-		if (is_virtual_type(vtype)) {
+		if (is_virtual_type(py_type)) {
 			py_children =
 			    PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
 			nch = PyTuple_Size(py_children);
 		}
 
-		Py_DECREF(spec);
-
 		/* All storage vdevs must share the same type */
 		if (first) {
-			first_type = vtype;
+			first_py_type = py_type;
 			first = B_FALSE;
-		} else if (strcmp(vtype, first_type) != 0) {
-			PyErr_Format(PyExc_ValueError,
-			    "storage_vdevs: all vdevs must share the same "
-			    "type; got \"%s\" and \"%s\"",
-			    first_type, vtype);
-			Py_DECREF(iterator);
-			return B_FALSE;
+			Py_DECREF(spec);
+		} else {
+			int cmp = PyObject_RichCompareBool(py_type,
+			    first_py_type, Py_EQ);
+			if (cmp < 0) {
+				Py_DECREF(spec);
+				Py_DECREF(iterator);
+				return B_FALSE;
+			}
+			if (cmp == 0) {
+				PyErr_Format(PyExc_ValueError,
+				    "storage_vdevs: all vdevs must share the "
+				    "same type; got \"%U\" and \"%U\"",
+				    first_py_type, py_type);
+				Py_DECREF(spec);
+				Py_DECREF(iterator);
+				return B_FALSE;
+			}
+			Py_DECREF(spec);
 		}
 
-		if (is_virtual_type(vtype)) {
+		if (is_virtual_type(py_type)) {
 			if (first_child_count == -1) {
 				first_child_count = nch;
 			} else if (nch != first_child_count) {
 				PyErr_Format(PyExc_ValueError,
-				    "storage_vdevs: all \"%s\" vdevs must have "
+				    "storage_vdevs: all \"%U\" vdevs must have "
 				    "the same number of children; "
 				    "got %zd and %zd",
-				    vtype, first_child_count, nch);
+				    py_type, first_child_count, nch);
 				Py_DECREF(iterator);
 				return B_FALSE;
 			}
@@ -623,10 +624,10 @@ validate_pool_topology(
 
 	/*
 	 * Storage parity level, used to enforce that special/dedup vdevs
-	 * carry at least equivalent redundancy.  first_type is always set
+	 * carry at least equivalent redundancy.  first_py_type is always set
 	 * here because an empty storage_seq is already rejected above.
 	 */
-	storage_parity = vdev_parity_level(first_type);
+	storage_parity = vdev_parity_level(first_py_type);
 
 	/* cache vdevs must be leaf */
 	if (cache_seq != NULL && !validate_all_leaf(cache_seq, "cache_vdevs"))
@@ -646,12 +647,12 @@ validate_pool_topology(
 	 */
 	if (special_seq != NULL &&
 	    !validate_special_dedup_vdevs(special_seq, "special_vdevs",
-	    first_type, storage_parity))
+	    first_py_type, storage_parity))
 		return B_FALSE;
 
 	if (dedup_seq != NULL &&
 	    !validate_special_dedup_vdevs(dedup_seq, "dedup_vdevs",
-	    first_type, storage_parity))
+	    first_py_type, storage_parity))
 		return B_FALSE;
 
 	return B_TRUE;
@@ -672,7 +673,6 @@ build_vdev_spec_nvlist(PyObject *spec)
 	PyObject *py_name     = PyStructSequence_GET_ITEM(spec, VCSPEC_NAME_IDX);
 	PyObject *py_type     = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 	PyObject *py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
-	const char *vtype = NULL;
 	const char *path = NULL;
 	const char *name_str = NULL;
 	nvlist_t *nvl = NULL;
@@ -685,20 +685,18 @@ build_vdev_spec_nvlist(PyObject *spec)
 	PyObject *child = NULL;
 	Py_ssize_t n, i, j;
 
-	vtype = PyUnicode_AsUTF8(py_type);
-	if (vtype == NULL)
-		return NULL;
-
 	nvl = fnvlist_alloc();
 
 	/* ---- Leaf vdevs ---- */
-	if (is_leaf_type(vtype)) {
+	if (is_leaf_type(py_type)) {
 		path = PyUnicode_AsUTF8(py_name);
 		if (path == NULL) {
 			fnvlist_free(nvl);
 			return NULL;
 		}
-		fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE, vtype);
+		fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE,
+		    PyUnicode_CompareWithASCIIString(py_type,
+		    VDEV_TYPE_DISK) == 0 ? VDEV_TYPE_DISK : VDEV_TYPE_FILE);
 		fnvlist_add_string(nvl, ZPOOL_CONFIG_PATH, path);
 		/*
 		 * For disk vdevs, determine whether the path refers to a
@@ -707,7 +705,8 @@ build_vdev_spec_nvlist(PyObject *spec)
 		 * tries efi_alloc_and_init(); it returns B_FALSE for files,
 		 * partitions, or anything it cannot open.
 		 */
-		if (strcmp(vtype, VDEV_TYPE_DISK) == 0) {
+		if (PyUnicode_CompareWithASCIIString(py_type,
+		    VDEV_TYPE_DISK) == 0) {
 			fnvlist_add_uint64(nvl, ZPOOL_CONFIG_WHOLE_DISK,
 			    (uint64_t)zfs_dev_is_whole_disk(path));
 		}
@@ -718,18 +717,18 @@ build_vdev_spec_nvlist(PyObject *spec)
 	n = PyTuple_Size(py_children);
 
 	/* ---- mirror ---- */
-	if (is_mirror_type(vtype)) {
+	if (is_mirror_type(py_type)) {
 		fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE, VDEV_TYPE_MIRROR);
 
 	/* ---- raidz{1,2,3} ---- */
-	} else if (is_raidz_type(vtype)) {
-		parity = (uint64_t)(vtype[5] - '0');
+	} else if (is_raidz_type(py_type)) {
+		parity = (uint64_t)vdev_parity_level(py_type);
 		fnvlist_add_string(nvl, ZPOOL_CONFIG_TYPE, VDEV_TYPE_RAIDZ);
 		fnvlist_add_uint64(nvl, ZPOOL_CONFIG_NPARITY, parity);
 
 	/* ---- draid{1,2,3} ---- */
-	} else if (is_draid_type(vtype)) {
-		parity = (uint64_t)(vtype[5] - '0');
+	} else if (is_draid_type(py_type)) {
+		parity = (uint64_t)vdev_parity_level(py_type);
 		name_str = PyUnicode_AsUTF8(py_name);
 
 		if (name_str == NULL) {
@@ -765,7 +764,7 @@ build_vdev_spec_nvlist(PyObject *spec)
 
 	} else {
 		PyErr_Format(PyExc_ValueError,
-		    "Internal error: unknown vdev type \"%s\"", vtype);
+		    "Internal error: unknown vdev type \"%U\"", py_type);
 		fnvlist_free(nvl);
 		return NULL;
 	}
@@ -1005,7 +1004,6 @@ py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
 	PyObject *fast = NULL;
 	PyObject *item = NULL;
 	PyObject *out = NULL;
-	const char *vtype = NULL;
 	Py_ssize_t n, i;
 	char *kwnames[] = {"vdev_type", "name", "children", NULL};
 
@@ -1024,16 +1022,12 @@ py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
 		return NULL;
 	}
 
-	vtype = PyUnicode_AsUTF8(py_vtype);
-	if (vtype == NULL)
-		return NULL;
-
-	if (!is_valid_vdev_type(vtype)) {
+	if (!is_valid_vdev_type(py_vtype)) {
 		PyErr_Format(PyExc_ValueError,
-		    "Invalid vdev_type \"%s\". Must be one of: "
+		    "Invalid vdev_type \"%U\". Must be one of: "
 		    "disk, file, mirror, raidz1, raidz2, raidz3, "
 		    "draid1, draid2, draid3",
-		    vtype);
+		    py_vtype);
 		return NULL;
 	}
 

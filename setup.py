@@ -33,7 +33,6 @@ truenas_pylibzfs = Extension(
         'zfs_core',
         'nvpair',
         'uutil',
-        'zutil',
     ],
     include_dirs = ['/usr/include/libzfs', '/usr/include/libspl'],
     library_dirs = ['/usr/lib/x86_64-linux-gnu/'],
