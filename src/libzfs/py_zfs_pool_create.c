@@ -993,37 +993,22 @@ validate_vdev_list(pylibzfs_state_t *state, PyObject *pyobj,
 }
 
 /* --------------------------------------------------------------------------
- * create_vdev_spec() — module-level factory function.
+ * create_vdev_spec() — implementation called from the module-level wrapper.
+ *
+ * Callers must supply already-validated non-NULL py_vtype and must have
+ * confirmed that it is a PyUnicode object before calling here.  py_name and
+ * py_children may be Py_None.
  * -------------------------------------------------------------------------- */
 
 PyObject *
-py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
+py_zfs_pool_create_vdev_spec(pylibzfs_state_t *state,
+    PyObject *py_vtype, PyObject *py_name, PyObject *py_children)
 {
-	pylibzfs_state_t *state = NULL;
-	PyObject *py_vtype = NULL;
-	PyObject *py_name = Py_None;
-	PyObject *py_children = Py_None;
 	PyObject *children_tuple = NULL;
 	PyObject *fast = NULL;
 	PyObject *item = NULL;
 	PyObject *out = NULL;
 	Py_ssize_t n, i;
-	char *kwnames[] = {"vdev_type", "name", "children", NULL};
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OOO",
-	    kwnames, &py_vtype, &py_name, &py_children))
-		return NULL;
-
-	if (py_vtype == NULL || py_vtype == Py_None) {
-		PyErr_SetString(PyExc_ValueError,
-		    "\"vdev_type\" keyword argument is required");
-		return NULL;
-	}
-
-	if (!PyUnicode_Check(py_vtype)) {
-		PyErr_SetString(PyExc_TypeError, "vdev_type must be a string");
-		return NULL;
-	}
 
 	if (!is_valid_vdev_type(py_vtype)) {
 		PyErr_Format(PyExc_ValueError,
@@ -1033,9 +1018,6 @@ py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
 		    py_vtype);
 		return NULL;
 	}
-
-	state = (pylibzfs_state_t *)PyModule_GetState(self);
-	PYZFS_ASSERT(state, "Failed to get module state");
 
 	/* Normalize children: any sequence → tuple, or None → None */
 	if (py_children != NULL && py_children != Py_None) {
@@ -1295,22 +1277,19 @@ build_default_pool_props(void)
 	return props;
 }
 
+/*
+ * py_zfs_do_create_pool() — core implementation called from the ZFS.create_pool()
+ * wrapper in py_zfs.c.
+ *
+ * All argument validation (required-field checks, type checks) is performed by
+ * the wrapper before this function is called.  py_storage must be non-NULL and
+ * non-None; all other PyObject arguments may be NULL (treated as absent) or
+ * Py_None.
+ */
 PyObject *
-py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
+py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 {
-	py_zfs_t *plz = (py_zfs_t *)self;
 	pylibzfs_state_t *state = py_get_module_state(plz);
-
-	const char *pool_name = NULL;
-	PyObject *py_storage = NULL;
-	PyObject *py_cache = NULL;
-	PyObject *py_log = NULL;
-	PyObject *py_special = NULL;
-	PyObject *py_dedup = NULL;
-	PyObject *py_spare = NULL;
-	PyObject *py_props = NULL;
-	PyObject *py_fsprops = NULL;
-	boolean_t force = B_FALSE;
 
 	PyObject *storage_seq = NULL, *cache_seq = NULL, *log_seq = NULL;
 	PyObject *special_seq = NULL, *dedup_seq = NULL, *spare_seq = NULL;
@@ -1322,53 +1301,33 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 	py_zfs_error_t zfs_err;
 	int err;
 
-	char *kwnames[] = {
-		"name", "storage_vdevs", "cache_vdevs", "log_vdevs",
-		"special_vdevs", "dedup_vdevs", "spare_vdevs",
-		"properties", "filesystem_properties", "force",
-		NULL
-	};
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOp",
-	    kwnames,
-	    &pool_name, &py_storage, &py_cache, &py_log,
-	    &py_special, &py_dedup, &py_spare,
-	    &py_props, &py_fsprops, &force))
-		return NULL;
-
-	if (pool_name == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "\"name\" keyword argument is required");
-		return NULL;
-	}
-
-	if (py_storage == NULL || py_storage == Py_None) {
-		PyErr_SetString(PyExc_ValueError,
-		    "\"storage_vdevs\" is required and must be non-empty");
-		return NULL;
-	}
-
 	/* Validate and normalise all vdev lists */
-	if (!validate_vdev_list(state, py_storage, "storage_vdevs", &storage_seq))
+	if (!validate_vdev_list(state, cpa->storage_vdevs,
+	    "storage_vdevs", &storage_seq))
 		goto fail;
 
-	if (!validate_vdev_list(state, py_cache, "cache_vdevs", &cache_seq))
+	if (!validate_vdev_list(state, cpa->cache_vdevs,
+	    "cache_vdevs", &cache_seq))
 		goto fail;
 
-	if (!validate_vdev_list(state, py_log, "log_vdevs", &log_seq))
+	if (!validate_vdev_list(state, cpa->log_vdevs,
+	    "log_vdevs", &log_seq))
 		goto fail;
 
-	if (!validate_vdev_list(state, py_special, "special_vdevs", &special_seq))
+	if (!validate_vdev_list(state, cpa->special_vdevs,
+	    "special_vdevs", &special_seq))
 		goto fail;
 
-	if (!validate_vdev_list(state, py_dedup, "dedup_vdevs", &dedup_seq))
+	if (!validate_vdev_list(state, cpa->dedup_vdevs,
+	    "dedup_vdevs", &dedup_seq))
 		goto fail;
 
-	if (!validate_vdev_list(state, py_spare, "spare_vdevs", &spare_seq))
+	if (!validate_vdev_list(state, cpa->spare_vdevs,
+	    "spare_vdevs", &spare_seq))
 		goto fail;
 
 	/* Topology validation (skip when force=True) */
-	if (!force) {
+	if (!cpa->force) {
 		if (!validate_pool_topology(storage_seq, cache_seq, log_seq,
 		    special_seq, dedup_seq, spare_seq))
 			goto fail;
@@ -1376,7 +1335,7 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 
 	/* Audit before making any kernel calls */
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
-	    pool_name) < 0)
+	    cpa->name) < 0)
 		goto fail;
 
 	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
@@ -1389,8 +1348,8 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 	props_nvl = build_default_pool_props();
 	Py_END_ALLOW_THREADS
 
-	if (py_props != NULL && py_props != Py_None) {
-		nvlist_t *user_props = py_zpoolprops_to_nvlist(py_props);
+	if (cpa->properties != NULL && cpa->properties != Py_None) {
+		nvlist_t *user_props = py_zpoolprops_to_nvlist(cpa->properties);
 		if (user_props == NULL)
 			goto fail;
 		/* Merge caller props on top of defaults; caller wins on collision */
@@ -1398,16 +1357,17 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 		fnvlist_free(user_props);
 	}
 
-	if (py_fsprops != NULL && py_fsprops != Py_None) {
-		fsprops_nvl = py_zfsprops_to_nvlist(state, py_fsprops,
-		    ZFS_TYPE_FILESYSTEM, B_FALSE);
+	if (cpa->filesystem_properties != NULL &&
+	    cpa->filesystem_properties != Py_None) {
+		fsprops_nvl = py_zfsprops_to_nvlist(state,
+		    cpa->filesystem_properties, ZFS_TYPE_FILESYSTEM, B_FALSE);
 		if (fsprops_nvl == NULL)
 			goto fail;
 	}
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(plz);
-	err = zpool_create(plz->lzh, pool_name, root_nvl,
+	err = zpool_create(plz->lzh, cpa->name, root_nvl,
 	    props_nvl, fsprops_nvl);
 	if (err)
 		py_get_zfs_error(plz->lzh, &zfs_err);
@@ -1431,7 +1391,7 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 		return NULL;
 	}
 
-	err = py_log_history_fmt(plz, "zpool create %s", pool_name);
+	err = py_log_history_fmt(plz, "zpool create %s", cpa->name);
 	if (err)
 		return NULL;
 

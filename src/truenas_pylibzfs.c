@@ -182,6 +182,73 @@ static PyObject *py_fzfs_rewrite(PyObject *self,
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_create_vdev_spec__doc__,
+"create_vdev_spec(*, vdev_type, name=None, children=None)"
+" -> struct_vdev_create_spec\n"
+"---------------------------------------------------------\n\n"
+"Build an immutable vdev specification record for use with\n"
+"ZFS.create_pool().  All arguments are keyword-only.\n\n"
+"Parameters\n"
+"----------\n"
+"vdev_type: str | " PYLIBZFS_MODULE_NAME ".VDevType, required\n"
+"    The type of vdev to create.  Must be one of:\n"
+"    \"disk\", \"file\", \"mirror\",\n"
+"    \"raidz1\", \"raidz2\", \"raidz3\",\n"
+"    \"draid1\", \"draid2\", \"draid3\".\n\n"
+"name: str | None, optional\n"
+"    Device path for leaf vdevs (disk/file), e.g. \"/dev/sda\".\n"
+"    For dRAID vdevs, a config string of the form \"<ndata>d:<nspares>s\",\n"
+"    e.g. \"3d:1s\" for 3 data disks and 1 distributed spare.\n"
+"    Must be None for all other virtual vdev types (mirror, raidz*).\n\n"
+"children: sequence of struct_vdev_create_spec | None, optional\n"
+"    Child vdev specs for virtual vdev types (mirror, raidz*, draid*).\n"
+"    Must be None for leaf vdev types (disk, file).\n\n"
+"Returns\n"
+"-------\n"
+PYLIBZFS_MODULE_NAME ".struct_vdev_create_spec\n"
+"    Immutable named-tuple-like record with fields:\n"
+"    (name, vdev_type, children).\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    vdev_type is missing, unrecognised, or the name/children combination\n"
+"    is inconsistent with the requested type (e.g. leaf vdev with children,\n"
+"    or dRAID with a malformed config string).\n"
+"TypeError:\n"
+"    vdev_type is not a string, name is not a string or None, or children\n"
+"    is not a sequence.\n"
+);
+static PyObject *
+py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	pylibzfs_state_t *state = NULL;
+	PyObject *py_vtype = NULL;
+	PyObject *py_name = Py_None;
+	PyObject *py_children = Py_None;
+	char *kwnames[] = {"vdev_type", "name", "children", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OOO",
+	    kwnames, &py_vtype, &py_name, &py_children))
+		return NULL;
+
+	if (py_vtype == NULL || py_vtype == Py_None) {
+		PyErr_SetString(PyExc_ValueError,
+		    "\"vdev_type\" keyword argument is required");
+		return NULL;
+	}
+
+	if (!PyUnicode_Check(py_vtype)) {
+		PyErr_SetString(PyExc_TypeError, "vdev_type must be a string");
+		return NULL;
+	}
+
+	state = (pylibzfs_state_t *)PyModule_GetState(self);
+	PYZFS_ASSERT(state, "Failed to get module state");
+
+	return py_zfs_pool_create_vdev_spec(state, py_vtype, py_name,
+	    py_children);
+}
+
 /* Module method table */
 static PyMethodDef TruenasPylibzfsMethods[] = {
 	{
@@ -200,7 +267,7 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 		.ml_name = "create_vdev_spec",
 		.ml_meth = (PyCFunction)py_create_vdev_spec,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
-		.ml_doc = NULL
+		.ml_doc = py_create_vdev_spec__doc__
 	},
 	{NULL}
 };

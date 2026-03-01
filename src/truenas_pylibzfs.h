@@ -287,10 +287,23 @@ extern py_zfs_snapshot_t *init_zfs_snapshot(py_zfs_t *lzp, zfs_handle_t *zfsp,
 extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
 
 /* Provided by py_zfs_pool_create.c */
-extern PyObject *py_create_vdev_spec(PyObject *self, PyObject *args,
-    PyObject *kwargs);
-extern PyObject *py_zfs_create_pool(PyObject *self, PyObject *args,
-    PyObject *kwargs);
+typedef struct {
+	const char	*name;
+	PyObject	*storage_vdevs;
+	PyObject	*cache_vdevs;
+	PyObject	*log_vdevs;
+	PyObject	*special_vdevs;
+	PyObject	*dedup_vdevs;
+	PyObject	*spare_vdevs;
+	PyObject	*properties;
+	PyObject	*filesystem_properties;
+	boolean_t	 force;
+} py_zfs_create_pool_args_t;
+
+extern PyObject *py_zfs_pool_create_vdev_spec(pylibzfs_state_t *state,
+    PyObject *py_vtype, PyObject *py_name, PyObject *py_children);
+extern PyObject *py_zfs_do_create_pool(py_zfs_t *plz,
+    py_zfs_create_pool_args_t *args);
 extern int init_vdev_create_spec_state(pylibzfs_state_t *state,
     PyObject *module);
 
