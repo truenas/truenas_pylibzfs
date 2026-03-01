@@ -291,7 +291,8 @@ extern PyObject *py_create_vdev_spec(PyObject *self, PyObject *args,
     PyObject *kwargs);
 extern PyObject *py_zfs_create_pool(PyObject *self, PyObject *args,
     PyObject *kwargs);
-extern void init_vdev_create_spec_state(pylibzfs_state_t *state);
+extern int init_vdev_create_spec_state(pylibzfs_state_t *state,
+    PyObject *module);
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);

@@ -344,17 +344,6 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
-	{
-		pylibzfs_state_t *state =
-		    (pylibzfs_state_t *)PyModule_GetState(mpylibzfs);
-		err = PyModule_AddObjectRef(mpylibzfs, "struct_vdev_create_spec",
-		    (PyObject *)state->struct_vdev_create_spec_type);
-		if (err) {
-			Py_DECREF(mpylibzfs);
-			return NULL;
-		}
-	}
-
 	propsets = py_setup_propset_module(mpylibzfs);
 	err = PyModule_AddObjectRef(mpylibzfs, "property_sets", propsets);
 	Py_XDECREF(propsets);

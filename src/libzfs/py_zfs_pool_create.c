@@ -1454,8 +1454,8 @@ fail:
  * Module-state initialisation — called from init_py_zfs_state().
  * -------------------------------------------------------------------------- */
 
-void
-init_vdev_create_spec_state(pylibzfs_state_t *state)
+int
+init_vdev_create_spec_state(pylibzfs_state_t *state, PyObject *module)
 {
 	PyTypeObject *obj;
 
@@ -1463,4 +1463,7 @@ init_vdev_create_spec_state(pylibzfs_state_t *state)
 	PYZFS_ASSERT(obj, "Failed to create struct_vdev_create_spec type");
 
 	state->struct_vdev_create_spec_type = obj;
+
+	return PyModule_AddObjectRef(module, "struct_vdev_create_spec",
+	    (PyObject *)obj);
 }
