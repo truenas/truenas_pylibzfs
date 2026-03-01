@@ -556,6 +556,70 @@ class ZFSPool:
         ...
 
 
+class struct_zfs_crypto_info:
+    """Encryption status information for a ZFS dataset or volume."""
+    is_root: bool
+    """Whether this dataset is an encryption root."""
+    encryption_root: str | None
+    """Name of the encryption root dataset, or None if not encrypted."""
+    key_location: str
+    """The keylocation property value (e.g. 'prompt', 'file://...')."""
+    key_is_loaded: bool
+    """Whether the wrapping key is currently loaded."""
+
+
+class ZFSCrypto:
+    """Encryption operations for a ZFS dataset or volume."""
+
+    def info(self) -> struct_zfs_crypto_info:
+        """Return current encryption status information."""
+        ...
+
+    def load_key(
+        self,
+        *,
+        key: str | bytes | None = None,
+        key_location: str | None = None,
+    ) -> None:
+        """Load the encryption key for this dataset or volume.
+
+        Pass ``key`` as ``str`` for hex and passphrase keyformats, or as
+        ``bytes`` (exactly 32 bytes) for raw keyformat.  Mutually exclusive
+        with ``key_location``.
+        """
+        ...
+
+    def unload_key(self) -> None:
+        """Unload the encryption key for this dataset or volume."""
+        ...
+
+    def check_key(
+        self,
+        *,
+        key: str | bytes | None = None,
+        key_location: str | None = None,
+    ) -> bool:
+        """Return True if the supplied key material can unlock this resource.
+
+        Pass ``key`` as ``str`` for hex and passphrase keyformats, or as
+        ``bytes`` (exactly 32 bytes) for raw keyformat.  Mutually exclusive
+        with ``key_location``.
+        """
+        ...
+
+    def change_key(self, *, info: Any) -> None:
+        """Change the wrapping key and/or encryption properties.
+
+        ``info`` must be a struct_zfs_crypto_config returned by
+        ``ZFS.resource_cryptography_config()``.
+        """
+        ...
+
+    def inherit_key(self) -> None:
+        """Remove this dataset as an encryption root, inheriting from parent."""
+        ...
+
+
 class ZFS:
     def open_pool(self, *, name: str) -> ZFSPool:
         """Open a ZFS pool by name and return a ZFSPool object."""
@@ -566,5 +630,5 @@ class ZFS:
     def destroy_resource(self, *, name) -> bool: ...
     def iter_pools(self, *, callback, state) -> bool: ...
     def iter_root_filesystems(self, *, callback, state) -> bool: ...
-    def resource_cryptography_config(self, *, keyformat=None, keylocation=None, pbkdf2iters=1300000, key=None) -> Any: ...
+    def resource_cryptography_config(self, *, keyformat: str | None = None, keylocation: str | None = None, pbkdf2iters: int | None = None, key: str | bytes | None = None) -> Any: ...
     def zpool_events(self, *, blocking=False, skip_existing_events=True) -> Iterator[dict[str, Any]]: ...

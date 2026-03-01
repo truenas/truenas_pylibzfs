@@ -260,6 +260,7 @@ boolean_t validate_key_material(PyObject *py_key, zfs_crypto_change_info_t *info
 			PyErr_Format(PyExc_ValueError,
 				     "The raw key must be %d bytes long.",
 				     WRAPPING_KEY_LEN);
+			return B_FALSE;
 		}
 
 		// Raw bytes may theoretically contain embedded null
@@ -658,6 +659,7 @@ static boolean_t write_key_to_memfile(const char *key, size_t keylen,
 static
 PyObject *py_load_key_memory(py_zfs_obj_t *obj,
 			     const char *key,
+			     size_t key_len,
 			     boolean_t test)
 {
 	FILE *keyfile = NULL;
@@ -668,7 +670,7 @@ PyObject *py_load_key_memory(py_zfs_obj_t *obj,
 
 	Py_BEGIN_ALLOW_THREADS
 	// Copy user-provided key into an in-memory FILE
-	success = write_key_to_memfile(key, strlen(key), pbuf, sizeof(pbuf),
+	success = write_key_to_memfile(key, key_len, pbuf, sizeof(pbuf),
 				       &keyfile);
 	if (success) {
 		// generate a procfd path for libzfs
@@ -710,6 +712,7 @@ PyObject *py_load_key_memory(py_zfs_obj_t *obj,
 
 PyObject *py_load_key_impl(py_zfs_obj_t *obj,
 			   const char *key,
+			   size_t key_len,
 			   const char *key_location,
 			   boolean_t test)
 {
@@ -727,7 +730,7 @@ PyObject *py_load_key_impl(py_zfs_obj_t *obj,
 		// Library user has provided a key.
 		// We'll write it to an in-memory file and have
 		// libzfs load it
-		return py_load_key_memory(obj, key, test);
+		return py_load_key_memory(obj, key, key_len, test);
 	}
 
 	Py_BEGIN_ALLOW_THREADS
@@ -803,7 +806,8 @@ PyObject *py_load_key_common(py_zfs_obj_t *obj,
 			     boolean_t test)
 {
 	const char *alt_keylocation = NULL;
-	const char *key = NULL;
+	Py_buffer key_buf = {0};
+	PyObject *rv = NULL;
 
 	char *kwnames [] = {
 		"key",
@@ -812,22 +816,27 @@ PyObject *py_load_key_common(py_zfs_obj_t *obj,
 	};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$ss",
+					 "|$s*s",
 					 kwnames,
-					 &key,
+					 &key_buf,
 					 &alt_keylocation)) {
 		return NULL;
 	}
 
-	if (!key && !alt_keylocation) {
+	if (!key_buf.buf && !alt_keylocation) {
 		if (!py_validate_key_location(obj))
 			return NULL;
 	}
 
-	return py_load_key_impl(obj,
-				key,
-				alt_keylocation,
-				test);
+	rv = py_load_key_impl(obj,
+					(const char *)key_buf.buf,
+					(size_t)key_buf.len,
+					alt_keylocation,
+					test);
+	if (key_buf.obj)
+		PyBuffer_Release(&key_buf);
+
+	return rv;
 }
 
 PyDoc_STRVAR(py_zfs_enc_load_key__doc__,
@@ -839,10 +848,12 @@ PyDoc_STRVAR(py_zfs_enc_load_key__doc__,
 ""
 "Parameters\n"
 "----------\n"
-"key: str, optional, default=None\n"
+"key: str | bytes, optional, default=None\n"
 "    Optional parameter to specify the password or key to use\n"
 "    to unlock the ZFS resource. This is required if the ZFS\n"
 "    resource (dataset or zvol) has the keylocation set to \"prompt\".\n"
+"    Pass str for hex and passphrase keyformats; pass bytes for raw\n"
+"    keyformat (exactly 32 bytes of raw key material).\n"
 "key_location: str, optional, default=None\n"
 "    Optional parameter to override the ZFS key location specified\n"
 "    in the ZFS dataset settings. This must be None when \"key\" is\n"
@@ -882,10 +893,12 @@ PyDoc_STRVAR(py_zfs_enc_check_key__doc__,
 ""
 "Parameters\n"
 "----------\n"
-"key: str, optional, default=None\n"
+"key: str | bytes, optional, default=None\n"
 "    Optional parameter to specify the password or key to use\n"
 "    to unlock the ZFS resource. This is required if the ZFS\n"
 "    resource (dataset or zvol) has the keylocation set to \"prompt\".\n"
+"    Pass str for hex and passphrase keyformats; pass bytes for raw\n"
+"    keyformat (exactly 32 bytes of raw key material).\n"
 "key_location: str, optional, default=None\n"
 "    Optional parameter to override the ZFS key location specified\n"
 "    in the ZFS dataset settings. This must be None when \"key\" is\n"
