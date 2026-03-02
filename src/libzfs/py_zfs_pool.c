@@ -735,6 +735,151 @@ out:
 	return dict_out;
 }
 
+PyDoc_STRVAR(py_zfs_pool_scrub__doc__,
+"scrub_info() -> struct_zpool_scrub | None\n\n"
+"-----------------------------------------\n\n"
+"Return current scan/scrub statistics for the pool as a struct_zpool_scrub\n"
+"named tuple.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"truenas_pylibzfs.struct_zpool_scrub if scan statistics are available,\n"
+"or None if the pool has never been scrubbed (no scan stats in config).\n\n"
+"Raises\n"
+"------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while refreshing pool statistics.\n"
+);
+static
+PyObject *py_zfs_pool_scrub_info(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.scrub_info", "O",
+	    p->name) < 0)
+		return NULL;
+
+	return py_get_pool_scrub_info(p);
+}
+
+PyDoc_STRVAR(py_zfs_pool_scan__doc__,
+"scan(*, func, cmd=ScanScrubCmd.NORMAL) -> None\n\n"
+"-----------------------------------------------\n\n"
+"Start, pause, or cancel a pool scan (scrub, resilver, or error-scrub).\n\n"
+"Parameters\n"
+"----------\n"
+"func: ScanFunction\n"
+"    The scan function to perform:\n"
+"      ScanFunction.SCRUB     — start or resume a data integrity scrub\n"
+"      ScanFunction.RESILVER  — start a resilver (mirror/RAIDZ rebuild)\n"
+"      ScanFunction.ERRORSCRUB — start an error-scrub\n"
+"      ScanFunction.NONE      — cancel the current scan\n\n"
+"cmd: ScanScrubCmd, optional, default=ScanScrubCmd.NORMAL\n"
+"    Scrub command modifier:\n"
+"      ScanScrubCmd.NORMAL        — normal start/resume\n"
+"      ScanScrubCmd.PAUSE         — pause an in-progress scrub\n"
+"      ScanScrubCmd.FROM_LAST_TXG — resume scrub from last completed TXG\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    func or cmd is not a valid enum value.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while issuing the scan command.\n"
+);
+static
+PyObject *py_zfs_pool_scan(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	PyObject *py_func = NULL;
+	PyObject *py_cmd = NULL;
+	long func_val, cmd_val;
+	int ret;
+	py_zfs_error_t err;
+	int error;
+	char *kwnames[] = {"func", "cmd", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OO", kwnames,
+	    &py_func, &py_cmd))
+		return NULL;
+
+	if (py_func == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "func is required");
+		return NULL;
+	}
+
+	func_val = PyLong_AsLong(py_func);
+	if (func_val == -1 && PyErr_Occurred())
+		return NULL;
+
+	if (func_val < POOL_SCAN_NONE || func_val >= POOL_SCAN_FUNCS) {
+		PyErr_Format(PyExc_ValueError,
+		    "func value %ld is out of range [%d, %d)",
+		    func_val, POOL_SCAN_NONE, POOL_SCAN_FUNCS);
+		return NULL;
+	}
+
+	/* Default cmd to POOL_SCRUB_NORMAL */
+	if (py_cmd == NULL) {
+		cmd_val = POOL_SCRUB_NORMAL;
+	} else {
+		cmd_val = PyLong_AsLong(py_cmd);
+		if (cmd_val == -1 && PyErr_Occurred())
+			return NULL;
+
+		if (cmd_val < POOL_SCRUB_NORMAL ||
+		    cmd_val >= POOL_SCRUB_FLAGS_END) {
+			PyErr_Format(PyExc_ValueError,
+			    "cmd value %ld is out of range [%d, %d)",
+			    cmd_val, POOL_SCRUB_NORMAL, POOL_SCRUB_FLAGS_END);
+			return NULL;
+		}
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.scan", "Oll",
+	    p->name, func_val, cmd_val) < 0)
+		return NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_scan(p->zhp,
+	    (pool_scan_func_t)func_val,
+	    (pool_scrub_cmd_t)cmd_val);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &err);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&err, "zpool_scan() failed");
+		return NULL;
+	}
+
+	/* Log the operation to zpool history */
+	if (func_val == POOL_SCAN_NONE) {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool scrub -s %s", zpool_get_name(p->zhp));
+	} else if (cmd_val == POOL_SCRUB_PAUSE) {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool scrub -p %s", zpool_get_name(p->zhp));
+	} else if (func_val == POOL_SCAN_ERRORSCRUB) {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool scrub -e %s", zpool_get_name(p->zhp));
+	} else {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool scrub %s", zpool_get_name(p->zhp));
+	}
+	if (error)
+		return NULL;
+
+	Py_RETURN_NONE;
+}
+
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
@@ -809,6 +954,18 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_get_features,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_get_features__doc__
+	},
+	{
+		.ml_name = "scrub_info",
+		.ml_meth = py_zfs_pool_scrub_info,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_scrub__doc__
+	},
+	{
+		.ml_name = "scan",
+		.ml_meth = (PyCFunction)py_zfs_pool_scan,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_scan__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

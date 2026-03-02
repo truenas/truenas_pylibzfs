@@ -493,4 +493,43 @@ static const struct {
 };
 
 
+/* pool_scan_func_t enum */
+static const struct {
+	pool_scan_func_t func;
+	const char *name;
+} scan_func_table[] = {
+	{ POOL_SCAN_NONE, "NONE" },
+	{ POOL_SCAN_SCRUB, "SCRUB" },
+	{ POOL_SCAN_RESILVER, "RESILVER" },
+	{ POOL_SCAN_ERRORSCRUB, "ERRORSCRUB" },
+};
+_Static_assert(POOL_SCAN_FUNCS == POOL_SCAN_ERRORSCRUB + 1,
+    "pool_scan_func_t enum has changed: update scan_func_table");
+
+/* dsl_scan_state_t enum */
+static const struct {
+	dsl_scan_state_t state;
+	const char *name;
+} scan_state_table[] = {
+	{ DSS_NONE, "NONE" },
+	{ DSS_SCANNING, "SCANNING" },
+	{ DSS_FINISHED, "FINISHED" },
+	{ DSS_CANCELED, "CANCELED" },
+	{ DSS_ERRORSCRUBBING, "ERRORSCRUBBING" },
+};
+_Static_assert(DSS_NUM_STATES == DSS_ERRORSCRUBBING + 1,
+    "dsl_scan_state_t enum has changed: update scan_state_table");
+
+/* pool_scrub_cmd_t enum */
+static const struct {
+	pool_scrub_cmd_t cmd;
+	const char *name;
+} scan_scrub_cmd_table[] = {
+	{ POOL_SCRUB_NORMAL, "NORMAL" },
+	{ POOL_SCRUB_PAUSE, "PAUSE" },
+	{ POOL_SCRUB_FROM_LAST_TXG, "FROM_LAST_TXG" },
+};
+_Static_assert(POOL_SCRUB_FLAGS_END == POOL_SCRUB_FROM_LAST_TXG + 1,
+    "pool_scrub_cmd_t enum has changed: update scan_scrub_cmd_table");
+
 #endif /* _TRUENAS_PYLIBZFS_ENUMS_H */

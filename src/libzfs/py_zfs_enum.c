@@ -396,6 +396,99 @@ fail:
 	return NULL;
 }
 
+/* Create a dictionary for enum spec for the ScanFunction enum */
+static
+PyObject *scan_func_table_to_dict(void)
+{
+	PyObject *dict_out = NULL;
+	int err;
+	uint i;
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (i = 0; i < ARRAY_SIZE(scan_func_table); i++) {
+		PyObject *val = PyLong_FromLong(scan_func_table[i].func);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(dict_out,
+					   scan_func_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return dict_out;
+fail:
+	Py_XDECREF(dict_out);
+	return NULL;
+}
+
+/* Create a dictionary for enum spec for the ScanState enum */
+static
+PyObject *scan_state_table_to_dict(void)
+{
+	PyObject *dict_out = NULL;
+	int err;
+	uint i;
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (i = 0; i < ARRAY_SIZE(scan_state_table); i++) {
+		PyObject *val = PyLong_FromLong(scan_state_table[i].state);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(dict_out,
+					   scan_state_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return dict_out;
+fail:
+	Py_XDECREF(dict_out);
+	return NULL;
+}
+
+/* Create a dictionary for enum spec for the ScanScrubCmd enum */
+static
+PyObject *scan_scrub_cmd_table_to_dict(void)
+{
+	PyObject *dict_out = NULL;
+	int err;
+	uint i;
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (i = 0; i < ARRAY_SIZE(scan_scrub_cmd_table); i++) {
+		PyObject *val = PyLong_FromLong(scan_scrub_cmd_table[i].cmd);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(dict_out,
+					   scan_scrub_cmd_table[i].name,
+					   val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return dict_out;
+fail:
+	Py_XDECREF(dict_out);
+	return NULL;
+}
+
 static
 PyObject *build_args_tuple_enum(const char *class_name,
 				PyObject *(*get_dict)(void))
@@ -579,6 +672,22 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 	err = add_enum(emod, module, str_enum, "VDevType",
 		       vdev_type_table_to_dict, kwargs,
 		       &state->vdev_type_enum);
+
+	err = add_enum(emod, NULL, int_enum, "ScanFunction",
+		       scan_func_table_to_dict, kwargs,
+		       &state->scan_function_enum);
+	if (err)
+		goto out;
+
+	err = add_enum(emod, NULL, int_enum, "ScanState",
+		       scan_state_table_to_dict, kwargs,
+		       &state->scan_state_enum);
+	if (err)
+		goto out;
+
+	err = add_enum(emod, NULL, int_enum, "ScanScrubCmd",
+		       scan_scrub_cmd_table_to_dict, kwargs, NULL);
+
 	if (err)
 		goto out;
 out:

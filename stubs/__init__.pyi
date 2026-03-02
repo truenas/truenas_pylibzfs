@@ -84,6 +84,31 @@ class struct_zpool_feature:
     description: str
     state: Literal["DISABLED", "ENABLED", "ACTIVE"]
 
+class struct_zpool_scrub:
+    func: enums.ScanFunction
+    state: enums.ScanState
+    start_time: int
+    end_time: int
+    to_examine: int
+    examined: int
+    skipped: int
+    processed: int
+    issued: int
+    errors: int
+    pass_exam: int
+    pass_start: int
+    pass_scrub_pause: int
+    pass_scrub_spent_paused: int
+    pass_issued: int
+    error_scrub_func: enums.ScanFunction | None
+    error_scrub_state: enums.ScanState | None
+    error_scrub_start: int | None
+    error_scrub_end: int | None
+    error_scrub_examined: int | None
+    error_scrub_to_be_examined: int | None
+    pass_error_scrub_pause: int | None
+    percentage: float | None
+
 class struct_zpool_status:
     status: ZPOOLStatus
     reason: str | None
@@ -653,6 +678,14 @@ class ZFSPool:
 
     def get_features(self, *, asdict: bool = ...) -> dict[str, struct_zpool_feature] | dict[str, dict[str, str]]:
         """Return dict of pool features with their state and metadata."""
+        ...
+
+    def scrub_info(self) -> struct_zpool_scrub | None:
+        """Return current scan/scrub statistics, or None if pool never scrubbed."""
+        ...
+
+    def scan(self, *, func: enums.ScanFunction, cmd: enums.ScanScrubCmd = ...) -> None:
+        """Start, pause, or cancel a pool scan (scrub, resilver, or error-scrub)."""
         ...
 
 
