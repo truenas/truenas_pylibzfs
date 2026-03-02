@@ -1569,6 +1569,146 @@ static PyObject *py_lzc_rollback(PyObject *self,
 	return PyUnicode_FromString(snapret);
 }
 
+PyDoc_STRVAR(py_lzc_wait__doc__,
+"wait(*, pool_name, activity, tag=None) -> bool\n"
+"-----------------------------------------------\n\n"
+"Wait for a pool activity to finish.\n"
+"\n"
+"Parameters\n"
+"----------\n"
+"pool_name: str\n"
+"    Name of the pool.\n"
+"activity: ZpoolWaitActivity | int\n"
+"    The pool activity to wait for.\n"
+"tag: int | None, optional\n"
+"    If specified, wait for the activity on the specific vdev identified\n"
+"    by this vdev GUID (calls lzc_wait_tag instead of lzc_wait).\n"
+"    The tag is the integer vdev GUID, as returned by vdev properties\n"
+"    such as ZFSVdev.guid.\n"
+"    Only INITIALIZE and TRIM support vdev-level tagging; libzfs uses\n"
+"    this to wait for initialization or trim on each individual vdev\n"
+"    in a set (see zpool_initialize and zpool_trim_wait in libzfs_pool.c).\n"
+"    All other activities are pool-wide — pass None (the default).\n"
+"\n"
+"Returns\n"
+"-------\n"
+"bool\n"
+"    True if we actually waited for the activity to complete.\n"
+"    False if the activity was already done before we blocked.\n"
+"\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    pool_name or activity was omitted, or activity is out of range,\n"
+"    or tag was supplied for an activity other than INITIALIZE or TRIM.\n"
+"OSError:\n"
+"    An error was returned by libzfs_core.\n"
+);
+static PyObject *
+py_lzc_wait(PyObject *self, PyObject *args_unused, PyObject *kwargs)
+{
+	const char *pool_name = NULL;
+	PyObject *py_activity = NULL;
+	PyObject *py_tag = NULL;
+	boolean_t waited = B_FALSE;
+	boolean_t has_tag = B_FALSE;
+	long activity;
+	uint64_t tag = 0;
+	int err;
+	int async_err = 0;
+
+	char *kwnames[] = { "pool_name", "activity", "tag", NULL };
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$sOO",
+					 kwnames,
+					 &pool_name,
+					 &py_activity,
+					 &py_tag)) {
+		return NULL;
+	}
+
+	if (pool_name == NULL) {
+		PyErr_SetString(PyExc_ValueError, "pool_name is required");
+		return NULL;
+	}
+
+	if (py_activity == NULL) {
+		PyErr_SetString(PyExc_ValueError, "activity is required");
+		return NULL;
+	}
+
+	activity = PyLong_AsLong(py_activity);
+	if (activity == -1 && PyErr_Occurred())
+		return NULL;
+
+	if (activity < 0 || activity >= ZPOOL_WAIT_NUM_ACTIVITIES) {
+		PyErr_Format(PyExc_ValueError,
+			     "%ld: not a valid ZpoolWaitActivity value.",
+			     activity);
+		return NULL;
+	}
+
+	if (py_tag != NULL && py_tag != Py_None) {
+		tag = PyLong_AsUnsignedLongLong(py_tag);
+		if (tag == (uint64_t)-1 && PyErr_Occurred())
+			return NULL;
+		has_tag = B_TRUE;
+	}
+
+	if (has_tag &&
+	    activity != ZPOOL_WAIT_INITIALIZE &&
+	    activity != ZPOOL_WAIT_TRIM) {
+		PyErr_SetString(PyExc_ValueError,
+		    "tag is only supported for INITIALIZE and TRIM activities.");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.wait", "sl",
+			pool_name, activity) < 0) {
+		return NULL;
+	}
+
+	do {
+		Py_BEGIN_ALLOW_THREADS
+		if (has_tag) {
+			err = lzc_wait_tag(pool_name,
+					   (zpool_wait_activity_t)activity,
+					   tag, &waited);
+		} else {
+			err = lzc_wait(pool_name,
+				       (zpool_wait_activity_t)activity,
+				       &waited);
+		}
+		Py_END_ALLOW_THREADS
+	} while (err == EINTR && !(async_err = PyErr_CheckSignals()));
+
+	if (async_err)
+		return NULL;
+
+	if (err != 0) {
+		PyObject *errstr = NULL;
+		PyObject *etuple = NULL;
+
+		errstr = PyUnicode_FromFormat(
+		    "lzc_wait() failed for pool %s: %s",
+		    pool_name, strerror(err));
+		if (errstr == NULL)
+			return NULL;
+
+		etuple = Py_BuildValue("(iO)", err, errstr);
+		Py_DECREF(errstr);
+		if (etuple == NULL)
+			return NULL;
+
+		PyErr_SetObject(PyExc_OSError, etuple);
+		Py_DECREF(etuple);
+		return NULL;
+	}
+
+	return PyBool_FromLong(waited);
+}
+
 static int
 py_zfs_core_module_clear(PyObject *module)
 {
@@ -1625,6 +1765,12 @@ static PyMethodDef TruenasPylibzfsCoreMethods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_core_rollback__doc__
 	},
+	{
+		.ml_name = "wait",
+		.ml_meth = (PyCFunction)py_lzc_wait,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_lzc_wait__doc__
+	},
 	{NULL}
 };
 
@@ -1677,12 +1823,57 @@ fail:
 	return NULL;
 }
 
+static PyObject *
+wait_activity_dict(void)
+{
+	/*
+	 * Compile-time guard: if ZFS adds a new zpool_wait_activity_t value,
+	 * this fires so we know to add it to the table below.
+	 *
+	 * When adding a new entry, also consider whether py_lzc_wait() needs
+	 * updating: it currently rejects a tag for any activity other than
+	 * INITIALIZE and TRIM (mirroring the kernel's spa_wait_common()
+	 * check).  If the new activity supports vdev-level tagging, add it
+	 * to that validation as well.
+	 */
+	_Static_assert(ZPOOL_WAIT_NUM_ACTIVITIES == ZPOOL_WAIT_RAIDZ_EXPAND + 1,
+	    "zpool_wait_activity_t has changed — update wait_activity_dict()");
+
+	static const struct { const char *name; int val; } tbl[] = {
+		{ "CKPT_DISCARD", ZPOOL_WAIT_CKPT_DISCARD },
+		{ "FREE",         ZPOOL_WAIT_FREE },
+		{ "INITIALIZE",   ZPOOL_WAIT_INITIALIZE },
+		{ "REPLACE",      ZPOOL_WAIT_REPLACE },
+		{ "REMOVE",       ZPOOL_WAIT_REMOVE },
+		{ "RESILVER",     ZPOOL_WAIT_RESILVER },
+		{ "SCRUB",        ZPOOL_WAIT_SCRUB },
+		{ "TRIM",         ZPOOL_WAIT_TRIM },
+		{ "RAIDZ_EXPAND", ZPOOL_WAIT_RAIDZ_EXPAND },
+	};
+	PyObject *dict = PyDict_New();
+	if (dict == NULL)
+		return NULL;
+
+	for (size_t i = 0; i < ARRAY_SIZE(tbl); i++) {
+		PyObject *val = PyLong_FromLong(tbl[i].val);
+		if (val == NULL ||
+		    PyDict_SetItemString(dict, tbl[i].name, val) < 0) {
+			Py_XDECREF(val);
+			Py_DECREF(dict);
+			return NULL;
+		}
+		Py_DECREF(val);
+	}
+	return dict;
+}
+
 static int
 py_add_lzc_enums(PyObject *module)
 {
 	int err = -1;
 	PyObject *enum_mod = NULL;
 	PyObject *str_enum = NULL;
+	PyObject *int_enum = NULL;
 	PyObject *kwargs = NULL;
 	pylibzfs_core_state_t *state = NULL;
 
@@ -1700,13 +1891,24 @@ py_add_lzc_enums(PyObject *module)
 	if (str_enum == NULL)
 		goto out;
 
+	int_enum = PyObject_GetAttrString(enum_mod, "IntEnum");
+	if (int_enum == NULL)
+		goto out;
+
 	err = add_enum(module, NULL, str_enum, "ChannelProgramEnum",
 		       zcp_table_to_dict, kwargs,
 		       &state->zcp_enum);
+	if (err)
+		goto out;
+
+	err = add_enum(module, NULL, int_enum, "ZpoolWaitActivity",
+		       wait_activity_dict, kwargs, NULL);
 
 out:
 	Py_XDECREF(kwargs);
 	Py_XDECREF(enum_mod);
+	Py_XDECREF(str_enum);
+	Py_XDECREF(int_enum);
 	return err;
 }
 
