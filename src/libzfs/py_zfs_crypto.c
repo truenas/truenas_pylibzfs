@@ -833,8 +833,7 @@ PyObject *py_load_key_common(py_zfs_obj_t *obj,
 					(size_t)key_buf.len,
 					alt_keylocation,
 					test);
-	if (key_buf.obj)
-		PyBuffer_Release(&key_buf);
+	PyBuffer_Release(&key_buf);
 
 	return rv;
 }
