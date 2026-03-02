@@ -1424,6 +1424,5 @@ init_vdev_create_spec_state(pylibzfs_state_t *state, PyObject *module)
 
 	state->struct_vdev_create_spec_type = obj;
 
-	return PyModule_AddObjectRef(module, "struct_vdev_create_spec",
-	    (PyObject *)obj);
+	return 0;
 }
