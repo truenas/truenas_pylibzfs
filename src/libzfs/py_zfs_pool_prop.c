@@ -250,7 +250,7 @@ PyObject *py_zpool_set_properties(py_zfs_pool_t *p, PyObject *propsdict)
 	int ret = 0;
 	int log_err;
 	py_zfs_error_t zfs_err;
-	pair_t pairs;
+	pair_t *pairs;
 	int async_err;
 
 	n = PyDict_Size(propsdict);
@@ -376,7 +376,7 @@ eintr_retry:
 		return NULL;
 
 	if (ret) {
-		pyset_exc_from_libzfs(&zfs_err, "zpool_set_prop() failed");
+		set_exc_from_libzfs(&zfs_err, "zpool_set_prop() failed");
 		return NULL;
 	}
 
