@@ -880,6 +880,107 @@ PyObject *py_zfs_pool_scan(PyObject *self, PyObject *args, PyObject *kwargs)
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_get_properties__doc__,
+"get_properties(*, properties) -> struct_zpool_property\n\n"
+"------------------------------------------------------\n\n"
+"Retrieve pool properties for the given set of ZPOOLProperty members.\n\n"
+"Parameters\n"
+"----------\n"
+"properties: set, required\n"
+"    A Python set of ZPOOLProperty enum members identifying which\n"
+"    properties to retrieve. Properties not present in the set will\n"
+"    have their slot set to None in the returned struct_zpool_property.\n\n"
+"Returns\n"
+"-------\n"
+"truenas_pylibzfs.struct_zpool_property\n\n"
+"Raises:\n"
+"-------\n"
+"RuntimeError:\n"
+"    A property could not be retrieved from the pool handle.\n"
+);
+static
+PyObject *py_zfs_pool_get_properties(PyObject *self,
+				      PyObject *args,
+				      PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	PyObject *properties = NULL;
+	char *kwnames[] = {"properties", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$O", kwnames,
+					 &properties))
+		return NULL;
+
+	if (properties == NULL) {
+		PyErr_SetString(PyExc_TypeError,
+				"get_properties() requires 'properties' keyword "
+				"argument");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.get_properties",
+	    "O", p->name) < 0)
+		return NULL;
+
+	return py_zpool_get_properties(p, properties);
+}
+
+PyDoc_STRVAR(py_zfs_pool_set_properties__doc__,
+"set_properties(*, properties) -> None\n\n"
+"--------------------------------------\n\n"
+"Set one or more writable pool properties.\n\n"
+"Parameters\n"
+"----------\n"
+"properties: dict, required\n"
+"    A dictionary mapping property keys to new values.\n"
+"    Keys may be ZPOOLProperty enum members or plain strings.\n"
+"    Values may be str, int, or bool (bool is converted to 'on'/'off').\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises:\n"
+"-------\n"
+"ValueError:\n"
+"    A property is read-only or can only be set at pool creation time,\n"
+"    or an unknown property name was supplied.\n"
+"TypeError:\n"
+"    An unexpected key or value type was encountered.\n"
+"truenas_pylibzfs.ZFSException:\n"
+"    A libzfs error occurred while setting a property.\n"
+);
+static
+PyObject *py_zfs_pool_set_properties(PyObject *self,
+				      PyObject *args,
+				      PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	PyObject *properties = NULL;
+	char *kwnames[] = {"properties", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$O", kwnames,
+					 &properties))
+		return NULL;
+
+	if (properties == NULL) {
+		PyErr_SetString(PyExc_TypeError,
+				"set_properties() requires 'properties' keyword "
+				"argument");
+		return NULL;
+	}
+
+	if (!PyDict_Check(properties)) {
+		PyErr_SetString(PyExc_TypeError,
+				"'properties' must be a dict");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.set_properties",
+	    "OO", p->name, properties) < 0)
+		return NULL;
+
+	return py_zpool_set_properties(p, properties);
+}
+
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
@@ -966,6 +1067,18 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_scan,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_scan__doc__
+	},
+	{
+		.ml_name = "get_properties",
+		.ml_meth = (PyCFunction)py_zfs_pool_get_properties,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_get_properties__doc__
+	},
+	{
+		.ml_name = "set_properties",
+		.ml_meth = (PyCFunction)py_zfs_pool_set_properties,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_set_properties__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

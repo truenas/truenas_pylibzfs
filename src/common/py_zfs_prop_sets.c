@@ -11,6 +11,8 @@ typedef struct {
 	PyObject *zfs_volume_snapshot_readonly_props;
 	PyObject *zpool_status_nonrecoverable;
 	PyObject *zpool_status_recoverable;
+	PyObject *zpool_readonly_properties;
+	PyObject *zpool_properties;
 } pylibzfs_propset_t;
 
 
@@ -40,6 +42,8 @@ py_zfs_propset_module_clear(PyObject *module)
 	Py_CLEAR(state->zfs_volume_snapshot_readonly_props);
 	Py_CLEAR(state->zpool_status_nonrecoverable);
 	Py_CLEAR(state->zpool_status_recoverable);
+	Py_CLEAR(state->zpool_readonly_properties);
+	Py_CLEAR(state->zpool_properties);
 	return 0;
 }
 
@@ -285,6 +289,63 @@ boolean_t py_add_zpool_status_sets(pylibzfs_state_t *pstate,
 }
 
 static
+boolean_t py_add_zpool_propsets(pylibzfs_state_t *pstate,
+				  PyObject *module,
+				  pylibzfs_propset_t *state)
+{
+	int rv;
+	uint i;
+	zprop_desc_t *tbl = zpool_prop_get_table();
+
+	state->zpool_readonly_properties = PyFrozenSet_New(NULL);
+	if (state->zpool_readonly_properties == NULL)
+		return B_FALSE;
+
+	state->zpool_properties = PyFrozenSet_New(NULL);
+	if (state->zpool_properties == NULL)
+		return B_FALSE;
+
+	/*
+	 * Use the pre-populated enum table from the main module state so
+	 * that we iterate exactly the same enum members that are exposed
+	 * to API consumers.
+	 */
+
+	for (i = 0; i < ZPOOL_NUM_PROPS; i++) {
+		PyObject *item;
+		zpool_prop_t zprop;
+
+		item = pstate->zpool_prop_enum_tbl[i].obj;
+		if (item == NULL)
+			continue;
+
+		zprop = pstate->zpool_prop_enum_tbl[i].type;
+		if (!tbl[zprop].pd_visible)
+			continue;
+
+		if (zpool_prop_readonly(zprop)) {
+			rv = PySet_Add(state->zpool_readonly_properties, item);
+			if (rv)
+				return B_FALSE;
+		} else if (!zpool_prop_setonce(zprop)) {
+			rv = PySet_Add(state->zpool_properties, item);
+			if (rv)
+				return B_FALSE;
+		}
+	}
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_READONLY_PROPERTIES",
+	    state->zpool_readonly_properties) < 0)
+		return B_FALSE;
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_PROPERTIES",
+	    state->zpool_properties) < 0)
+		return B_FALSE;
+
+	return B_TRUE;
+}
+
+static
 boolean_t py_init_propset_state(pylibzfs_state_t *pstate,
 				PyObject *module,
 				pylibzfs_propset_t *state)
@@ -294,6 +355,9 @@ boolean_t py_init_propset_state(pylibzfs_state_t *pstate,
 		return B_FALSE;
 
 	if (!py_add_zpool_status_sets(pstate, module, state))
+		return B_FALSE;
+
+	if (!py_add_zpool_propsets(pstate, module, state))
 		return B_FALSE;
 
 	return B_TRUE;

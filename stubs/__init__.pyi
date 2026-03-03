@@ -688,6 +688,89 @@ class ZFSPool:
         """Start, pause, or cancel a pool scan (scrub, resilver, or error-scrub)."""
         ...
 
+    def get_properties(
+        self,
+        *,
+        properties: set,
+    ) -> struct_zpool_property:
+        """Retrieve pool properties for the given set of ZPOOLProperty members.
+
+        Properties not present in *properties* will have their slot set to
+        None in the returned struct_zpool_property.
+        """
+        ...
+
+    def set_properties(self, *, properties: dict) -> None:
+        """Set one or more writable pool properties.
+
+        *properties* maps ZPOOLProperty enum members or property name strings
+        to new values (str, int, or bool).  bool values are converted to
+        'on'/'off'.  Raises ValueError for read-only or creation-time-only
+        properties.
+        """
+        ...
+
+
+class struct_zfs_property_source:
+    """Source information for a ZFS or pool property."""
+    type: PropertySource
+    value: str | None
+
+class struct_zfs_property_data:
+    """Individual property value and source information."""
+    value: int | str | None
+    raw: str
+    source: struct_zfs_property_source | None
+
+class struct_zpool_property:
+    """Pool property bundle returned by ZFSPool.get_properties().
+
+    Each attribute corresponds to a ZPOOLProperty member.
+    Requested properties contain a struct_zfs_property_data object;
+    unrequested properties are None.
+    """
+    name:              struct_zfs_property_data | None
+    size:              struct_zfs_property_data | None
+    capacity:          struct_zfs_property_data | None
+    altroot:           struct_zfs_property_data | None
+    health:            struct_zfs_property_data | None
+    guid:              struct_zfs_property_data | None
+    version:           struct_zfs_property_data | None
+    bootfs:            struct_zfs_property_data | None
+    delegation:        struct_zfs_property_data | None
+    autoreplace:       struct_zfs_property_data | None
+    cachefile:         struct_zfs_property_data | None
+    failuremode:       struct_zfs_property_data | None
+    listsnaps:         struct_zfs_property_data | None
+    autoexpand:        struct_zfs_property_data | None
+    dedupditto:        struct_zfs_property_data | None
+    dedupratio:        struct_zfs_property_data | None
+    free:              struct_zfs_property_data | None
+    allocated:         struct_zfs_property_data | None
+    readonly:          struct_zfs_property_data | None
+    ashift:            struct_zfs_property_data | None
+    comment:           struct_zfs_property_data | None
+    expandsz:          struct_zfs_property_data | None
+    freeing:           struct_zfs_property_data | None
+    fragmentation:     struct_zfs_property_data | None
+    leaked:            struct_zfs_property_data | None
+    maxblocksize:      struct_zfs_property_data | None
+    tname:             struct_zfs_property_data | None
+    maxdnodesize:      struct_zfs_property_data | None
+    multihost:         struct_zfs_property_data | None
+    checkpoint:        struct_zfs_property_data | None
+    load_guid:         struct_zfs_property_data | None
+    autotrim:          struct_zfs_property_data | None
+    compatibility:     struct_zfs_property_data | None
+    bcloneused:        struct_zfs_property_data | None
+    bclonesaved:       struct_zfs_property_data | None
+    bcloneratio:       struct_zfs_property_data | None
+    dedup_table_size:  struct_zfs_property_data | None
+    dedup_table_quota: struct_zfs_property_data | None
+    dedupcached:       struct_zfs_property_data | None
+    last_scrubbed_txg: struct_zfs_property_data | None
+    dedupused:         struct_zfs_property_data | None
+    dedupsaved:        struct_zfs_property_data | None
 
 class struct_zfs_crypto_info:
     """Encryption status information for a ZFS dataset or volume."""

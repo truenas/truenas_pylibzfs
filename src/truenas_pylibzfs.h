@@ -444,6 +444,13 @@ extern boolean_t py_object_to_zfs_prop_t(PyObject *py_prop_enum,
 					 PyObject *pyprop_in,
 					 zfs_prop_t *zprop_out);
 
+/* Provided by py_zfs_pool_prop.c */
+extern PyObject *py_zpool_get_properties(py_zfs_pool_t *p,
+					 PyObject *prop_set);
+extern PyObject *py_zpool_set_properties(py_zfs_pool_t *p,
+					 PyObject *propsdict);
+extern PyObject *py_zpool_props_to_dict(py_zfs_pool_t *p, PyObject *pyprops);
+
 /* Provided by py_zfs_props.c */
 /*
  * @brief get the properties specified in prop_set for the ZFS object
@@ -465,6 +472,7 @@ extern PyObject *py_zfs_get_properties(py_zfs_obj_t *pyzfs,
 				       boolean_t get_source);
 
 extern PyObject *py_zfs_props_to_dict(py_zfs_obj_t *pyzfs, PyObject *pyprops);
+extern PyObject *py_zfs_prop_to_dict(PyObject *pyprop);
 extern boolean_t py_zfs_prop_valid_for_type(zfs_prop_t prop, zfs_type_t zfs_type);
 extern char *pymem_strdup(const char *s);
 extern void py_zfs_props_refresh(py_zfs_resource_t *res);
