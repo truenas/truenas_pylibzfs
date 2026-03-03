@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include "../truenas_pylibzfs.h"
 
 /* Create a dictionary for enum spec for the ZFSType enum */
@@ -88,11 +89,19 @@ fail:
 	return NULL;
 }
 
-/* Create a dictionary for enum spec for the ZPOOLProperty enum */
+/* Create a dictionary for enum spec for the ZPOOLProperty enum.
+ *
+ * Member names are derived from zpool_prop_to_name() uppercased so that
+ * ZPOOLProperty.FAILMODE.name.lower() == "failmode" (the struct field name).
+ * INVAL (-1) is added as a special case since zpool_prop_to_name() returns
+ * NULL for it.
+ */
 static
 PyObject *zpool_prop_table_to_dict(void)
 {
 	PyObject *dict_out = NULL;
+	PyObject *val = NULL;
+	char upper_name[ZFS_MAXPROPLEN];
 	int err;
 	uint i;
 
@@ -100,16 +109,31 @@ PyObject *zpool_prop_table_to_dict(void)
 	if (dict_out == NULL)
 		return NULL;
 
-	for (i=0; i < ARRAY_SIZE(zpool_prop_table); i++) {
-		PyObject *val = NULL;
+	for (i = 0; i < ARRAY_SIZE(zpool_prop_table); i++) {
+		zpool_prop_t prop = zpool_prop_table[i];
+		const char *name = zpool_prop_to_name(prop);
+		size_t j;
 
-		val = PyLong_FromLong(zpool_prop_table[i].prop);
+		if (name == NULL) {
+			/* INVAL sentinel (-1) */
+			val = PyLong_FromLong((long)prop);
+			if (val == NULL)
+				goto fail;
+			err = PyDict_SetItemString(dict_out, "INVAL", val);
+			Py_DECREF(val);
+			if (err)
+				goto fail;
+			continue;
+		}
+
+		for (j = 0; j < sizeof(upper_name) - 1 && name[j] != '\0'; j++)
+			upper_name[j] = toupper((unsigned char)name[j]);
+		upper_name[j] = '\0';
+
+		val = PyLong_FromLong((long)prop);
 		if (val == NULL)
 			goto fail;
-
-		err = PyDict_SetItemString(dict_out,
-					   zpool_prop_table[i].name,
-					   val);
+		err = PyDict_SetItemString(dict_out, upper_name, val);
 		Py_DECREF(val);
 		if (err)
 			goto fail;
