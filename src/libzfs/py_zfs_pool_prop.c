@@ -104,7 +104,6 @@ PyObject *py_zpool_get_one_prop(pylibzfs_state_t *state,
 	int err;
 	PyObject *raw = NULL;
 	PyObject *parsed = NULL;
-	PyObject *out = NULL;
 
 	int async_err = 0;
 
