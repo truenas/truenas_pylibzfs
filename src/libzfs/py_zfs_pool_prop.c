@@ -1,5 +1,6 @@
 #include "../truenas_pylibzfs.h"
 #include <zfs_prop.h>
+#include <libzfs_core.h>
 
 /*
  * ZFS pool property implementation.
@@ -380,6 +381,156 @@ eintr_retry:
 fail:
 	PyMem_RawFree(pairs);
 	return NULL;
+}
+
+/*
+ * Retrieve all user (custom) properties for a pool and return them as a
+ * Python dict {str: str}.
+ *
+ * Uses lzc_get_props() which issues ZFS_IOC_POOL_GET_PROPS and returns ALL
+ * pool properties (native + user) as an nvlist.  We filter with
+ * zfs_prop_user() to keep only entries whose name contains a colon.
+ *
+ * lzc manages its own file descriptor; no PY_ZFS_LOCK is needed.
+ */
+PyObject *py_zpool_get_user_properties(py_zfs_pool_t *p)
+{
+	nvlist_t *nvl = NULL;
+	nvpair_t *pair;
+	PyObject *out = NULL;
+	const char *pool_name;
+	int err;
+	int async_err = 0;
+
+	pool_name = zpool_get_name(p->zhp);
+
+	do {
+		Py_BEGIN_ALLOW_THREADS
+		err = lzc_get_props(pool_name, &nvl);
+		Py_END_ALLOW_THREADS
+	} while (err == EINTR && !(async_err = PyErr_CheckSignals()));
+
+	if (async_err)
+		return NULL;
+
+	if (err != 0) {
+		PyErr_Format(PyExc_RuntimeError,
+			     "lzc_get_props(%s) failed: %s",
+			     pool_name, strerror(err));
+		return NULL;
+	}
+
+	out = PyDict_New();
+	if (out == NULL) {
+		fnvlist_free(nvl);
+		return NULL;
+	}
+
+	if (nvl == NULL)
+		return out;
+
+	for (pair = nvlist_next_nvpair(nvl, NULL);
+	    pair != NULL;
+	    pair = nvlist_next_nvpair(nvl, pair)) {
+		const char *name = nvpair_name(pair);
+		nvlist_t *prop_nvl;
+		const char *value;
+		PyObject *pyval;
+
+		if (!zfs_prop_user(name))
+			continue;
+
+		if (nvpair_type(pair) != DATA_TYPE_NVLIST)
+			continue;
+
+		prop_nvl = fnvpair_value_nvlist(pair);
+		if (nvlist_lookup_string(prop_nvl, ZPROP_VALUE, &value) != 0)
+			continue;
+
+		pyval = PyUnicode_FromString(value);
+		if (pyval == NULL) {
+			Py_DECREF(out);
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		if (PyDict_SetItemString(out, name, pyval) < 0) {
+			Py_DECREF(pyval);
+			Py_DECREF(out);
+			fnvlist_free(nvl);
+			return NULL;
+		}
+		Py_DECREF(pyval);
+	}
+
+	fnvlist_free(nvl);
+	return out;
+}
+
+/*
+ * Set one or more user (custom) properties on a pool.
+ *
+ * propsdict must be a Python dict {str: str} where each key contains a colon.
+ * Validation (colon requirement, max length, type) is performed by
+ * py_userprops_dict_to_nvlist() before the ZFS lock is taken.
+ * Each property is set via zpool_set_prop() under a single lock acquisition.
+ */
+PyObject *py_zpool_set_user_properties(py_zfs_pool_t *p, PyObject *propsdict)
+{
+	nvlist_t *nvl = NULL;
+	nvpair_t *pair;
+	int ret = 0;
+	int async_err = 0;
+	int log_err;
+	py_zfs_error_t zfs_err;
+
+	nvl = py_userprops_dict_to_nvlist(propsdict);
+	if (nvl == NULL)
+		return NULL;
+
+	if (nvlist_empty(nvl)) {
+		fnvlist_free(nvl);
+		Py_RETURN_NONE;
+	}
+
+eintr_retry:
+	async_err = 0;
+	ret = 0;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	for (pair = nvlist_next_nvpair(nvl, NULL);
+	    pair != NULL && ret == 0;
+	    pair = nvlist_next_nvpair(nvl, pair)) {
+		const char *name = nvpair_name(pair);
+		const char *value = fnvpair_value_string(pair);
+
+		ret = zpool_set_prop(p->zhp, name, value);
+		if (ret)
+			py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret != 0 && errno == EINTR && !(async_err = PyErr_CheckSignals()))
+		goto eintr_retry;
+
+	fnvlist_free(nvl);
+
+	if (async_err)
+		return NULL;
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err, "zpool_set_prop() failed");
+		return NULL;
+	}
+
+	log_err = py_log_history_fmt(p->pylibzfsp,
+	    "zpool set (user properties) %s", zpool_get_name(p->zhp));
+	if (log_err)
+		return NULL;
+
+	Py_RETURN_NONE;
 }
 
 /*

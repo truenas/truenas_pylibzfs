@@ -994,6 +994,96 @@ PyObject *py_zfs_pool_set_properties(PyObject *self,
 	return py_zpool_set_properties(p, properties);
 }
 
+PyDoc_STRVAR(py_zfs_pool_get_user_properties__doc__,
+"get_user_properties() -> dict[str, str]\n\n"
+"---------------------------------------\n\n"
+"Retrieve all user (custom) properties for the pool.\n\n"
+"User properties are those whose name contains a colon, such as\n"
+"'org.truenas:myprop'.  Only properties that have been explicitly set\n"
+"are returned; the pool has no user properties by default.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"dict[str, str]\n"
+"    Mapping of property name to value.  An empty dict is returned if no\n"
+"    user properties have been set.\n\n"
+"Raises\n"
+"------\n"
+"RuntimeError:\n"
+"    The underlying lzc_get_props() call failed.\n"
+);
+static
+PyObject *py_zfs_pool_get_user_properties(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.get_user_properties",
+	    "O", p->name) < 0)
+		return NULL;
+
+	return py_zpool_get_user_properties(p);
+}
+
+PyDoc_STRVAR(py_zfs_pool_set_user_properties__doc__,
+"set_user_properties(*, user_properties) -> None\n\n"
+"------------------------------------------------\n\n"
+"Set one or more user (custom) properties on the pool.\n\n"
+"User properties must have a colon in their name (e.g. 'org.example:tag').\n"
+"Both keys and values must be strings.  Setting a property that already\n"
+"exists will overwrite its value.\n\n"
+"Parameters\n"
+"----------\n"
+"user_properties: dict[str, str], required\n"
+"    Mapping of property name to value.  Each key must contain a colon\n"
+"    and must not exceed the maximum ZFS property name length.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    A property name does not contain a colon, or exceeds the maximum\n"
+"    allowed length.\n"
+"TypeError:\n"
+"    user_properties is not a dict, or a key or value is not a string.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while setting a property.\n"
+);
+static
+PyObject *py_zfs_pool_set_user_properties(PyObject *self,
+					  PyObject *args,
+					  PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	PyObject *user_properties = NULL;
+	char *kwnames[] = {"user_properties", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$O", kwnames,
+					 &user_properties))
+		return NULL;
+
+	if (user_properties == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"set_user_properties() requires "
+				"'user_properties' keyword argument");
+		return NULL;
+	}
+
+	if (!PyDict_Check(user_properties)) {
+		PyErr_SetString(PyExc_TypeError,
+				"'user_properties' must be a dict");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.set_user_properties",
+	    "OO", p->name, user_properties) < 0)
+		return NULL;
+
+	return py_zpool_set_user_properties(p, user_properties);
+}
+
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
@@ -1092,6 +1182,18 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_set_properties,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_set_properties__doc__
+	},
+	{
+		.ml_name = "get_user_properties",
+		.ml_meth = py_zfs_pool_get_user_properties,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_get_user_properties__doc__
+	},
+	{
+		.ml_name = "set_user_properties",
+		.ml_meth = (PyCFunction)py_zfs_pool_set_user_properties,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_set_user_properties__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

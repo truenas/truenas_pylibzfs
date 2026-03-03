@@ -450,6 +450,9 @@ extern PyObject *py_zpool_get_properties(py_zfs_pool_t *p,
 extern PyObject *py_zpool_set_properties(py_zfs_pool_t *p,
 					 PyObject *propsdict);
 extern PyObject *py_zpool_props_to_dict(py_zfs_pool_t *p, PyObject *pyprops);
+extern PyObject *py_zpool_get_user_properties(py_zfs_pool_t *p);
+extern PyObject *py_zpool_set_user_properties(py_zfs_pool_t *p,
+					      PyObject *propsdict);
 
 /* Provided by py_zfs_props.c */
 /*

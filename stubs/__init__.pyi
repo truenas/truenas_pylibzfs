@@ -723,6 +723,21 @@ class ZFSPool:
         """
         ...
 
+    def get_user_properties(self) -> dict[str, str]:
+        """Return all user (custom) properties set on the pool.
+
+        User properties are those whose name contains a colon, e.g.
+        'org.truenas:myprop'.  Returns an empty dict if none are set.
+        """
+        ...
+
+    def set_user_properties(self, *, user_properties: dict[str, str]) -> None:
+        """Set one or more user (custom) properties on the pool.
+
+        Each key must contain a colon.  Both keys and values must be strings.
+        """
+        ...
+
 
 class struct_zfs_property_source:
     """Source information for a ZFS or pool property."""
