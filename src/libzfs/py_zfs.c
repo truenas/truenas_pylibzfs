@@ -1532,6 +1532,7 @@ PyMethodDef zfs_methods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_create_pool__doc__
 	},
+	{
 		.ml_name = "import_pool_find",
 		.ml_meth = (PyCFunction)py_zfs_import_pool_find,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
