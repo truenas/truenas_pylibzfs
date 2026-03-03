@@ -76,6 +76,7 @@ typedef struct {
 
 	/* Reference to zpool-related enums */
 	PyObject *zpool_status_enum;
+	PyObject *zpool_property_enum;
 	PyTypeObject *struct_zpool_status_type;
 	PyTypeObject *struct_vdev_status_type;
 	PyTypeObject *struct_vdev_stats_type;
