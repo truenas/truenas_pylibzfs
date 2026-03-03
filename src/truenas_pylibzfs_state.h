@@ -90,6 +90,11 @@ typedef struct {
 
 	/* Reference to VDevType StrEnum */
 	PyObject *vdev_type_enum;
+
+	/* References for scan/scrub enums and struct type */
+	PyObject *scan_function_enum;
+	PyObject *scan_state_enum;
+	PyTypeObject *struct_zpool_scrub_type;
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);
