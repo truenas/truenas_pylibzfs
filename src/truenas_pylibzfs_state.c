@@ -126,6 +126,47 @@ fail:
 
 }
 
+static
+int setup_zpool_prop_type(PyObject *module, pylibzfs_state_t *state)
+{
+	uint i, j;
+	PyObject *pyenum = state->zpool_property_enum;
+
+	for (i = 0; i < ZPOOL_NUM_PROPS; i++) {
+		PyObject *enum_val, *enum_key, *name;
+		zpool_prop_t prop = (zpool_prop_t)i;
+
+		enum_key = Py_BuildValue("i", (int)prop);
+		if (enum_key == NULL)
+			goto fail;
+
+		enum_val = PyObject_CallOneArg(pyenum, enum_key);
+		Py_DECREF(enum_key);
+		if (enum_val == NULL)
+			goto fail;
+
+		name = PyObject_GetAttrString(enum_val, "name");
+		if (name == NULL) {
+			Py_DECREF(enum_val);
+			goto fail;
+		}
+
+		state->zpool_prop_enum_tbl[i].obj = enum_val;
+		state->zpool_prop_enum_tbl[i].type = prop;
+		state->zpool_prop_enum_tbl[i].name = name;
+	}
+
+	return 0;
+
+fail:
+	for (j = 0; j < i; j++) {
+		Py_CLEAR(state->zpool_prop_enum_tbl[j].obj);
+		Py_CLEAR(state->zpool_prop_enum_tbl[j].name);
+	}
+
+	return -1;
+}
+
 pylibzfs_state_t *py_get_module_state(py_zfs_t *zfs)
 {
 	pylibzfs_state_t *state = NULL;
@@ -190,7 +231,11 @@ int init_py_zfs_state(PyObject *module)
 
 	err = setup_json_functions(state);
 
+	err = setup_zpool_prop_type(module, state);
+	PYZFS_ASSERT(err == 0, "Failed to setup ZPool Property type in module state.");
+
 	init_py_struct_prop_state(state);
+	init_py_struct_zpool_prop_state(state);
 	init_py_struct_userquota_state(state);
 	init_py_pool_status_state(state);
 	init_py_pool_feature_state(state);
@@ -314,4 +359,19 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->scan_function_enum);
 	Py_CLEAR(state->scan_state_enum);
 	Py_CLEAR(state->struct_zpool_scrub_type);
+	for (idx = 0; idx < ZPOOL_NUM_PROPS; idx++) {
+		Py_CLEAR(state->zpool_prop_enum_tbl[idx].name);
+		Py_CLEAR(state->zpool_prop_enum_tbl[idx].obj);
+	}
+
+	for (idx = 0; idx < ZPOOL_NUM_PROPS; idx++) {
+		PyMem_Free((void *)state->struct_zpool_prop_fields[idx].name);
+		state->struct_zpool_prop_fields[idx].name = NULL;
+
+		PyMem_Free((void *)state->struct_zpool_prop_fields[idx].doc);
+		state->struct_zpool_prop_fields[idx].doc = NULL;
+	}
+
+	Py_CLEAR(state->struct_zpool_props_type);
+	Py_CLEAR(state->zpool_property_enum);
 }

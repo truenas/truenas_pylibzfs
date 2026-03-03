@@ -11,6 +11,10 @@ typedef struct {
 	PyObject *zfs_volume_snapshot_readonly_props;
 	PyObject *zpool_status_nonrecoverable;
 	PyObject *zpool_status_recoverable;
+	PyObject *zpool_readonly_properties;
+	PyObject *zpool_properties;
+	PyObject *zpool_class_space;
+	PyObject *zpool_space;
 } pylibzfs_propset_t;
 
 
@@ -40,6 +44,10 @@ py_zfs_propset_module_clear(PyObject *module)
 	Py_CLEAR(state->zfs_volume_snapshot_readonly_props);
 	Py_CLEAR(state->zpool_status_nonrecoverable);
 	Py_CLEAR(state->zpool_status_recoverable);
+	Py_CLEAR(state->zpool_readonly_properties);
+	Py_CLEAR(state->zpool_properties);
+	Py_CLEAR(state->zpool_class_space);
+	Py_CLEAR(state->zpool_space);
 	return 0;
 }
 
@@ -284,6 +292,161 @@ boolean_t py_add_zpool_status_sets(pylibzfs_state_t *pstate,
 	return B_TRUE;
 }
 
+/*
+ * Returns true for the per-allocation-class space counters, i.e. the
+ * class_normal_*, class_special_*, class_dedup_*, class_log_*,
+ * class_elog_*, and class_special_elog_* properties.
+ */
+static boolean_t
+is_class_zpool_prop(zpool_prop_t prop)
+{
+	return (prop >= ZPOOL_PROP_NORMAL_SIZE &&
+	    prop <= ZPOOL_PROP_SELOG_FRAGMENTATION);
+}
+
+/*
+ * Returns true for all pool properties that report space consumption or
+ * capacity figures, including the per-class counters.
+ */
+static boolean_t
+is_space_zpool_prop(zpool_prop_t prop)
+{
+	if (is_class_zpool_prop(prop))
+		return (B_TRUE);
+
+	switch (prop) {
+	case ZPOOL_PROP_SIZE:
+	case ZPOOL_PROP_FREE:
+	case ZPOOL_PROP_ALLOCATED:
+	case ZPOOL_PROP_FREEING:
+	case ZPOOL_PROP_LEAKED:
+	case ZPOOL_PROP_FRAGMENTATION:
+	case ZPOOL_PROP_CAPACITY:
+	case ZPOOL_PROP_EXPANDSZ:
+	case ZPOOL_PROP_CHECKPOINT:
+	case ZPOOL_PROP_AVAILABLE:
+	case ZPOOL_PROP_USABLE:
+	case ZPOOL_PROP_USED:
+	case ZPOOL_PROP_BCLONEUSED:
+	case ZPOOL_PROP_BCLONESAVED:
+	case ZPOOL_PROP_BCLONERATIO:
+	case ZPOOL_PROP_DEDUPRATIO:
+	case ZPOOL_PROP_DEDUPUSED:
+	case ZPOOL_PROP_DEDUPSAVED:
+	case ZPOOL_PROP_DEDUP_TABLE_SIZE:
+	case ZPOOL_PROP_DEDUPCACHED:
+		return (B_TRUE);
+	default:
+		return (B_FALSE);
+	}
+}
+
+typedef struct {
+	pylibzfs_state_t   *pstate;
+	pylibzfs_propset_t *state;
+	boolean_t           error;
+} zpool_propset_cb_t;
+
+/*
+ * zprop_iter() callback — called once per visible pool property.
+ * Hidden properties (registered via zprop_register_hidden) are skipped
+ * by zprop_iter() itself when show_all=B_FALSE.
+ */
+static int
+zpool_propset_cb(int prop_num, void *arg)
+{
+	zpool_propset_cb_t *cb = arg;
+	zpool_prop_t zprop = (zpool_prop_t)prop_num;
+	PyObject *item;
+
+	item = cb->pstate->zpool_prop_enum_tbl[zprop].obj;
+	if (item == NULL)
+		return (ZPROP_CONT);
+
+	if (zpool_prop_readonly(zprop)) {
+		if (PySet_Add(cb->state->zpool_readonly_properties, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	} else if (!zpool_prop_setonce(zprop)) {
+		if (PySet_Add(cb->state->zpool_properties, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	}
+
+	if (is_class_zpool_prop(zprop)) {
+		if (PySet_Add(cb->state->zpool_class_space, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	}
+
+	if (is_space_zpool_prop(zprop)) {
+		if (PySet_Add(cb->state->zpool_space, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	}
+
+	return (ZPROP_CONT);
+}
+
+static
+boolean_t py_add_zpool_propsets(pylibzfs_state_t *pstate,
+				  PyObject *module,
+				  pylibzfs_propset_t *state)
+{
+	zpool_propset_cb_t cb = {
+		.pstate = pstate,
+		.state  = state,
+		.error  = B_FALSE,
+	};
+
+	state->zpool_readonly_properties = PyFrozenSet_New(NULL);
+	if (state->zpool_readonly_properties == NULL)
+		return B_FALSE;
+
+	state->zpool_properties = PyFrozenSet_New(NULL);
+	if (state->zpool_properties == NULL)
+		return B_FALSE;
+
+	state->zpool_class_space = PyFrozenSet_New(NULL);
+	if (state->zpool_class_space == NULL)
+		return B_FALSE;
+
+	state->zpool_space = PyFrozenSet_New(NULL);
+	if (state->zpool_space == NULL)
+		return B_FALSE;
+
+	/*
+	 * zprop_iter() with show_all=B_FALSE automatically skips properties
+	 * registered with zprop_register_hidden(), giving us the same
+	 * visible-only filtering that the zpool command uses.
+	 */
+	zprop_iter(zpool_propset_cb, &cb, B_FALSE, B_FALSE, ZFS_TYPE_POOL);
+	if (cb.error)
+		return B_FALSE;
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_READONLY_PROPERTIES",
+	    state->zpool_readonly_properties) < 0)
+		return B_FALSE;
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_PROPERTIES",
+	    state->zpool_properties) < 0)
+		return B_FALSE;
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_CLASS_SPACE",
+	    state->zpool_class_space) < 0)
+		return B_FALSE;
+
+	if (PyModule_AddObjectRef(module, "ZPOOL_SPACE",
+	    state->zpool_space) < 0)
+		return B_FALSE;
+
+	return B_TRUE;
+}
+
 static
 boolean_t py_init_propset_state(pylibzfs_state_t *pstate,
 				PyObject *module,
@@ -294,6 +457,9 @@ boolean_t py_init_propset_state(pylibzfs_state_t *pstate,
 		return B_FALSE;
 
 	if (!py_add_zpool_status_sets(pstate, module, state))
+		return B_FALSE;
+
+	if (!py_add_zpool_propsets(pstate, module, state))
 		return B_FALSE;
 
 	return B_TRUE;
@@ -320,6 +486,13 @@ PYLIBZFS_MODULE_NAME ".propset provides various frozen sets for ZFS and zpool\n"
 "- ZPOOL_STATUS_RECOVERABLE: ZPOOLStatus values indicating the pool has errors\n"
 "   that may be resolved through administrative action (e.g. replacing a\n"
 "   failed device, clearing I/O errors, or scrubbing).\n"
+"\n"
+"- ZPOOL_CLASS_SPACE: ZPOOLProperty members for per-allocation-class space\n"
+"   counters (class_normal_*, class_special_*, class_dedup_*, class_log_*,\n"
+"   class_elog_*, class_special_elog_*).\n"
+"\n"
+"- ZPOOL_SPACE: ZPOOLProperty members for all pool space and capacity\n"
+"   properties, including the per-class counters in ZPOOL_CLASS_SPACE.\n"
 );
 /* Module structure */
 static struct PyModuleDef truenas_pypropset = {

@@ -574,8 +574,8 @@ class ZPOOLProperty(enum.IntEnum):
     CLASS_SPECIAL_USABLE: ClassVar[ZPOOLProperty] = ...
     CLASS_SPECIAL_USED: ClassVar[ZPOOLProperty] = ...
     DELEGATION: ClassVar[ZPOOLProperty] = ...
-    EXPANDSZ: ClassVar[ZPOOLProperty] = ...
-    FAILUREMODE: ClassVar[ZPOOLProperty] = ...
+    EXPANDSIZE: ClassVar[ZPOOLProperty] = ...
+    FAILMODE: ClassVar[ZPOOLProperty] = ...
     FRAGMENTATION: ClassVar[ZPOOLProperty] = ...
     FREE: ClassVar[ZPOOLProperty] = ...
     FREEING: ClassVar[ZPOOLProperty] = ...
@@ -584,7 +584,7 @@ class ZPOOLProperty(enum.IntEnum):
     INVAL: ClassVar[ZPOOLProperty] = ...
     LAST_SCRUBBED_TXG: ClassVar[ZPOOLProperty] = ...
     LEAKED: ClassVar[ZPOOLProperty] = ...
-    LISTSNAPS: ClassVar[ZPOOLProperty] = ...
+    LISTSNAPSHOTS: ClassVar[ZPOOLProperty] = ...
     LOAD_GUID: ClassVar[ZPOOLProperty] = ...
     MAXBLOCKSIZE: ClassVar[ZPOOLProperty] = ...
     MAXDNODESIZE: ClassVar[ZPOOLProperty] = ...
@@ -688,6 +688,164 @@ class ZFSPool:
         """Start, pause, or cancel a pool scan (scrub, resilver, or error-scrub)."""
         ...
 
+    def get_properties(
+        self,
+        *,
+        properties: set,
+    ) -> struct_zpool_property:
+        """Retrieve pool properties for the given set of ZPOOLProperty members.
+
+        Properties not present in *properties* will have their slot set to
+        None in the returned struct_zpool_property.
+
+        Example — retrieve per-allocation-class space counters::
+
+            import truenas_pylibzfs
+
+            hdl = truenas_pylibzfs.open_handle()
+            pool = hdl.open_pool(name='tank')
+            props = pool.get_properties(
+                properties=truenas_pylibzfs.property_sets.ZPOOL_CLASS_SPACE
+            )
+            # Values are int for numeric properties, str for string/index:
+            print(props.class_normal_size)   # int
+            print(props.class_special_used)  # int
+        """
+        ...
+
+    def set_properties(self, *, properties: dict) -> None:
+        """Set one or more writable pool properties.
+
+        *properties* maps ZPOOLProperty enum members or property name strings
+        to new values (str, int, or bool).  bool values are converted to
+        'on'/'off'.  Raises ValueError for read-only or creation-time-only
+        properties.
+        """
+        ...
+
+
+class struct_zfs_property_source:
+    """Source information for a ZFS or pool property."""
+    type: PropertySource
+    value: str | None
+
+class struct_zfs_property_data:
+    """Individual property value and source information."""
+    value: int | str | None
+    raw: str
+    source: struct_zfs_property_source | None
+
+class struct_zpool_property:
+    """Pool property bundle returned by ZFSPool.get_properties().
+
+    Each attribute corresponds to a ZPOOLProperty member.
+    Requested properties contain the parsed value directly (int for numeric
+    properties, str for string/index properties); unrequested properties
+    are None.
+
+    Attribute names are the lowercase libzfs property names as returned by
+    zpool_prop_to_name() (e.g. ``failmode``, ``listsnapshots``,
+    ``expandsize``).  These differ from the ZPOOLProperty enum member names.
+    """
+    name:                         int | str | None
+    size:                         int | str | None
+    capacity:                     int | str | None
+    altroot:                      int | str | None
+    health:                       int | str | None
+    guid:                         int | str | None
+    version:                      int | str | None
+    bootfs:                       int | str | None
+    delegation:                   int | str | None
+    autoreplace:                  int | str | None
+    cachefile:                    int | str | None
+    failmode:                     int | str | None
+    listsnapshots:                int | str | None
+    autoexpand:                   int | str | None
+    dedupditto:                   int | str | None
+    dedupratio:                   int | str | None
+    free:                         int | str | None
+    allocated:                    int | str | None
+    readonly:                     int | str | None
+    ashift:                       int | str | None
+    comment:                      int | str | None
+    expandsize:                   int | str | None
+    freeing:                      int | str | None
+    fragmentation:                int | str | None
+    leaked:                       int | str | None
+    maxblocksize:                 int | str | None
+    tname:                        int | str | None
+    maxdnodesize:                 int | str | None
+    multihost:                    int | str | None
+    checkpoint:                   int | str | None
+    load_guid:                    int | str | None
+    autotrim:                     int | str | None
+    compatibility:                int | str | None
+    bcloneused:                   int | str | None
+    bclonesaved:                  int | str | None
+    bcloneratio:                  int | str | None
+    dedup_table_size:             int | str | None
+    dedup_table_quota:            int | str | None
+    dedupcached:                  int | str | None
+    last_scrubbed_txg:            int | str | None
+    dedupused:                    int | str | None
+    dedupsaved:                   int | str | None
+    available:                    int | str | None
+    usable:                       int | str | None
+    used:                         int | str | None
+    class_normal_size:            int | str | None
+    class_normal_capacity:        int | str | None
+    class_normal_free:            int | str | None
+    class_normal_allocated:       int | str | None
+    class_normal_available:       int | str | None
+    class_normal_usable:          int | str | None
+    class_normal_used:            int | str | None
+    class_normal_expandsize:      int | str | None
+    class_normal_fragmentation:   int | str | None
+    class_special_size:           int | str | None
+    class_special_capacity:       int | str | None
+    class_special_free:           int | str | None
+    class_special_allocated:      int | str | None
+    class_special_available:      int | str | None
+    class_special_usable:         int | str | None
+    class_special_used:           int | str | None
+    class_special_expandsize:     int | str | None
+    class_special_fragmentation:  int | str | None
+    class_dedup_size:             int | str | None
+    class_dedup_capacity:         int | str | None
+    class_dedup_free:             int | str | None
+    class_dedup_allocated:        int | str | None
+    class_dedup_available:        int | str | None
+    class_dedup_usable:           int | str | None
+    class_dedup_used:             int | str | None
+    class_dedup_expandsize:       int | str | None
+    class_dedup_fragmentation:    int | str | None
+    class_log_size:               int | str | None
+    class_log_capacity:           int | str | None
+    class_log_free:               int | str | None
+    class_log_allocated:          int | str | None
+    class_log_available:          int | str | None
+    class_log_usable:             int | str | None
+    class_log_used:               int | str | None
+    class_log_expandsize:         int | str | None
+    class_log_fragmentation:      int | str | None
+    class_elog_size:              int | str | None
+    class_elog_capacity:          int | str | None
+    class_elog_free:              int | str | None
+    class_elog_allocated:         int | str | None
+    class_elog_available:         int | str | None
+    class_elog_usable:            int | str | None
+    class_elog_used:              int | str | None
+    class_elog_expandsize:        int | str | None
+    class_elog_fragmentation:     int | str | None
+    class_special_elog_size:          int | str | None
+    class_special_elog_capacity:      int | str | None
+    class_special_elog_free:          int | str | None
+    class_special_elog_allocated:     int | str | None
+    class_special_elog_available:     int | str | None
+    class_special_elog_usable:        int | str | None
+    class_special_elog_used:          int | str | None
+    class_special_elog_expandsize:    int | str | None
+    class_special_elog_fragmentation: int | str | None
 
 class struct_zfs_crypto_info:
     """Encryption status information for a ZFS dataset or volume."""

@@ -569,7 +569,6 @@ PyObject *py_zfs_src_to_dict(PyObject *pysrc)
 	return out;
 }
 
-static
 PyObject *py_zfs_prop_to_dict(PyObject *pyprop)
 {
 	int idx;

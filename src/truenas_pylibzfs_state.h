@@ -4,6 +4,7 @@
 typedef struct { zfs_type_t type; PyObject *obj; PyObject *name;} pystate_zfstype_t;
 typedef struct { zfs_prop_t type; PyObject *obj; PyObject *name;} pystate_zfsprop_t;
 typedef struct { zprop_source_t type; PyObject *obj; PyObject *name;} pystate_zfspropsrc_t;
+typedef struct { zpool_prop_t type; PyObject *obj; PyObject *name;} pystate_zpool_prop_t;
 
 typedef struct {
 	/*
@@ -95,9 +96,32 @@ typedef struct {
 	PyObject *scan_function_enum;
 	PyObject *scan_state_enum;
 	PyTypeObject *struct_zpool_scrub_type;
+
+	/*
+	 * Per-property lookup table for ZPOOLProperty enum members.
+	 * Indexed 0..ZPOOL_NUM_PROPS-1 (ZPOOL_PROP_INVAL is excluded).
+	 * (obj, name) must be Py_CLEAR()-ed when freeing the module state.
+	 */
+	pystate_zpool_prop_t zpool_prop_enum_tbl[ZPOOL_NUM_PROPS];
+
+	/*
+	 * Fields for the dynamically-created struct_zpool_property type.
+	 * name/doc strings are heap-allocated via PyMem_* and must be freed
+	 * with PyMem_Free() when the module state is freed.
+	 * The +1 slot is the required NULL sentinel.
+	 */
+	PyStructSequence_Field struct_zpool_prop_fields[ZPOOL_NUM_PROPS + 1];
+	PyStructSequence_Desc  struct_zpool_prop_desc;
+
+	/*
+	 * Named tuple containing all pool properties as attributes.
+	 * Used as the return type of ZFSPool.get_properties().
+	 */
+	PyTypeObject *struct_zpool_props_type;
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);
 extern void init_py_struct_prop_state(pylibzfs_state_t *state);
+extern void init_py_struct_zpool_prop_state(pylibzfs_state_t *state);
 extern void free_py_zfs_state(PyObject *module);
 #endif /* _PYZFS_STATE_H */
