@@ -896,7 +896,20 @@ PyDoc_STRVAR(py_zfs_pool_get_properties__doc__,
 "Raises:\n"
 "-------\n"
 "RuntimeError:\n"
-"    A property could not be retrieved from the pool handle.\n"
+"    A property could not be retrieved from the pool handle.\n\n"
+"Example\n"
+"-------\n"
+"Retrieve per-allocation-class space counters using the ZPOOL_CLASS_SPACE\n"
+"property set from the property_sets submodule::\n\n"
+"    import truenas_pylibzfs\n\n"
+"    hdl = truenas_pylibzfs.open_handle()\n"
+"    pool = hdl.open_pool(name='tank')\n"
+"    props = pool.get_properties(\n"
+"        properties=truenas_pylibzfs.property_sets.ZPOOL_CLASS_SPACE\n"
+"    )\n"
+"    # Access individual class counters by their libzfs name:\n"
+"    print(props.class_normal_size)\n"
+"    print(props.class_special_used)\n"
 );
 static
 PyObject *py_zfs_pool_get_properties(PyObject *self,

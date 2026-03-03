@@ -98,13 +98,6 @@ typedef struct {
 	PyTypeObject *struct_zpool_scrub_type;
 
 	/*
-	 * Reference to ZPOOLProperty IntEnum (parallel to zfs_property_enum).
-	 * Stored here so that truenas_pylibzfs_state.c and py_zfs_pool_prop.c
-	 * can resolve ZPOOLProperty enum members by integer value.
-	 */
-	PyObject *zpool_property_enum;
-
-	/*
 	 * Per-property lookup table for ZPOOLProperty enum members.
 	 * Indexed 0..ZPOOL_NUM_PROPS-1 (ZPOOL_PROP_INVAL is excluded).
 	 * (obj, name) must be Py_CLEAR()-ed when freeing the module state.
