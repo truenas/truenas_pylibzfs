@@ -907,9 +907,9 @@ PyDoc_STRVAR(py_zfs_pool_get_properties__doc__,
 "    props = pool.get_properties(\n"
 "        properties=truenas_pylibzfs.property_sets.ZPOOL_CLASS_SPACE\n"
 "    )\n"
-"    # Access individual class counters by their libzfs name:\n"
-"    print(props.class_normal_size)\n"
-"    print(props.class_special_used)\n"
+"    # Values are int for numeric properties, str for string/index:\n"
+"    print(props.class_normal_size)   # int\n"
+"    print(props.class_special_used)  # int\n"
 );
 static
 PyObject *py_zfs_pool_get_properties(PyObject *self,

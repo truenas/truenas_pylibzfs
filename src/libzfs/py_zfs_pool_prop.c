@@ -12,8 +12,8 @@
  * The return type of get_properties() is struct_zpool_property, a
  * dynamically-created PyStructSequence with one slot per ZPOOL_NUM_PROPS
  * entry (indexed 0..ZPOOL_NUM_PROPS-1, excluding ZPOOL_PROP_INVAL=-1).
- * Unrequested slots are set to Py_None; requested slots contain a
- * struct_zfs_property_data object (the same type used for dataset props).
+ * Unrequested slots are set to Py_None; requested slots contain the
+ * parsed property value directly (int for numeric properties, str otherwise).
  */
 
 /*
@@ -160,17 +160,8 @@ PyObject *py_zpool_get_one_prop(pylibzfs_state_t *state,
 		parsed = Py_NewRef(raw);
 	}
 
-	out = PyStructSequence_New(state->struct_zfs_prop_type);
-	if (out == NULL) {
-		Py_DECREF(raw);
-		Py_DECREF(parsed);
-		return NULL;
-	}
-
-	PyStructSequence_SET_ITEM(out, 0, parsed);
-	PyStructSequence_SET_ITEM(out, 1, raw);
-	PyStructSequence_SET_ITEM(out, 2, Py_NewRef(Py_None));
-	return out;
+	Py_DECREF(raw);
+	return parsed;
 }
 
 /*
@@ -395,6 +386,7 @@ fail:
 /*
  * Convert a struct_zpool_property struct sequence to a plain Python dict.
  * Slots that are Py_None (unrequested) are skipped.
+ * Each slot value is the parsed property value directly (int or str).
  */
 PyObject *py_zpool_props_to_dict(py_zfs_pool_t *p, PyObject *pyprops)
 {
@@ -410,7 +402,6 @@ PyObject *py_zpool_props_to_dict(py_zfs_pool_t *p, PyObject *pyprops)
 	    idx++) {
 		const char *name = state->struct_zpool_prop_fields[idx].name;
 		PyObject *slot_val;
-		PyObject *prop_dict;
 		int err;
 
 		if (name == NULL)
@@ -420,14 +411,7 @@ PyObject *py_zpool_props_to_dict(py_zfs_pool_t *p, PyObject *pyprops)
 		if (slot_val == Py_None)
 			continue;
 
-		prop_dict = py_zfs_prop_to_dict(slot_val);
-		if (prop_dict == NULL) {
-			Py_DECREF(out);
-			return NULL;
-		}
-
-		err = PyDict_SetItemString(out, name, prop_dict);
-		Py_DECREF(prop_dict);
+		err = PyDict_SetItemString(out, name, slot_val);
 		if (err) {
 			Py_DECREF(out);
 			return NULL;

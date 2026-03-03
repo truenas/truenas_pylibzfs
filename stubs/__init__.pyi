@@ -707,8 +707,9 @@ class ZFSPool:
             props = pool.get_properties(
                 properties=truenas_pylibzfs.property_sets.ZPOOL_CLASS_SPACE
             )
-            print(props.class_normal_size)
-            print(props.class_special_used)
+            # Values are int for numeric properties, str for string/index:
+            print(props.class_normal_size)   # int
+            print(props.class_special_used)  # int
         """
         ...
 
@@ -738,112 +739,113 @@ class struct_zpool_property:
     """Pool property bundle returned by ZFSPool.get_properties().
 
     Each attribute corresponds to a ZPOOLProperty member.
-    Requested properties contain a struct_zfs_property_data object;
-    unrequested properties are None.
+    Requested properties contain the parsed value directly (int for numeric
+    properties, str for string/index properties); unrequested properties
+    are None.
 
     Attribute names are the lowercase libzfs property names as returned by
     zpool_prop_to_name() (e.g. ``failmode``, ``listsnapshots``,
     ``expandsize``).  These differ from the ZPOOLProperty enum member names.
     """
-    name:                         struct_zfs_property_data | None
-    size:                         struct_zfs_property_data | None
-    capacity:                     struct_zfs_property_data | None
-    altroot:                      struct_zfs_property_data | None
-    health:                       struct_zfs_property_data | None
-    guid:                         struct_zfs_property_data | None
-    version:                      struct_zfs_property_data | None
-    bootfs:                       struct_zfs_property_data | None
-    delegation:                   struct_zfs_property_data | None
-    autoreplace:                  struct_zfs_property_data | None
-    cachefile:                    struct_zfs_property_data | None
-    failmode:                     struct_zfs_property_data | None
-    listsnapshots:                struct_zfs_property_data | None
-    autoexpand:                   struct_zfs_property_data | None
-    dedupditto:                   struct_zfs_property_data | None
-    dedupratio:                   struct_zfs_property_data | None
-    free:                         struct_zfs_property_data | None
-    allocated:                    struct_zfs_property_data | None
-    readonly:                     struct_zfs_property_data | None
-    ashift:                       struct_zfs_property_data | None
-    comment:                      struct_zfs_property_data | None
-    expandsize:                   struct_zfs_property_data | None
-    freeing:                      struct_zfs_property_data | None
-    fragmentation:                struct_zfs_property_data | None
-    leaked:                       struct_zfs_property_data | None
-    maxblocksize:                 struct_zfs_property_data | None
-    tname:                        struct_zfs_property_data | None
-    maxdnodesize:                 struct_zfs_property_data | None
-    multihost:                    struct_zfs_property_data | None
-    checkpoint:                   struct_zfs_property_data | None
-    load_guid:                    struct_zfs_property_data | None
-    autotrim:                     struct_zfs_property_data | None
-    compatibility:                struct_zfs_property_data | None
-    bcloneused:                   struct_zfs_property_data | None
-    bclonesaved:                  struct_zfs_property_data | None
-    bcloneratio:                  struct_zfs_property_data | None
-    dedup_table_size:             struct_zfs_property_data | None
-    dedup_table_quota:            struct_zfs_property_data | None
-    dedupcached:                  struct_zfs_property_data | None
-    last_scrubbed_txg:            struct_zfs_property_data | None
-    dedupused:                    struct_zfs_property_data | None
-    dedupsaved:                   struct_zfs_property_data | None
-    available:                    struct_zfs_property_data | None
-    usable:                       struct_zfs_property_data | None
-    used:                         struct_zfs_property_data | None
-    class_normal_size:            struct_zfs_property_data | None
-    class_normal_capacity:        struct_zfs_property_data | None
-    class_normal_free:            struct_zfs_property_data | None
-    class_normal_allocated:       struct_zfs_property_data | None
-    class_normal_available:       struct_zfs_property_data | None
-    class_normal_usable:          struct_zfs_property_data | None
-    class_normal_used:            struct_zfs_property_data | None
-    class_normal_expandsize:      struct_zfs_property_data | None
-    class_normal_fragmentation:   struct_zfs_property_data | None
-    class_special_size:           struct_zfs_property_data | None
-    class_special_capacity:       struct_zfs_property_data | None
-    class_special_free:           struct_zfs_property_data | None
-    class_special_allocated:      struct_zfs_property_data | None
-    class_special_available:      struct_zfs_property_data | None
-    class_special_usable:         struct_zfs_property_data | None
-    class_special_used:           struct_zfs_property_data | None
-    class_special_expandsize:     struct_zfs_property_data | None
-    class_special_fragmentation:  struct_zfs_property_data | None
-    class_dedup_size:             struct_zfs_property_data | None
-    class_dedup_capacity:         struct_zfs_property_data | None
-    class_dedup_free:             struct_zfs_property_data | None
-    class_dedup_allocated:        struct_zfs_property_data | None
-    class_dedup_available:        struct_zfs_property_data | None
-    class_dedup_usable:           struct_zfs_property_data | None
-    class_dedup_used:             struct_zfs_property_data | None
-    class_dedup_expandsize:       struct_zfs_property_data | None
-    class_dedup_fragmentation:    struct_zfs_property_data | None
-    class_log_size:               struct_zfs_property_data | None
-    class_log_capacity:           struct_zfs_property_data | None
-    class_log_free:               struct_zfs_property_data | None
-    class_log_allocated:          struct_zfs_property_data | None
-    class_log_available:          struct_zfs_property_data | None
-    class_log_usable:             struct_zfs_property_data | None
-    class_log_used:               struct_zfs_property_data | None
-    class_log_expandsize:         struct_zfs_property_data | None
-    class_log_fragmentation:      struct_zfs_property_data | None
-    class_elog_size:              struct_zfs_property_data | None
-    class_elog_capacity:          struct_zfs_property_data | None
-    class_elog_free:              struct_zfs_property_data | None
-    class_elog_allocated:         struct_zfs_property_data | None
-    class_elog_available:         struct_zfs_property_data | None
-    class_elog_usable:            struct_zfs_property_data | None
-    class_elog_used:              struct_zfs_property_data | None
-    class_elog_expandsize:        struct_zfs_property_data | None
-    class_elog_fragmentation:     struct_zfs_property_data | None
-    class_special_elog_size:          struct_zfs_property_data | None
-    class_special_elog_capacity:      struct_zfs_property_data | None
-    class_special_elog_free:          struct_zfs_property_data | None
-    class_special_elog_allocated:     struct_zfs_property_data | None
-    class_special_elog_available:     struct_zfs_property_data | None
-    class_special_elog_usable:        struct_zfs_property_data | None
-    class_special_elog_used:          struct_zfs_property_data | None
-    class_special_elog_expandsize:    struct_zfs_property_data | None
-    class_special_elog_fragmentation: struct_zfs_property_data | None
+    name:                         int | str | None
+    size:                         int | str | None
+    capacity:                     int | str | None
+    altroot:                      int | str | None
+    health:                       int | str | None
+    guid:                         int | str | None
+    version:                      int | str | None
+    bootfs:                       int | str | None
+    delegation:                   int | str | None
+    autoreplace:                  int | str | None
+    cachefile:                    int | str | None
+    failmode:                     int | str | None
+    listsnapshots:                int | str | None
+    autoexpand:                   int | str | None
+    dedupditto:                   int | str | None
+    dedupratio:                   int | str | None
+    free:                         int | str | None
+    allocated:                    int | str | None
+    readonly:                     int | str | None
+    ashift:                       int | str | None
+    comment:                      int | str | None
+    expandsize:                   int | str | None
+    freeing:                      int | str | None
+    fragmentation:                int | str | None
+    leaked:                       int | str | None
+    maxblocksize:                 int | str | None
+    tname:                        int | str | None
+    maxdnodesize:                 int | str | None
+    multihost:                    int | str | None
+    checkpoint:                   int | str | None
+    load_guid:                    int | str | None
+    autotrim:                     int | str | None
+    compatibility:                int | str | None
+    bcloneused:                   int | str | None
+    bclonesaved:                  int | str | None
+    bcloneratio:                  int | str | None
+    dedup_table_size:             int | str | None
+    dedup_table_quota:            int | str | None
+    dedupcached:                  int | str | None
+    last_scrubbed_txg:            int | str | None
+    dedupused:                    int | str | None
+    dedupsaved:                   int | str | None
+    available:                    int | str | None
+    usable:                       int | str | None
+    used:                         int | str | None
+    class_normal_size:            int | str | None
+    class_normal_capacity:        int | str | None
+    class_normal_free:            int | str | None
+    class_normal_allocated:       int | str | None
+    class_normal_available:       int | str | None
+    class_normal_usable:          int | str | None
+    class_normal_used:            int | str | None
+    class_normal_expandsize:      int | str | None
+    class_normal_fragmentation:   int | str | None
+    class_special_size:           int | str | None
+    class_special_capacity:       int | str | None
+    class_special_free:           int | str | None
+    class_special_allocated:      int | str | None
+    class_special_available:      int | str | None
+    class_special_usable:         int | str | None
+    class_special_used:           int | str | None
+    class_special_expandsize:     int | str | None
+    class_special_fragmentation:  int | str | None
+    class_dedup_size:             int | str | None
+    class_dedup_capacity:         int | str | None
+    class_dedup_free:             int | str | None
+    class_dedup_allocated:        int | str | None
+    class_dedup_available:        int | str | None
+    class_dedup_usable:           int | str | None
+    class_dedup_used:             int | str | None
+    class_dedup_expandsize:       int | str | None
+    class_dedup_fragmentation:    int | str | None
+    class_log_size:               int | str | None
+    class_log_capacity:           int | str | None
+    class_log_free:               int | str | None
+    class_log_allocated:          int | str | None
+    class_log_available:          int | str | None
+    class_log_usable:             int | str | None
+    class_log_used:               int | str | None
+    class_log_expandsize:         int | str | None
+    class_log_fragmentation:      int | str | None
+    class_elog_size:              int | str | None
+    class_elog_capacity:          int | str | None
+    class_elog_free:              int | str | None
+    class_elog_allocated:         int | str | None
+    class_elog_available:         int | str | None
+    class_elog_usable:            int | str | None
+    class_elog_used:              int | str | None
+    class_elog_expandsize:        int | str | None
+    class_elog_fragmentation:     int | str | None
+    class_special_elog_size:          int | str | None
+    class_special_elog_capacity:      int | str | None
+    class_special_elog_free:          int | str | None
+    class_special_elog_allocated:     int | str | None
+    class_special_elog_available:     int | str | None
+    class_special_elog_usable:        int | str | None
+    class_special_elog_used:          int | str | None
+    class_special_elog_expandsize:    int | str | None
+    class_special_elog_fragmentation: int | str | None
 
 class struct_zfs_crypto_info:
     """Encryption status information for a ZFS dataset or volume."""
