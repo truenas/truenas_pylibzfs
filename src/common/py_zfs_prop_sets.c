@@ -341,14 +341,67 @@ is_space_zpool_prop(zpool_prop_t prop)
 	}
 }
 
+typedef struct {
+	pylibzfs_state_t   *pstate;
+	pylibzfs_propset_t *state;
+	boolean_t           error;
+} zpool_propset_cb_t;
+
+/*
+ * zprop_iter() callback — called once per visible pool property.
+ * Hidden properties (registered via zprop_register_hidden) are skipped
+ * by zprop_iter() itself when show_all=B_FALSE.
+ */
+static int
+zpool_propset_cb(int prop_num, void *arg)
+{
+	zpool_propset_cb_t *cb = arg;
+	zpool_prop_t zprop = (zpool_prop_t)prop_num;
+	PyObject *item;
+
+	item = cb->pstate->zpool_prop_enum_tbl[zprop].obj;
+	if (item == NULL)
+		return (ZPROP_CONT);
+
+	if (zpool_prop_readonly(zprop)) {
+		if (PySet_Add(cb->state->zpool_readonly_properties, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	} else if (!zpool_prop_setonce(zprop)) {
+		if (PySet_Add(cb->state->zpool_properties, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	}
+
+	if (is_class_zpool_prop(zprop)) {
+		if (PySet_Add(cb->state->zpool_class_space, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	}
+
+	if (is_space_zpool_prop(zprop)) {
+		if (PySet_Add(cb->state->zpool_space, item)) {
+			cb->error = B_TRUE;
+			return (ZPROP_INVAL);
+		}
+	}
+
+	return (ZPROP_CONT);
+}
+
 static
 boolean_t py_add_zpool_propsets(pylibzfs_state_t *pstate,
 				  PyObject *module,
 				  pylibzfs_propset_t *state)
 {
-	int rv;
-	uint i;
-	zprop_desc_t *tbl = zpool_prop_get_table();
+	zpool_propset_cb_t cb = {
+		.pstate = pstate,
+		.state  = state,
+		.error  = B_FALSE,
+	};
 
 	state->zpool_readonly_properties = PyFrozenSet_New(NULL);
 	if (state->zpool_readonly_properties == NULL)
@@ -367,45 +420,13 @@ boolean_t py_add_zpool_propsets(pylibzfs_state_t *pstate,
 		return B_FALSE;
 
 	/*
-	 * Use the pre-populated enum table from the main module state so
-	 * that we iterate exactly the same enum members that are exposed
-	 * to API consumers.
+	 * zprop_iter() with show_all=B_FALSE automatically skips properties
+	 * registered with zprop_register_hidden(), giving us the same
+	 * visible-only filtering that the zpool command uses.
 	 */
-
-	for (i = 0; i < ZPOOL_NUM_PROPS; i++) {
-		PyObject *item;
-		zpool_prop_t zprop;
-
-		item = pstate->zpool_prop_enum_tbl[i].obj;
-		if (item == NULL)
-			continue;
-
-		zprop = pstate->zpool_prop_enum_tbl[i].type;
-		if (!tbl[zprop].pd_visible)
-			continue;
-
-		if (zpool_prop_readonly(zprop)) {
-			rv = PySet_Add(state->zpool_readonly_properties, item);
-			if (rv)
-				return B_FALSE;
-		} else if (!zpool_prop_setonce(zprop)) {
-			rv = PySet_Add(state->zpool_properties, item);
-			if (rv)
-				return B_FALSE;
-		}
-
-		if (is_class_zpool_prop(zprop)) {
-			rv = PySet_Add(state->zpool_class_space, item);
-			if (rv)
-				return B_FALSE;
-		}
-
-		if (is_space_zpool_prop(zprop)) {
-			rv = PySet_Add(state->zpool_space, item);
-			if (rv)
-				return B_FALSE;
-		}
-	}
+	zprop_iter(zpool_propset_cb, &cb, B_FALSE, B_FALSE, ZFS_TYPE_POOL);
+	if (cb.error)
+		return B_FALSE;
 
 	if (PyModule_AddObjectRef(module, "ZPOOL_READONLY_PROPERTIES",
 	    state->zpool_readonly_properties) < 0)
