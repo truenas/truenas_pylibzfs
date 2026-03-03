@@ -419,7 +419,7 @@ nvlist_t *py_zpool_props_dict_to_nvlist(PyObject *zpool_prop_enum,
 				return NULL;
 			}
 			prop = zpool_name_to_prop(ckey);
-			if (prop == ZPROP_INVAL) {
+			if (prop == ZPOOL_PROP_INVAL) {
 				PyErr_Format(PyExc_ValueError,
 					     "%s: not a valid zpool property.",
 					     ckey);
