@@ -152,36 +152,6 @@ PyObject *py_zfs_pool_status(PyObject *self, PyObject *args, PyObject *kwargs)
 	    follow_links, full_path);
 }
 
-PyDoc_STRVAR(py_zfs_pool_root_vdev__doc__,
-"root_vdev(*) -> ZFSVdev\n\n"
-"-----------------------\n\n"
-"Returns the ZFSVdev type object for root VDEV of the pool.\n\n"
-"Parameters\n"
-"----------\n"
-"None\n\n"
-"Returns\n"
-"-------\n"
-"None\n\n"
-);
-static
-PyObject *py_zfs_pool_root_vdev(PyObject *self, PyObject *args) {
-	PyObject *out = NULL;
-	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
-	nvlist_t *nvroot;
-
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.root_vdev", "O",
-	    p->name) < 0) {
-		return NULL;
-	}
-
-	Py_BEGIN_ALLOW_THREADS
-	nvroot = fnvlist_lookup_nvlist(zpool_get_config(p->zhp, NULL),
-	    ZPOOL_CONFIG_VDEV_TREE);
-	Py_END_ALLOW_THREADS
-
-	out = (PyObject *)init_zfs_vdev(p, nvroot, NULL);
-	return (out);
-}
 
 PyDoc_STRVAR(py_zfs_pool_clear__doc__,
 "clear(*) -> None\n\n"
@@ -809,12 +779,6 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = py_zfs_pool_sync,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_pool_sync__doc__
-	},
-	{
-		.ml_name = "root_vdev",
-		.ml_meth = py_zfs_pool_root_vdev,
-		.ml_flags = METH_NOARGS,
-		.ml_doc = py_zfs_pool_root_vdev__doc__
 	},
 	{
 		.ml_name = "clear",

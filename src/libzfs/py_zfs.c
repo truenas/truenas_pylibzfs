@@ -908,6 +908,94 @@ PyObject *py_zfs_iter_events(PyObject *self,
 	return result;
 }
 
+PyDoc_STRVAR(py_zfs_create_pool__doc__,
+"create_pool(*, name, storage_vdevs, cache_vdevs=None, log_vdevs=None,\n"
+"            special_vdevs=None, dedup_vdevs=None, spare_vdevs=None,\n"
+"            properties=None, filesystem_properties=None,"
+" force=False) -> None\n"
+"--------------------------------------------------------------------\n\n"
+"Create a new ZFS storage pool.  All arguments are keyword-only.\n"
+"Vdev specifications must be built with create_vdev_spec() first.\n\n"
+"Parameters\n"
+"----------\n"
+"name: str, required\n"
+"    Name of the new pool.  Must be a valid ZFS pool name.\n\n"
+"storage_vdevs: sequence of struct_vdev_create_spec, required\n"
+"    Top-level data vdevs (stripe, mirror, raidz*, draid*).  Must be\n"
+"    non-empty.  Unless force=True, all storage vdevs must share the\n"
+"    same type and child count.\n\n"
+"cache_vdevs: sequence of struct_vdev_create_spec | None, optional\n"
+"    L2ARC cache devices.  Must be leaf vdevs (disk or file).\n\n"
+"log_vdevs: sequence of struct_vdev_create_spec | None, optional\n"
+"    SLOG (ZIL) devices.  Must be leaf or mirror vdevs.\n\n"
+"special_vdevs: sequence of struct_vdev_create_spec | None, optional\n"
+"    Special allocation class vdevs.  May not be dRAID.  Must provide\n"
+"    at least as much redundancy as the storage tier.\n\n"
+"dedup_vdevs: sequence of struct_vdev_create_spec | None, optional\n"
+"    Dedup allocation class vdevs.  Same constraints as special_vdevs.\n\n"
+"spare_vdevs: sequence of struct_vdev_create_spec | None, optional\n"
+"    Hot spare devices.  Must be leaf vdevs (disk or file).\n\n"
+"properties: dict | None, optional\n"
+"    Pool properties to set at creation time.  Keys may be\n"
+"    " PYLIBZFS_MODULE_NAME ".ZPOOLProperty members or their string\n"
+"    equivalents.  Caller-supplied values are merged on top of the\n"
+"    default feature set; individual features may be disabled by\n"
+"    passing \"disabled\" as the value.\n\n"
+"filesystem_properties: dict | None, optional\n"
+"    Properties to set on the pool's root filesystem at creation time.\n"
+"    Keys must be " PYLIBZFS_MODULE_NAME ".ZFSProperty members or their\n"
+"    string equivalents.\n\n"
+"force: bool, optional, default=False\n"
+"    Skip Python-level topology validation.  Equivalent to passing -f\n"
+"    to zpool(8).  Does not suppress kernel-level checks.\n\n"
+"Returns\n"
+"-------\n"
+"    None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    A required argument is missing or the pool topology violates\n"
+"    the enforced constraints (overridden by force=True).\n"
+"TypeError:\n"
+"    An argument has an unexpected type.\n"
+"ZFSException:\n"
+"    The kernel rejected the pool creation (e.g. pool already exists,\n"
+"    device in use, or insufficient devices for the requested topology).\n"
+);
+static PyObject *
+py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	py_zfs_t *plz = (py_zfs_t *)self;
+	py_zfs_create_pool_args_t cpa = {0};
+	char *kwnames[] = {
+		"name", "storage_vdevs", "cache_vdevs", "log_vdevs",
+		"special_vdevs", "dedup_vdevs", "spare_vdevs",
+		"properties", "filesystem_properties", "force",
+		NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOp",
+	    kwnames,
+	    &cpa.name, &cpa.storage_vdevs, &cpa.cache_vdevs, &cpa.log_vdevs,
+	    &cpa.special_vdevs, &cpa.dedup_vdevs, &cpa.spare_vdevs,
+	    &cpa.properties, &cpa.filesystem_properties, &cpa.force))
+		return NULL;
+
+	if (cpa.name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "\"name\" keyword argument is required");
+		return NULL;
+	}
+
+	if (cpa.storage_vdevs == NULL || cpa.storage_vdevs == Py_None) {
+		PyErr_SetString(PyExc_ValueError,
+		    "\"storage_vdevs\" is required and must be non-empty");
+		return NULL;
+	}
+
+	return py_zfs_do_create_pool(plz, &cpa);
+}
+
 PyGetSetDef zfs_getsetters[] = {
 	{ .name = NULL }
 };
@@ -964,6 +1052,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_iter_events,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_iter_events__doc__
+	},
+	{
+		.ml_name = "create_pool",
+		.ml_meth = (PyCFunction)py_zfs_create_pool,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_create_pool__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

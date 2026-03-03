@@ -50,7 +50,7 @@ python3 -c "import truenas_pylibzfs; print('Module imported successfully')"
 if [ -d "tests" ]; then
     echo ""
     echo "Running pytest tests..."
-    python3 -m pytest tests/ -v
+    python3 -m pytest tests/ -v --tb=short --timeout=120
     TEST_EXIT_CODE=$?
 else
     echo ""

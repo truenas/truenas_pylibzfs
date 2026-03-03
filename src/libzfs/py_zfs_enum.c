@@ -319,6 +319,50 @@ fail:
 	return (NULL);
 }
 
+/* Create a dictionary for enum spec for the VDevType StrEnum */
+static const struct { const char *name; const char *value; }
+vdev_type_strtable[] = {
+	{ "DISK",   "disk"   },
+	{ "FILE",   "file"   },
+	{ "MIRROR", "mirror" },
+	{ "RAIDZ1", "raidz1" },
+	{ "RAIDZ2", "raidz2" },
+	{ "RAIDZ3", "raidz3" },
+	{ "DRAID1", "draid1" },
+	{ "DRAID2", "draid2" },
+	{ "DRAID3", "draid3" },
+};
+
+static
+PyObject *vdev_type_table_to_dict(void)
+{
+	PyObject *dict_out = NULL;
+	PyObject *val = NULL;
+	int err;
+	uint i;
+
+	dict_out = PyDict_New();
+	if (dict_out == NULL)
+		return NULL;
+
+	for (i = 0; i < ARRAY_SIZE(vdev_type_strtable); i++) {
+		val = PyUnicode_FromString(vdev_type_strtable[i].value);
+		if (val == NULL)
+			goto fail;
+
+		err = PyDict_SetItemString(dict_out,
+		    vdev_type_strtable[i].name, val);
+		Py_DECREF(val);
+		if (err)
+			goto fail;
+	}
+
+	return dict_out;
+fail:
+	Py_XDECREF(dict_out);
+	return NULL;
+}
+
 /* Create a dictionary for enum spec for the USERQuota enum */
 static
 PyObject *uquota_table_to_dict(void)
@@ -447,6 +491,7 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 	PyObject *enum_mod = NULL;
 	PyObject *int_enum = NULL;
 	PyObject *intflag_enum = NULL;
+	PyObject *str_enum = NULL;
 	PyObject *kwargs = NULL;
 	pylibzfs_state_t *state = NULL;
 
@@ -468,6 +513,10 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 
 	intflag_enum = PyObject_GetAttrString(enum_mod, "IntFlag");
 	if (intflag_enum == NULL)
+		goto out;
+
+	str_enum = PyObject_GetAttrString(enum_mod, "StrEnum");
+	if (str_enum == NULL)
 		goto out;
 
 	err = add_enum(emod, module, int_enum, "ZFSError",
@@ -525,10 +574,17 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 		       &state->vdev_state_enum);
 	if (err)
 		goto out;
+
+	err = add_enum(emod, module, str_enum, "VDevType",
+		       vdev_type_table_to_dict, kwargs,
+		       &state->vdev_type_enum);
+	if (err)
+		goto out;
 out:
 	Py_XDECREF(kwargs);
 	Py_XDECREF(int_enum);
 	Py_XDECREF(intflag_enum);
+	Py_XDECREF(str_enum);
 	Py_XDECREF(enum_mod);
 	return err;
 }
