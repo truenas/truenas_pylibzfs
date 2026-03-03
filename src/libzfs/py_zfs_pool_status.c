@@ -40,15 +40,17 @@
  * │   ├── log:     ()                                       │
  * │   ├── special: ()                                       │
  * │   └── dedup:   ()                                       │
- * └── spares:  (struct_vdev,)                               │
- *     └── struct_vdev                                       │
- *         ├── name:      "draid1-0-0"                       │
- *         ├── vdev_type: "dspare"                           │
- *         ├── guid:      0xCCCC                             │
- *         ├── state:     AVAIL                              │
- *         ├── stats:     struct_vdev_stats                  │
- *         ├── children:  None                               │
- *         └── top_guid:  0xAAAA  ────────────────────────────┘
+ * ├── spares:  (struct_vdev,)                               │
+ * │   └── struct_vdev                                       │
+ * │       ├── name:      "draid1-0-0"                       │
+ * │       ├── vdev_type: "dspare"                           │
+ * │       ├── guid:      0xCCCC                             │
+ * │       ├── state:     AVAIL                              │
+ * │       ├── stats:     struct_vdev_stats                  │
+ * │       ├── children:  None                               │
+ * │       └── top_guid:  0xAAAA  ─────────────────────────────┘
+ * ├── name:    "pool"
+ * └── guid:    0x1234567890ABCDEF
  *
  * ---------------------------------------------------------------------------
  *
@@ -85,7 +87,9 @@
  * │   ├── log:     (struct_vdev,)  [sdj, vdev_type="disk", top_guid=None]
  * │   ├── special: ()
  * │   └── dedup:   ()
- * └── spares:  ()
+ * ├── spares:  ()
+ * ├── name:    "pool"
+ * └── guid:    0x1234567890ABCDEF
  *
  * ---------------------------------------------------------------------------
  */
@@ -134,6 +138,14 @@ PyDoc_STRVAR(py_pool_status_spares__doc__,
 "or an empty tuple if no spares are configured.\n"
 );
 
+PyDoc_STRVAR(py_pool_status_name__doc__,
+"Name of the pool.\n"
+);
+
+PyDoc_STRVAR(py_pool_status_guid__doc__,
+"64-bit GUID of the pool.\n"
+);
+
 PyStructSequence_Field struct_pool_status_prop [] = {
 	{"status", py_pool_status_status__doc__},
 	{"reason", py_pool_status_reason__doc__},
@@ -143,17 +155,21 @@ PyStructSequence_Field struct_pool_status_prop [] = {
 	{"storage_vdevs", py_pool_status_storage__doc__},
 	{"support_vdevs", py_pool_status_support__doc__},
 	{"spares", py_pool_status_spares__doc__},
+	{"name", py_pool_status_name__doc__},
+	{"guid", py_pool_status_guid__doc__},
 	{0},
 };
 #define VDEVS_STORAGE_IDX 5
 #define VDEVS_SUPPORT_IDX 6
 #define VDEVS_SPARES_IDX  7
+#define POOL_NAME_IDX     8
+#define POOL_GUID_IDX     9
 
 PyStructSequence_Desc struct_pool_status_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_status",
 	.fields = struct_pool_status_prop,
 	.doc = "Python ZFS pool status structure",
-	.n_in_sequence = 8
+	.n_in_sequence = 10
 };
 
 PyStructSequence_Field struct_pool_support_vdev [] = {
@@ -899,6 +915,7 @@ PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
  */
 static
 boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
+				  nvlist_t *config_in,
 				  PyObject *status_struct,
 				  boolean_t get_stats,
 				  boolean_t follow_links,
@@ -907,20 +924,29 @@ boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
 	PyObject *storage_vdevs = NULL;
 	PyObject *support_vdevs = NULL;
 	PyObject *spare_vdevs = NULL;
-	nvlist_t *config, *nvroot;
+	nvlist_t *config = NULL;
+	nvlist_t *nvroot = NULL;
 
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(pypool->pylibzfsp);
-	config = zpool_get_config(pypool->zhp, NULL);
-	PYZFS_ASSERT((config != NULL), "Unexpected NULL zpool config");
-
-	// create a copy of the vdev tree. Otherwise there's a risk that
-	// another thread doing something like updating the nvlist will change
-	// it out or free it from under us.
-	nvroot = fnvlist_dup(fnvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE));
-
-	PY_ZFS_UNLOCK(pypool->pylibzfsp);
-	Py_END_ALLOW_THREADS
+	if (config_in != NULL) {
+		/*
+		 * Config provided directly (e.g. from zpool_search_import).
+		 * Dup the vdev tree so we own it for the duration of
+		 * this call regardless of what the caller does with config.
+		 */
+		nvroot = fnvlist_dup(
+		    fnvlist_lookup_nvlist(config_in, ZPOOL_CONFIG_VDEV_TREE));
+	} else {
+		/* Config comes from the open pool handle; hold lock while
+		 * accessing it and copying the vdev tree. */
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(pypool->pylibzfsp);
+		config = zpool_get_config(pypool->zhp, NULL);
+		PYZFS_ASSERT((config != NULL), "Unexpected NULL zpool config");
+		nvroot = fnvlist_dup(
+		    fnvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE));
+		PY_ZFS_UNLOCK(pypool->pylibzfsp);
+		Py_END_ALLOW_THREADS
+	}
 
 	storage_vdevs = pypool_status_get_storage_vdevs(pypool, nvroot,
 	    get_stats, follow_links, full_path);
@@ -961,6 +987,10 @@ PyObject *pypool_error_log(py_zfs_pool_t *pypool)
 	nvlist_t *nverrlist = NULL;
 	nvpair_t *elem = NULL;
 	int err;
+
+	/* Pool is not imported; no error log is available */
+	if (pypool->zhp == NULL)
+		return PyTuple_New(0);
 
 	tmplist = PyList_New(0);
 	if (tmplist == NULL)
@@ -1024,40 +1054,35 @@ done:
 }
 
 static
-PyObject *py_explain_recover(py_zfs_pool_t *pypool,
-			     zpool_status_t reason)
+PyObject *py_explain_recover(py_zfs_t *plz,
+			     zpool_status_t reason,
+			     const char *pool_name,
+			     nvlist_t *config)
 {
 	char acbuf[2048] = {0};
 
 	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(pypool->pylibzfsp);
-	zpool_explain_recover(zpool_get_handle(pypool->zhp),
-			      zpool_get_name(pypool->zhp),
-			      reason,
-			      zpool_get_config(pypool->zhp, NULL),
+	PY_ZFS_LOCK(plz);
+	zpool_explain_recover(plz->lzh, pool_name, reason, config,
 			      acbuf, sizeof(acbuf));
-	PY_ZFS_UNLOCK(pypool->pylibzfsp);
+	PY_ZFS_UNLOCK(plz);
 	Py_END_ALLOW_THREADS
 
 	return PyUnicode_FromString(acbuf);
 }
 
 static
-PyObject *py_collect_unsupported_feat(py_zfs_pool_t *pypool,
+PyObject *py_collect_unsupported_feat(py_zfs_t *plz,
+				      nvlist_t *config,
 				      PyObject *reason)
 {
 	char buf[2048] = {0};
 	PyObject *pyfeat;
-	nvlist_t *config;
 
 	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(pypool->pylibzfsp);
-
-	// WARNING: do not free this nvlist
-	config = zpool_get_config(pypool->zhp, NULL);
+	PY_ZFS_LOCK(plz);
 	zpool_collect_unsup_feat(config, buf, sizeof(buf));
-
-	PY_ZFS_UNLOCK(pypool->pylibzfsp);
+	PY_ZFS_UNLOCK(plz);
 	Py_END_ALLOW_THREADS
 
 	if (reason) {
@@ -1098,6 +1123,8 @@ PyObject *py_collect_unsupported_feat(py_zfs_pool_t *pypool,
  */
 static
 PyObject *populate_status_struct(py_zfs_pool_t *pypool,
+				 nvlist_t *config,
+				 const char *pool_name,
 				 zpool_status_t reason,
 				 zpool_errata_t errata,
 				 const char *msgid,
@@ -1112,7 +1139,36 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	PyObject *pyenum = NULL;
 	PyObject *pymsg = NULL;
 	PyObject *pyfiles = NULL;
+	PyObject *pyname = NULL;
+	PyObject *pyguid = NULL;
+	uint64_t pool_guid = 0;
 	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
+
+	/*
+	 * If config or pool_name were not provided by the caller (imported
+	 * pool path), retrieve them from the open pool handle.
+	 */
+	if (config == NULL) {
+		PYZFS_ASSERT((pypool->zhp != NULL),
+		    "config must be provided when pool handle is NULL");
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(pypool->pylibzfsp);
+		config = zpool_get_config(pypool->zhp, NULL);
+		PYZFS_ASSERT((config != NULL), "Unexpected NULL zpool config");
+		PY_ZFS_UNLOCK(pypool->pylibzfsp);
+		Py_END_ALLOW_THREADS
+	}
+	if (pool_name == NULL) {
+		PYZFS_ASSERT((pypool->zhp != NULL),
+		    "pool_name must be provided when pool handle is NULL");
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(pypool->pylibzfsp);
+		pool_name = zpool_get_name(pypool->zhp);
+		PY_ZFS_UNLOCK(pypool->pylibzfsp);
+		Py_END_ALLOW_THREADS
+	}
+
+	pool_guid = fnvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID);
 
 	pyenum = PyObject_CallFunction(state->zpool_status_enum, "i", reason);
 	if (pyenum == NULL)
@@ -1167,7 +1223,8 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 		    "There are insufficient replicas for the pool to "
 		    "continue functioning.");
 
-		pyaction = py_explain_recover(pypool, reason);
+		pyaction = py_explain_recover(pypool->pylibzfsp, reason,
+		    pool_name, config);
 		break;
 
 	case ZPOOL_STATUS_FAILING_DEV:
@@ -1229,7 +1286,8 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	case ZPOOL_STATUS_CORRUPT_POOL:
 		pyreason = PyUnicode_FromString("The pool metadata is "
 		    "corrupted and the pool cannot be opened.");
-		pyaction = py_explain_recover(pypool, reason);
+		pyaction = py_explain_recover(pypool->pylibzfsp, reason,
+		    pool_name, config);
 		break;
 
 	case ZPOOL_STATUS_VERSION_OLDER:
@@ -1288,7 +1346,8 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 		pyreason = PyUnicode_FromString("The pool cannot be accessed "
 		    "on this system because it uses the following feature(s)"
 		    " not supported on this system:\n");
-		pytmp = py_collect_unsupported_feat(pypool, pyreason);
+		pytmp = py_collect_unsupported_feat(pypool->pylibzfsp,
+		    config, pyreason);
 		Py_CLEAR(pyreason);
 		pyreason = pytmp;
 
@@ -1302,7 +1361,8 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 		    "accessed in read-only mode on this system. It cannot be"
 		    " accessed in read-write mode because it uses the "
 		    "following feature(s) not supported on this system:\n");
-		pytmp = py_collect_unsupported_feat(pypool, pyreason);
+		pytmp = py_collect_unsupported_feat(pypool->pylibzfsp,
+		    config, pyreason);
 		Py_CLEAR(pyreason);
 		pyreason = pytmp;
 
@@ -1471,12 +1531,22 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 		 * msgid (ZFS-8000-14) but zpool_get_status() never actually
 		 * returns it -- included here for completeness only.
 		 */
+		pyreason = Py_NewRef(Py_None);
+		pyaction = Py_NewRef(Py_None);
+		break;
+
 	case ZPOOL_STATUS_BAD_GUID_SUM:
 		/*
-		 * ZPOOL_STATUS_BAD_GUID_SUM is only surfaced during pool
-		 * import, not for an active imported pool -- included here
-		 * for completeness only.
+		 * Surfaced during pool import when a device has a bad
+		 * GUID checksum.
 		 */
+		pyreason = PyUnicode_FromString("One or more devices had a "
+		    "bad GUID checksum. The pool may be partially "
+		    "corrupted.");
+		pyaction = PyUnicode_FromString("Examine the pool for "
+		    "corruption and restore from backup if necessary.");
+		break;
+
 	default:
 		/*
 		 * The remaining errors can't actually be generated, yet.
@@ -1496,10 +1566,18 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	if (pyfiles == NULL)
 		goto fail;
 
-	if (!pypool_status_add_vdevs(pypool, out, get_stats, follow_links,
-	    full_path))
+	if (!pypool_status_add_vdevs(pypool, config, out, get_stats,
+	    follow_links, full_path))
 		// this needs to occur before setting references
 		// in the struct sequence otherwise we risk UAF
+		goto fail;
+
+	pyname = PyUnicode_FromString(pool_name);
+	if (pyname == NULL)
+		goto fail;
+
+	pyguid = PyLong_FromUnsignedLongLong(pool_guid);
+	if (pyguid == NULL)
 		goto fail;
 
 	PyStructSequence_SET_ITEM(out, 0, pyenum);
@@ -1507,6 +1585,8 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	PyStructSequence_SET_ITEM(out, 2, pyaction);
 	PyStructSequence_SET_ITEM(out, 3, pymsg);
 	PyStructSequence_SET_ITEM(out, 4, pyfiles);
+	PyStructSequence_SET_ITEM(out, POOL_NAME_IDX, pyname);
+	PyStructSequence_SET_ITEM(out, POOL_GUID_IDX, pyguid);
 
 	return out;
 
@@ -1516,6 +1596,8 @@ fail:
 	Py_CLEAR(pyenum);
 	Py_CLEAR(pymsg);
 	Py_CLEAR(pyfiles);
+	Py_CLEAR(pyname);
+	Py_CLEAR(pyguid);
 	Py_CLEAR(out);
 	return NULL;
 }
@@ -1533,8 +1615,32 @@ PyObject *py_get_pool_status(py_zfs_pool_t *pypool, boolean_t get_stats,
 	PY_ZFS_UNLOCK(pypool->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	return populate_status_struct(pypool, reason, errata, msgid,
+	return populate_status_struct(pypool, NULL, NULL, reason, errata, msgid,
 	    get_stats, follow_links, full_path);
+}
+
+PyObject *py_get_pool_status_from_config(py_zfs_t *plz, nvlist_t *config)
+{
+	zpool_status_t reason;
+	zpool_errata_t errata;
+	const char *msgid;
+	const char *pool_name;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	reason = zpool_import_status(config, &msgid, &errata);
+	pool_name = fnvlist_lookup_string(config, ZPOOL_CONFIG_POOL_NAME);
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	py_zfs_pool_t fake_pool = {
+		.pylibzfsp = plz,
+		.zhp = NULL,
+		.name = NULL,
+	};
+
+	return populate_status_struct(&fake_pool, config, pool_name,
+	    reason, errata, msgid, B_FALSE, B_FALSE, B_FALSE);
 }
 
 /* create new dictionary containing references to info from struct sequence */

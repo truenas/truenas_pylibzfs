@@ -1,6 +1,7 @@
 #include "../truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
 #include "py_zfs_events.h"
+#include "libzutil.h"
 
 #define	ZFS_STR	"<" PYLIBZFS_MODULE_NAME ".ZFS>"
 
@@ -996,6 +997,478 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 	return py_zfs_do_create_pool(plz, &cpa);
 }
 
+PyDoc_STRVAR(py_zfs_import_pool_find__doc__,
+"import_pool_find(*, cache_file=None, device=None) -> list[struct_zpool_status]\n\n"
+"-------------------------------------------------------------------------------\n\n"
+"Discover pools that are importable (exported or not yet seen).\n\n"
+"Parameters\n"
+"----------\n"
+"cache_file: str, optional\n"
+"    Path to ZFS cache file (e.g. /etc/zfs/zpool.cache). If set,\n"
+"    uses cached discovery instead of scanning devices.\n"
+"device: str, optional\n"
+"    Single device directory to scan (e.g. /dev). If neither\n"
+"    cache_file nor device is given, defaults to blkid-based scan\n"
+"    of default paths.\n\n"
+"Returns\n"
+"-------\n"
+"list[struct_zpool_status]\n"
+"    One struct_zpool_status per importable pool, built from the\n"
+"    pool config via zpool_import_status(). The vdev tree, status\n"
+"    reason, and action fields are populated; corrupted_files is\n"
+"    always empty (pool is not mounted).\n\n"
+"Raises\n"
+"------\n"
+"RuntimeError:\n"
+"    Failed to build pool status from config.\n"
+);
+static
+PyObject *py_zfs_import_pool_find(PyObject *self,
+				  PyObject *args_unused,
+				  PyObject *kwargs)
+{
+	py_zfs_t *plz = (py_zfs_t *)self;
+	char *cache_file = NULL;
+	char *device = NULL;
+	nvlist_t *pools = NULL;
+	nvpair_t *elem = NULL;
+	PyObject *result = NULL;
+	char *paths[1];
+	importargs_t idata = { 0 };
+	libpc_handle_t lpch = { 0 };
+
+	char *kwnames[] = {"cache_file", "device", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$zz",
+					 kwnames,
+					 &cache_file,
+					 &device)) {
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".import_pool_find",
+			"zz", cache_file, device) < 0) {
+		return NULL;
+	}
+
+	idata.can_be_active = B_FALSE;
+
+	if (cache_file != NULL)
+		idata.cachefile = cache_file;
+
+	if (device != NULL) {
+		paths[0] = device;
+		idata.path = paths;
+		idata.paths = 1;
+	}
+
+	lpch.lpc_lib_handle = plz->lzh;
+	lpch.lpc_ops = &libzfs_config_ops;
+	lpch.lpc_printerr = B_FALSE;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	pools = zpool_search_import(&lpch, &idata);
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	result = PyList_New(0);
+	if (result == NULL)
+		return NULL;
+
+	/*
+	 * NULL is not a hard error: zpool_search_import() returns NULL
+	 * when no pools are found (the common case) as well as on OOM
+	 * (LPC_NOMEM). Distinguishing the two is not worth the complexity
+	 * here — a discovery function returning an empty list on OOM is
+	 * acceptable, and the caller can treat [] as "nothing found".
+	 */
+	if (pools == NULL)
+		return result;
+
+	for (elem = nvlist_next_nvpair(pools, NULL);
+	    elem != NULL;
+	    elem = nvlist_next_nvpair(pools, elem)) {
+		nvlist_t *config_nvl = NULL;
+		PyObject *pystatus = NULL;
+
+		if (nvpair_value_nvlist(elem, &config_nvl) != 0)
+			continue;
+
+		pystatus = py_get_pool_status_from_config(plz, config_nvl);
+		if (pystatus == NULL) {
+			Py_DECREF(result);
+			nvlist_free(pools);
+			return NULL;
+		}
+
+		if (PyList_Append(result, pystatus) < 0) {
+			Py_DECREF(pystatus);
+			Py_DECREF(result);
+			nvlist_free(pools);
+			return NULL;
+		}
+		Py_DECREF(pystatus);
+	}
+
+	nvlist_free(pools);
+	return result;
+}
+
+
+/*
+ * Build the nvlist of zpool properties for import. Starts from the
+ * user-supplied dict, then overlays altroot + cachefile=none if altroot
+ * is set (altroot always wins).  Returns B_TRUE on success with *props_out
+ * set (may be NULL when no properties are needed). Returns B_FALSE on
+ * failure with a Python exception already set.
+ */
+static
+boolean_t build_import_props(const char *altroot, PyObject *zpool_prop_enum,
+			      PyObject *pyprops, nvlist_t **props_out)
+{
+	nvlist_t *props = NULL;
+
+	if (pyprops != NULL && pyprops != Py_None &&
+	    PyDict_Size(pyprops) > 0) {
+		props = py_zpool_props_dict_to_nvlist(zpool_prop_enum, pyprops);
+		if (props == NULL)
+			return B_FALSE;
+	}
+
+	if (altroot != NULL) {
+		if (props == NULL)
+			props = fnvlist_alloc();
+		fnvlist_add_string(props,
+				   zpool_prop_to_name(ZPOOL_PROP_ALTROOT),
+				   altroot);
+		fnvlist_add_string(props,
+				   zpool_prop_to_name(ZPOOL_PROP_CACHEFILE),
+				   "none");
+	}
+
+	*props_out = props;
+	return B_TRUE;
+}
+
+/* Inputs for search_and_import(). Zero-initialize before use. */
+typedef struct {
+	importargs_t idata;
+	libpc_handle_t lpch;
+	nvlist_t *props;
+	int flags;
+	const char *newname;
+} zpool_import_in_t;
+
+/* Outputs from search_and_import(). Valid only on return value 0. */
+typedef struct {
+	zpool_handle_t *zhp;
+	char pool_name[ZFS_MAX_DATASET_NAME_LEN];
+	py_zfs_error_t zfs_err;
+} zpool_import_out_t;
+
+/*
+ * Perform pool search + import under the caller's lock. Must be called
+ * with GIL released and plz lock held. Copies the discovered pool name
+ * into out->pool_name so the caller may use it after the internal nvlist
+ * is freed. Returns 0 on success, non-zero on error with out->zfs_err set.
+ */
+static
+int search_and_import(py_zfs_t *plz, zpool_import_in_t *in,
+		      zpool_import_out_t *out)
+{
+	nvlist_t *pools = NULL;
+	nvlist_t *config = NULL;
+	nvpair_t *elem = NULL;
+	const char *open_name = NULL;
+	int err = 0;
+
+	pools = zpool_search_import(&in->lpch, &in->idata);
+	if (pools == NULL) {
+		err = ENOENT;
+		out->zfs_err.code = EZFS_NOENT;
+		strlcpy(out->zfs_err.description, "pool not found",
+			sizeof (out->zfs_err.description));
+		out->zfs_err.action[0] = '\0';
+		return err;
+	}
+
+	elem = nvlist_next_nvpair(pools, NULL);
+	if (elem == NULL) {
+		err = ENOENT;
+		out->zfs_err.code = EZFS_NOENT;
+		strlcpy(out->zfs_err.description, "pool not found",
+			sizeof (out->zfs_err.description));
+		out->zfs_err.action[0] = '\0';
+	} else if (nvlist_next_nvpair(pools, elem) != NULL) {
+		err = EINVAL;
+		out->zfs_err.code = EZFS_INVALIDNAME;
+		strlcpy(out->zfs_err.description,
+			"ambiguous: multiple pools match the given guid",
+			sizeof (out->zfs_err.description));
+		out->zfs_err.action[0] = '\0';
+	} else {
+		strlcpy(out->pool_name, nvpair_name(elem),
+			sizeof (out->pool_name));
+		if (nvpair_value_nvlist(elem, &config) != 0) {
+			err = EINVAL;
+			out->zfs_err.code = EZFS_BADCACHE;
+			strlcpy(out->zfs_err.description,
+				"failed to get pool config",
+				sizeof (out->zfs_err.description));
+			out->zfs_err.action[0] = '\0';
+		} else {
+			err = zpool_import_props(plz->lzh, config,
+						 in->newname, in->props,
+						 in->flags);
+			if (err) {
+				py_get_zfs_error(plz->lzh, &out->zfs_err);
+			} else {
+				open_name = (in->newname != NULL) ?
+				    in->newname : out->pool_name;
+				out->zhp = zpool_open(plz->lzh, open_name);
+				if (out->zhp == NULL) {
+					err = -1;
+					py_get_zfs_error(plz->lzh,
+					    &out->zfs_err);
+				}
+			}
+		}
+	}
+
+	nvlist_free(pools);
+	return err;
+}
+
+PyDoc_STRVAR(py_zfs_import_pool__doc__,
+"import_pool(*, name=None, guid=None, allow_missing_log=False,\n"
+"            altroot=None, force=False, properties=None,\n"
+"            temporary_name=None, device=None) -> ZFSPool\n\n"
+"-------------------------------------------------------------\n\n"
+"Import a specific pool by name or GUID.\n\n"
+"Parameters\n"
+"----------\n"
+"name: str, optional\n"
+"    Name of the pool to import. Mutually exclusive with guid.\n"
+"guid: int, optional\n"
+"    GUID of the pool to import. Mutually exclusive with name.\n"
+"allow_missing_log: bool, optional, default=False\n"
+"    Allow import even if log devices are missing.\n"
+"altroot: str, optional\n"
+"    Alternate root directory for the imported pool. When set,\n"
+"    cachefile is forced to \"none\".\n"
+"force: bool, optional, default=False\n"
+"    Force import, bypassing hostid/MMP check.\n"
+"properties: dict[str, str], optional\n"
+"    Additional zpool properties to set on import. Keys must be\n"
+"    valid zpool property names. altroot takes precedence over\n"
+"    any altroot/cachefile values supplied here.\n"
+"temporary_name: str, optional\n"
+"    Import the pool under this name instead of its on-disk name.\n"
+"    Sets ZFS_IMPORT_TEMP_NAME so the pool reverts to its original\n"
+"    name on next import.\n"
+"device: str, optional\n"
+"    Device directory to search for the pool (e.g. /dev). If not\n"
+"    set, defaults to blkid-based scan of standard paths.\n\n"
+"Returns\n"
+"-------\n"
+"ZFSPool\n"
+"    The imported pool object.\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    Exactly one of name or guid must be provided, or an invalid\n"
+"    zpool property name was given.\n"
+"TypeError:\n"
+"    guid is not an integer, or a string argument is not a string.\n"
+"ZFSException:\n"
+"    Pool not found, ambiguous, or import failed.\n"
+);
+static
+PyObject *py_zfs_import_pool(PyObject *self,
+			     PyObject *args_unused,
+			     PyObject *kwargs)
+{
+	py_zfs_t *plz = (py_zfs_t *)self;
+	pylibzfs_state_t *state = NULL;
+	PyObject *py_name = NULL;
+	PyObject *py_guid = NULL;
+	PyObject *py_altroot = NULL;
+	PyObject *py_tmpname = NULL;
+	PyObject *py_device = NULL;
+	PyObject *pyprops = NULL;
+	PyObject *out = NULL;
+	boolean_t allow_missing_log = B_FALSE;
+	boolean_t force = B_FALSE;
+	nvlist_t *props = NULL;
+	zpool_import_in_t in_ = { 0 };
+	zpool_import_out_t out_ = { 0 };
+	const char *device_path = NULL;
+	uint64_t guid = 0;
+	int flags = 0;
+	int err = 0;
+	const char *name = NULL;
+	const char *altroot = NULL;
+	const char *temporary_name = NULL;
+	char *kwnames[] = {
+		"name", "guid", "allow_missing_log", "altroot", "force",
+		"properties", "temporary_name", "device", NULL
+	};
+
+	state = py_get_module_state(plz);
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
+					 "|$OOpOpOOO",
+					 kwnames,
+					 &py_name, &py_guid,
+					 &allow_missing_log,
+					 &py_altroot, &force,
+					 &pyprops, &py_tmpname,
+					 &py_device)) {
+		return NULL;
+	}
+
+	if (py_name != NULL && py_name != Py_None) {
+		if (!PyUnicode_Check(py_name)) {
+			PyErr_SetString(PyExc_TypeError,
+					"\"name\" must be a string.");
+			return NULL;
+		}
+		name = PyUnicode_AsUTF8(py_name);
+		if (name == NULL)
+			return NULL;
+	}
+
+	if (py_guid != NULL && py_guid != Py_None) {
+		if (!PyLong_Check(py_guid)) {
+			PyErr_SetString(PyExc_TypeError,
+					"\"guid\" must be an integer.");
+			return NULL;
+		}
+		guid = PyLong_AsUnsignedLongLong(py_guid);
+		if (guid == (uint64_t)-1 && PyErr_Occurred())
+			return NULL;
+	}
+
+	if (name == NULL && (py_guid == NULL || py_guid == Py_None)) {
+		PyErr_SetString(PyExc_ValueError,
+				"Exactly one of \"name\" or \"guid\" must be "
+				"provided.");
+		return NULL;
+	}
+
+	if (name != NULL && py_guid != NULL && py_guid != Py_None) {
+		PyErr_SetString(PyExc_ValueError,
+				"\"name\" and \"guid\" are mutually exclusive.");
+		return NULL;
+	}
+
+	if (py_altroot != NULL && py_altroot != Py_None) {
+		if (!PyUnicode_Check(py_altroot)) {
+			PyErr_SetString(PyExc_TypeError,
+					"\"altroot\" must be a string.");
+			return NULL;
+		}
+		altroot = PyUnicode_AsUTF8(py_altroot);
+		if (altroot == NULL)
+			return NULL;
+	}
+
+	if (py_tmpname != NULL && py_tmpname != Py_None) {
+		if (!PyUnicode_Check(py_tmpname)) {
+			PyErr_SetString(PyExc_TypeError,
+					"\"temporary_name\" must be a string.");
+			return NULL;
+		}
+		temporary_name = PyUnicode_AsUTF8(py_tmpname);
+		if (temporary_name == NULL)
+			return NULL;
+	}
+
+	if (py_device != NULL && py_device != Py_None) {
+		if (!PyUnicode_Check(py_device)) {
+			PyErr_SetString(PyExc_TypeError,
+					"\"device\" must be a string.");
+			return NULL;
+		}
+		device_path = PyUnicode_AsUTF8(py_device);
+		if (device_path == NULL)
+			return NULL;
+	}
+
+	if (pyprops != NULL && pyprops != Py_None &&
+	    !PyDict_Check(pyprops)) {
+		PyErr_SetString(PyExc_TypeError,
+				"\"properties\" must be a dict.");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".import_pool",
+			"OOpOpOO",
+			py_name ? py_name : Py_None,
+			py_guid ? py_guid : Py_None,
+			allow_missing_log,
+			py_altroot ? py_altroot : Py_None,
+			force,
+			pyprops ? pyprops : Py_None,
+			py_tmpname ? py_tmpname : Py_None) < 0) {
+		return NULL;
+	}
+
+	if (force)
+		flags |= ZFS_IMPORT_ANY_HOST;
+	if (allow_missing_log)
+		flags |= ZFS_IMPORT_MISSING_LOG;
+	if (temporary_name != NULL)
+		flags |= ZFS_IMPORT_TEMP_NAME;
+
+	if (!build_import_props(altroot, state->zpool_property_enum, pyprops, &props))
+		return NULL;
+
+	in_.idata.can_be_active = B_FALSE;
+	in_.idata.poolname = name;
+	in_.idata.guid = guid;
+
+	if (device_path != NULL) {
+		in_.idata.path = (char **)&device_path;
+		in_.idata.paths = 1;
+	}
+
+	in_.lpch.lpc_lib_handle = plz->lzh;
+	in_.lpch.lpc_ops = &libzfs_config_ops;
+	in_.lpch.lpc_printerr = B_FALSE;
+
+	in_.props = props;
+	in_.flags = flags;
+	in_.newname = temporary_name;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	err = search_and_import(plz, &in_, &out_);
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	fnvlist_free(props);
+
+	if (err) {
+		set_exc_from_libzfs(&out_.zfs_err, "import_pool() failed");
+		return NULL;
+	}
+
+	err = py_log_history_fmt(plz, "zpool import %s", out_.pool_name);
+	if (err) {
+		zpool_close(out_.zhp);
+		return NULL;
+	}
+
+	out = (PyObject *)init_zfs_pool(plz, out_.zhp);
+	if (out == NULL)
+		zpool_close(out_.zhp);
+
+	return out;
+}
+
 PyGetSetDef zfs_getsetters[] = {
 	{ .name = NULL }
 };
@@ -1058,6 +1531,17 @@ PyMethodDef zfs_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_create_pool,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_create_pool__doc__
+	},
+		.ml_name = "import_pool_find",
+		.ml_meth = (PyCFunction)py_zfs_import_pool_find,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_import_pool_find__doc__
+	},
+	{
+		.ml_name = "import_pool",
+		.ml_meth = (PyCFunction)py_zfs_import_pool,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_import_pool__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

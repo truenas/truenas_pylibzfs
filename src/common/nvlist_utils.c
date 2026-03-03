@@ -395,6 +395,75 @@ nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
 	return NULL;
 }
 
+/*
+ * Convert a Python dict of {ZPOOLProperty | str: str} pool property key/value
+ * pairs into an nvlist suitable for zpool_import_props(). Keys may be either
+ * plain strings (validated via zpool_name_to_prop) or ZPOOLProperty enum
+ * instances. Returns NULL (with exception set) on failure.
+ */
+nvlist_t *py_zpool_props_dict_to_nvlist(PyObject *zpool_prop_enum,
+					PyObject *pyprops)
+{
+	nvlist_t *nvl = fnvlist_alloc();
+	PyObject *key, *value;
+	Py_ssize_t pos = 0;
+
+	while (PyDict_Next(pyprops, &pos, &key, &value)) {
+		const char *cval;
+		zpool_prop_t prop;
+
+		if (PyUnicode_Check(key)) {
+			const char *ckey = PyUnicode_AsUTF8(key);
+			if (ckey == NULL) {
+				fnvlist_free(nvl);
+				return NULL;
+			}
+			prop = zpool_name_to_prop(ckey);
+			if (prop == ZPROP_INVAL) {
+				PyErr_Format(PyExc_ValueError,
+					     "%s: not a valid zpool property.",
+					     ckey);
+				fnvlist_free(nvl);
+				return NULL;
+			}
+		} else if (PyObject_IsInstance(key, zpool_prop_enum)) {
+			long lval = PyLong_AsLong(key);
+			if (lval == -1 && PyErr_Occurred()) {
+				fnvlist_free(nvl);
+				return NULL;
+			}
+			prop = (zpool_prop_t)lval;
+		} else {
+			PyObject *repr = PyObject_Repr(key);
+			PyErr_Format(PyExc_TypeError,
+				     "%V: zpool property key must be a string "
+				     "or ZPOOLProperty instance.",
+				     repr, "UNKNOWN");
+			Py_XDECREF(repr);
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		if (!PyUnicode_Check(value)) {
+			PyErr_Format(PyExc_TypeError,
+				     "%s: zpool property value must be a string.",
+				     zpool_prop_to_name(prop));
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		cval = PyUnicode_AsUTF8(value);
+		if (cval == NULL) {
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		fnvlist_add_string(nvl, zpool_prop_to_name(prop), cval);
+	}
+
+	return nvl;
+}
+
 PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json)
 {
 	PyObject *out = NULL;
