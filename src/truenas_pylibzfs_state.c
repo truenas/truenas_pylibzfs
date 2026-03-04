@@ -373,5 +373,6 @@ void free_py_zfs_state(PyObject *module)
 	}
 
 	Py_CLEAR(state->struct_zpool_props_type);
+	Py_CLEAR(state->struct_zpool_prop_type);
 	Py_CLEAR(state->zpool_property_enum);
 }
