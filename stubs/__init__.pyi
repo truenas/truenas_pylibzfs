@@ -758,6 +758,32 @@ class ZFSPool:
         """Bring a pool device back online."""
         ...
 
+    def iter_history(
+        self,
+        *,
+        skip_internal: bool = True,
+        since: int = 0,
+        until: int = 0,
+    ) -> Iterator[dict]:
+        """Iterate over the pool's command history log.
+
+        Each yielded item is a dict with raw history-record key names, e.g.:
+          'history time'     - Unix timestamp (int)
+          'history command'  - Command string (str, user-visible commands only)
+          'history who'      - UID that ran the command (int)
+          'history hostname' - Hostname (str)
+
+        When skip_internal is True (default) any record that lacks a
+        'history command' key is suppressed, matching the default output
+        of 'zpool history'.
+
+        since and until are optional Unix timestamp bounds (inclusive).
+        Use 0 (default) to mean no bound.  Filtering is applied directly
+        on the raw nvlist before any Python object is allocated, so
+        excluded records have no allocation cost.
+        """
+        ...
+
 
 class struct_zfs_property_source:
     """Source information for a ZFS or pool property."""
