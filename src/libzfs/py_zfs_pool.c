@@ -1223,6 +1223,50 @@ PyObject *py_zfs_pool_online_device(PyObject *self,
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_iter_history__doc__,
+"iter_history(*, skip_internal=True) -> Iterator[dict]\n\n"
+"------------------------------------------------------\n\n"
+"Iterate over the pool's command history log.\n\n"
+"Each yielded item is a dict with raw history-record key names, e.g.:\n"
+"  'history_time'     - Unix timestamp (int)\n"
+"  'history_command'  - Command string (str) — only for user commands\n"
+"  'history_who'      - UID that ran the command (int)\n"
+"  'history_hostname' - Hostname (str)\n\n"
+"Parameters\n"
+"----------\n"
+"skip_internal: bool, optional, default=True\n"
+"    When True (default) kernel-internal events (records that contain\n"
+"    'history_internal_event') are suppressed, matching the default\n"
+"    output of 'zpool history'.\n\n"
+"Yields\n"
+"------\n"
+"dict\n"
+"    One history record.\n\n"
+"Raises\n"
+"------\n"
+"ZFSException\n"
+"    A libzfs error occurred while reading history.\n"
+);
+static PyObject *
+py_zfs_pool_iter_history(PyObject *self, PyObject *args, PyObject *kwds)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	boolean_t skip_internal = B_TRUE;
+	char *kwlist[] = {"skip_internal", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|p", kwlist,
+	    &skip_internal)) {
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.iter_history",
+	    "O", p->name) < 0) {
+		return (NULL);
+	}
+
+	return (py_zfs_history_iter_create(p, skip_internal));
+}
+
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
@@ -1345,6 +1389,12 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_online_device,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_online_device__doc__
+	},
+	{
+		.ml_name = "iter_history",
+		.ml_meth = (PyCFunction)py_zfs_pool_iter_history,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_iter_history__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
