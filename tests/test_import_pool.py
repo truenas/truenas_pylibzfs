@@ -2,7 +2,6 @@ import enum
 import os
 import pytest
 import shutil
-import subprocess
 import tempfile
 import truenas_pylibzfs
 
@@ -42,17 +41,12 @@ def make_disks():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _pool_guid():
-    """Return the GUID of POOL_NAME as an int."""
-    out = subprocess.check_output(
-        ['zpool', 'get', '-H', '-o', 'value', 'guid', POOL_NAME],
-        text=True,
-    )
-    return int(out.strip())
-
-
 def _destroy_pool():
-    subprocess.run(['zpool', 'destroy', '-f', POOL_NAME], check=False)
+    try:
+        lz = truenas_pylibzfs.open_handle()
+        lz.destroy_pool(name=POOL_NAME, force=True)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -67,10 +61,19 @@ def exported_pool(make_disks):
     """
     disks = make_disks(1)
     disk_dir = os.path.dirname(disks[0])
-    subprocess.run(['zpool', 'create', '-f', POOL_NAME, disks[0]], check=True)
-    guid = _pool_guid()
-    subprocess.run(['zpool', 'export', POOL_NAME], check=True)
     lz = truenas_pylibzfs.open_handle()
+    lz.create_pool(
+        name=POOL_NAME,
+        storage_vdevs=[
+            truenas_pylibzfs.create_vdev_spec(
+                vdev_type=truenas_pylibzfs.VDevType.FILE, name=disks[0]
+            )
+        ],
+        force=True,
+    )
+    pool = lz.open_pool(name=POOL_NAME)
+    guid = pool.get_properties(properties={ZPOOLProperty.GUID}).guid
+    lz.export_pool(name=POOL_NAME)
     try:
         yield lz, disk_dir, guid
     finally:
@@ -450,5 +453,8 @@ class TestImportPoolTemporaryName:
         try:
             assert pool.name == temp_name
         finally:
-            subprocess.run(['zpool', 'destroy', '-f', temp_name], check=False)
+            try:
+                lz.destroy_pool(name=temp_name, force=True)
+            except Exception:
+                pass
             _destroy_pool()

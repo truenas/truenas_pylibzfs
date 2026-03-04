@@ -1,7 +1,6 @@
 import os
 import pytest
 import shutil
-import subprocess
 import tempfile
 import truenas_pylibzfs
 
@@ -36,13 +35,22 @@ def make_disks():
 @pytest.fixture
 def pool(make_disks):
     disks = make_disks(1)
-    subprocess.run(["zpool", "create", "-f", POOL_NAME] + disks, check=True)
     lz = truenas_pylibzfs.open_handle()
+    lz.create_pool(
+        name=POOL_NAME,
+        storage_vdevs=[
+            truenas_pylibzfs.create_vdev_spec(vdev_type=truenas_pylibzfs.VDevType.FILE, name=disks[0])
+        ],
+        force=True,
+    )
     pool = lz.open_pool(name=POOL_NAME)
     try:
         yield lz, pool
     finally:
-        subprocess.run(["zpool", "destroy", "-f", POOL_NAME], check=False)
+        try:
+            lz.destroy_pool(name=POOL_NAME, force=True)
+        except Exception:
+            pass
 
 
 def test_get_features_returns_dict(pool):

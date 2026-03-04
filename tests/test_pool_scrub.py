@@ -15,8 +15,8 @@ Covers:
 
 import os
 import shutil
-import subprocess
 import tempfile
+import time
 
 import pytest
 import truenas_pylibzfs
@@ -25,6 +25,7 @@ from truenas_pylibzfs import enums
 ScanFunction = enums.ScanFunction
 ScanState = enums.ScanState
 ScanScrubCmd = enums.ScanScrubCmd
+VDevType = truenas_pylibzfs.VDevType
 
 POOL_NAME = 'testpool_scrub'
 DISK_SZ = 512 * 1024 * 1024  # 512 MiB — small enough for fast scrubs
@@ -56,47 +57,59 @@ def make_disks():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _create_pool(vdev_args):
-    subprocess.run(['zpool', 'create', '-f', POOL_NAME] + vdev_args, check=True)
-
-
-def _destroy_pool():
-    subprocess.run(['zpool', 'destroy', '-f', POOL_NAME], check=False)
-
-
-def _open_pool():
-    lz = truenas_pylibzfs.open_handle()
-    pool = lz.open_pool(name=POOL_NAME)
-    return lz, pool
+def _spec(path):
+    return truenas_pylibzfs.create_vdev_spec(vdev_type=VDevType.FILE, name=path)
 
 
 @pytest.fixture
 def pool_stripe(make_disks):
     disks = make_disks(1)
-    _create_pool(disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    lz.create_pool(name=POOL_NAME, storage_vdevs=[_spec(disks[0])], force=True)
+    pool = lz.open_pool(name=POOL_NAME)
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        try:
+            lz.destroy_pool(name=POOL_NAME, force=True)
+        except Exception:
+            pass
 
 
 @pytest.fixture
 def pool_mirror(make_disks):
     disks = make_disks(2)
-    _create_pool(['mirror'] + disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    lz.create_pool(
+        name=POOL_NAME,
+        storage_vdevs=[
+            truenas_pylibzfs.create_vdev_spec(
+                vdev_type=VDevType.MIRROR,
+                children=[_spec(disks[0]), _spec(disks[1])],
+            )
+        ],
+        force=True,
+    )
+    pool = lz.open_pool(name=POOL_NAME)
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        try:
+            lz.destroy_pool(name=POOL_NAME, force=True)
+        except Exception:
+            pass
 
 
 @pytest.fixture
 def pool_after_scrub(pool_stripe):
     """Stripe pool that has had one complete scrub run."""
-    subprocess.run(['zpool', 'scrub', '-w', POOL_NAME], check=True)
-    lz, pool = _open_pool()
+    lz, pool = pool_stripe
+    pool.scan(func=ScanFunction.SCRUB)
+    while True:
+        info = pool.scrub_info()
+        if info is None or info.state != ScanState.SCANNING:
+            break
+        time.sleep(0.1)
     yield lz, pool
 
 
@@ -295,12 +308,13 @@ def test_scan_cancel(pool_stripe):
 def test_scan_cancel_on_mirror(pool_mirror):
     """Mirror pool with data gives a better chance of catching in-flight cancel."""
     lz, pool = pool_mirror
-    # Write data so the scrub has something to process
-    subprocess.run(
-        ['dd', 'if=/dev/urandom', f'of=/{POOL_NAME}/fill', 'bs=1M', 'count=64'],
-        check=False, capture_output=True,
-    )
-    subprocess.run(['sync'], check=False)
+    # Mount the root dataset and write data so the scrub has something to
+    # process, increasing the chance of catching it in-flight.
+    ds = lz.open_resource(name=POOL_NAME)
+    ds.mount()
+    with open(f'/{POOL_NAME}/fill', 'wb') as f:
+        f.write(os.urandom(64 * 1024 * 1024))
+    pool.sync_pool()
 
     pool.scan(func=ScanFunction.SCRUB)
     pool.scan(func=ScanFunction.NONE)

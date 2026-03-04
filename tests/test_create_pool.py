@@ -11,7 +11,6 @@ Sections:
 import os
 import pytest
 import shutil
-import subprocess
 import tempfile
 import truenas_pylibzfs
 
@@ -55,7 +54,11 @@ def make_disks():
 
 def _destroy():
     """Destroy the test pool unconditionally."""
-    subprocess.run(["zpool", "destroy", "-f", POOL_NAME], check=False)
+    try:
+        lz = truenas_pylibzfs.open_handle()
+        lz.destroy_pool(name=POOL_NAME, force=True)
+    except Exception:
+        pass
 
 
 def _spec(path):
