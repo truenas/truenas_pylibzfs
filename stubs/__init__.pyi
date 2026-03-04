@@ -758,6 +758,20 @@ class ZFSPool:
         """Bring a pool device back online."""
         ...
 
+    def iter_history(self, *, skip_internal: bool = True) -> Iterator[dict]:
+        """Iterate over the pool's command history log.
+
+        Each yielded item is a dict with raw history-record key names, e.g.:
+          'history_time'     - Unix timestamp (int)
+          'history_command'  - Command string (str, user-visible commands only)
+          'history_who'      - UID that ran the command (int)
+          'history_hostname' - Hostname (str)
+
+        When skip_internal is True (default) kernel-internal events are
+        suppressed, matching the default output of 'zpool history'.
+        """
+        ...
+
 
 class struct_zfs_property_source:
     """Source information for a ZFS or pool property."""
