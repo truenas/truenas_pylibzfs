@@ -361,6 +361,104 @@ def test_history_entries_carry_prefix(pool_a):
 
 
 # ---------------------------------------------------------------------------
+# Timestamp filtering (since / until)
+# ---------------------------------------------------------------------------
+
+def test_since_excludes_earlier_records(pool_a):
+    """Records before `since` must not appear."""
+    _, p = pool_a
+    # Collect all records to find a split point
+    all_recs = list(p.iter_history(skip_internal=False))
+    assert len(all_recs) >= 2, "need at least 2 records to test since"
+
+    # Use the timestamp of the last record as `since`; only that record
+    # (and any with the same timestamp) should be returned.
+    last_ts = all_recs[-1]["history_time"]
+    filtered = list(p.iter_history(skip_internal=False, since=last_ts))
+    assert filtered, "since=last_ts should still yield at least one record"
+    for rec in filtered:
+        assert rec["history_time"] >= last_ts, (
+            f"record before since={last_ts} leaked through: {rec}"
+        )
+
+
+def test_until_excludes_later_records(pool_a):
+    """Records after `until` must not appear."""
+    _, p = pool_a
+    all_recs = list(p.iter_history(skip_internal=False))
+    assert len(all_recs) >= 2, "need at least 2 records to test until"
+
+    # Use the timestamp of the first record as `until`
+    first_ts = all_recs[0]["history_time"]
+    filtered = list(p.iter_history(skip_internal=False, until=first_ts))
+    assert filtered, "until=first_ts should still yield at least one record"
+    for rec in filtered:
+        assert rec["history_time"] <= first_ts, (
+            f"record after until={first_ts} leaked through: {rec}"
+        )
+
+
+def test_since_until_range(pool_a):
+    """since + until together form an inclusive time window."""
+    lz, p = pool_a
+    import time
+
+    # Record timestamp before the new operation
+    before = int(time.time())
+    p.clear()
+    after = int(time.time())
+
+    windowed = list(p.iter_history(since=before, until=after))
+    assert windowed, (
+        f"no records in window [{before}, {after}]; "
+        f"all records: {list(p.iter_history())}"
+    )
+    for rec in windowed:
+        ts = rec["history_time"]
+        assert before <= ts <= after, (
+            f"record outside window [{before}, {after}]: ts={ts}"
+        )
+
+
+def test_since_zero_means_no_lower_bound(pool_a):
+    """since=0 (default) must not filter anything out."""
+    _, p = pool_a
+    all_recs = list(p.iter_history(skip_internal=False))
+    since_zero = list(p.iter_history(skip_internal=False, since=0))
+    assert len(all_recs) == len(since_zero), (
+        "since=0 filtered records unexpectedly"
+    )
+
+
+def test_until_zero_means_no_upper_bound(pool_a):
+    """until=0 (default) must not filter anything out."""
+    _, p = pool_a
+    all_recs = list(p.iter_history(skip_internal=False))
+    until_zero = list(p.iter_history(skip_internal=False, until=0))
+    assert len(all_recs) == len(until_zero), (
+        "until=0 filtered records unexpectedly"
+    )
+
+
+def test_future_since_yields_nothing(pool_a):
+    """since=far_future must yield no records."""
+    _, p = pool_a
+    far_future = 2**62  # well beyond any real timestamp
+    result = list(p.iter_history(skip_internal=False, since=far_future))
+    assert result == [], (
+        f"expected empty result for since=far_future, got {result}"
+    )
+
+
+def test_zero_until_with_future_since_yields_nothing(pool_a):
+    """since past the end of history with until=0 must yield nothing."""
+    _, p = pool_a
+    far_future = 2**62
+    result = list(p.iter_history(skip_internal=False, since=far_future, until=0))
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
 # Independent iterators on different pools
 # ---------------------------------------------------------------------------
 
