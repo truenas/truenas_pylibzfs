@@ -13,9 +13,24 @@
  * The return type of get_properties() is struct_zpool_property, a
  * dynamically-created PyStructSequence with one slot per ZPOOL_NUM_PROPS
  * entry (indexed 0..ZPOOL_NUM_PROPS-1, excluding ZPOOL_PROP_INVAL=-1).
- * Unrequested slots are set to Py_None; requested slots contain the
- * parsed property value directly (int for numeric properties, str otherwise).
+ * Unrequested slots are set to Py_None; requested slots contain a
+ * struct_zpool_prop_type instance with (prop, value, raw, source).
  */
+
+static PyStructSequence_Field zpool_prop_fields[] = {
+	{"prop",   "ZPOOLProperty enum instance for this property"},
+	{"value",  "Parsed value of the zpool property"},
+	{"raw",    "Raw (literal) string value of the zpool property"},
+	{"source", "PropertySource for this property, or None for read-only stats"},
+	{0},
+};
+
+static PyStructSequence_Desc zpool_prop_type_desc = {
+	.name          = PYLIBZFS_MODULE_NAME ".struct_zpool_prop_type",
+	.doc           = "Per-property data for a zpool property.",
+	.fields        = zpool_prop_fields,
+	.n_in_sequence = 4,
+};
 
 /*
  * Generate a doc string for a pool property field.
@@ -86,25 +101,36 @@ void init_py_struct_zpool_prop_state(pylibzfs_state_t *state)
 	obj = PyStructSequence_NewType(&state->struct_zpool_prop_desc);
 	PYZFS_ASSERT(obj, "Failed to allocate struct_zpool_props_type");
 	state->struct_zpool_props_type = obj;
+
+	PyTypeObject *prop_type = PyStructSequence_NewType(&zpool_prop_type_desc);
+	PYZFS_ASSERT(prop_type, "Failed to allocate struct_zpool_prop_type");
+	state->struct_zpool_prop_type = prop_type;
 }
 
 /*
- * Retrieve a single pool property and return a struct_zfs_property_data
- * (value, raw, source).
+ * Retrieve a single pool property and return a struct_zpool_prop_type
+ * instance: (prop, value, raw, source).
  *
- * source is always None: pool properties have no inheritance hierarchy.
+ * prop_enum_obj – the pre-looked-up ZPOOLProperty enum instance for @prop.
+ *
+ * source is None when sourcetype == ZPROP_SRC_NONE (read-only stats);
+ * otherwise a PropertySource enum instance.
  *
  * This is an internal helper; caller must hold the GIL.
  */
 static
 PyObject *py_zpool_get_one_prop(pylibzfs_state_t *state,
 				py_zfs_pool_t *p,
-				zpool_prop_t prop)
+				zpool_prop_t prop,
+				PyObject *prop_enum_obj)
 {
 	char propbuf[ZFS_MAXPROPLEN];
+	zprop_source_t sourcetype;
 	int err;
+	PyObject *out = NULL;
 	PyObject *raw = NULL;
-	PyObject *parsed = NULL;
+	PyObject *value = NULL;
+	PyObject *source = NULL;
 
 	int async_err = 0;
 
@@ -112,7 +138,7 @@ PyObject *py_zpool_get_one_prop(pylibzfs_state_t *state,
 		Py_BEGIN_ALLOW_THREADS
 		PY_ZFS_LOCK(p->pylibzfsp);
 		err = zpool_get_prop(p->zhp, prop, propbuf, sizeof(propbuf),
-		    NULL, B_TRUE);
+		    &sourcetype, B_TRUE);
 		PY_ZFS_UNLOCK(p->pylibzfsp);
 		Py_END_ALLOW_THREADS
 	} while (err != 0 && errno == EINTR &&
@@ -141,27 +167,49 @@ PyObject *py_zpool_get_one_prop(pylibzfs_state_t *state,
 	 */
 	if (zpool_prop_get_type(prop) == PROP_TYPE_NUMBER) {
 		char *pend;
-		parsed = PyLong_FromString(propbuf, &pend, 10);
-		if (parsed == NULL) {
+		value = PyLong_FromString(propbuf, &pend, 10);
+		if (value == NULL) {
 			/*
 			 * Unexpected non-integer in the numeric property
 			 * buffer.  Fall back to the raw string rather than
 			 * propagating an exception.
 			 */
 			PyErr_Clear();
-			parsed = Py_NewRef(raw);
+			value = Py_NewRef(raw);
 		} else if (pend != (propbuf + strlen(propbuf))) {
 			/* Partial parse — use string */
-			Py_DECREF(parsed);
-			parsed = Py_NewRef(raw);
+			Py_DECREF(value);
+			value = Py_NewRef(raw);
 		}
 	} else {
 		/* PROP_TYPE_STRING or PROP_TYPE_INDEX: use raw string */
-		parsed = Py_NewRef(raw);
+		value = Py_NewRef(raw);
 	}
 
+	/* Build source: None for read-only stats, PropertySource otherwise */
+	if (sourcetype == ZPROP_SRC_NONE) {
+		source = Py_NewRef(Py_None);
+	} else {
+		source = py_get_property_source(p->pylibzfsp, sourcetype);
+		if (source == NULL)
+			goto fail;
+	}
+
+	out = PyStructSequence_New(state->struct_zpool_prop_type);
+	if (out == NULL)
+		goto fail;
+
+	PyStructSequence_SET_ITEM(out, 0, Py_NewRef(prop_enum_obj));
+	PyStructSequence_SET_ITEM(out, 1, value);   /* steals ref */
+	PyStructSequence_SET_ITEM(out, 2, raw);     /* steals ref */
+	PyStructSequence_SET_ITEM(out, 3, source);  /* steals ref */
+	return out;
+
+fail:
+	Py_XDECREF(value);
 	Py_DECREF(raw);
-	return parsed;
+	Py_XDECREF(source);
+	return NULL;
 }
 
 /*
@@ -209,7 +257,8 @@ PyObject *py_zpool_get_properties(py_zfs_pool_t *p,
 
 		/* Property was requested; retrieve it */
 		pyprop = py_zpool_get_one_prop(state, p,
-		    state->zpool_prop_enum_tbl[i].type);
+		    state->zpool_prop_enum_tbl[i].type,
+		    enum_obj);
 		if (pyprop == NULL) {
 			Py_DECREF(out);
 			return NULL;
@@ -536,7 +585,8 @@ eintr_retry:
 /*
  * Convert a struct_zpool_property struct sequence to a plain Python dict.
  * Slots that are Py_None (unrequested) are skipped.
- * Each slot value is the parsed property value directly (int or str).
+ * Each slot is a struct_zpool_prop_type; the dict stores the parsed value
+ * (index 1 of that struct) keyed by the property name string.
  */
 PyObject *py_zpool_props_to_dict(py_zfs_pool_t *p, PyObject *pyprops)
 {
@@ -551,17 +601,20 @@ PyObject *py_zpool_props_to_dict(py_zfs_pool_t *p, PyObject *pyprops)
 	for (idx = 0; idx < (int)state->struct_zpool_prop_desc.n_in_sequence;
 	    idx++) {
 		const char *name = state->struct_zpool_prop_fields[idx].name;
-		PyObject *slot_val;
+		PyObject *slot;
+		PyObject *val;
 		int err;
 
 		if (name == NULL)
 			continue;
 
-		slot_val = PyStructSequence_GET_ITEM(pyprops, idx);
-		if (slot_val == Py_None)
+		slot = PyStructSequence_GET_ITEM(pyprops, idx);
+		if (slot == Py_None)
 			continue;
 
-		err = PyDict_SetItemString(out, name, slot_val);
+		/* slot is struct_zpool_prop_type; index 1 is the parsed value */
+		val = PyStructSequence_GET_ITEM(slot, 1);
+		err = PyDict_SetItemString(out, name, val);
 		if (err) {
 			Py_DECREF(out);
 			return NULL;
