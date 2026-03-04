@@ -73,9 +73,10 @@ def test_create_holds_returns_tuple(snapshot):
 def test_create_holds_nonexistent_snap_in_result(pool):
     lz, _, root = pool
     bogus = f'{POOL_NAME}@doesnotexist_hold'
+    # Result is a tuple of (snap_name, errno) pairs for snaps that couldn't be held
     result = lzc.create_holds(holds=[(bogus, 'tag')])
     assert isinstance(result, tuple)
-    assert bogus in result
+    assert any(entry[0] == bogus for entry in result)
 
 
 def test_create_holds_keyword_only():
@@ -97,18 +98,19 @@ def test_release_holds_basic(snapshot):
     assert tag not in snap.get_holds()
 
 
-def test_release_holds_returns_tuple(snapshot):
+def test_release_holds_returns_none(snapshot):
     lz, root, snap_name, snap = snapshot
-    tag = 'reltag_tuple'
+    tag = 'reltag_none'
     lzc.create_holds(holds=[(snap_name, tag)])
     result = lzc.release_holds(holds=[(snap_name, tag)])
-    assert isinstance(result, tuple)
+    assert result is None
 
 
-def test_release_nonexistent_hold_in_result(snapshot):
+def test_release_nonexistent_hold_raises(snapshot):
     lz, root, snap_name, snap = snapshot
-    result = lzc.release_holds(holds=[(snap_name, 'nosuchold')])
-    assert isinstance(result, tuple)
+    # Releasing a hold that doesn't exist raises ZFSCoreException
+    with pytest.raises(lzc.ZFSCoreException):
+        lzc.release_holds(holds=[(snap_name, 'nosuchold')])
 
 
 def test_release_holds_keyword_only():
