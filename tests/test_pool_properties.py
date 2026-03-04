@@ -60,8 +60,8 @@ def test_number_property_is_int(pool, prop, attr):
     props = p.get_properties(properties={prop})
     slot = getattr(props, attr)
     assert slot is not None
-    assert isinstance(slot, int)
-    assert slot > 0
+    assert isinstance(slot.value, int)
+    assert slot.value > 0
 
 
 # ---------------------------------------------------------------------------
@@ -71,13 +71,13 @@ def test_number_property_is_int(pool, prop, attr):
 def test_comment_is_str(pool):
     _, p = pool
     props = p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT})
-    assert isinstance(props.comment, str)
+    assert isinstance(props.comment.value, str)
 
 
 def test_name_equals_pool_name(pool):
     _, p = pool
     props = p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.NAME})
-    assert props.name == POOL_NAME
+    assert props.name.value == POOL_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -94,13 +94,13 @@ def test_index_property_is_str(pool, prop, attr):
     props = p.get_properties(properties={prop})
     slot = getattr(props, attr)
     assert slot is not None
-    assert isinstance(slot, str)
+    assert isinstance(slot.value, str)
 
 
 def test_health_is_online_on_fresh_pool(pool):
     _, p = pool
     props = p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.HEALTH})
-    assert props.health == "ONLINE"
+    assert props.health.value == "ONLINE"
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +133,7 @@ def test_accepts_frozenset(pool):
     _, p = pool
     props = p.get_properties(properties=frozenset({truenas_pylibzfs.enums.ZPOOLProperty.SIZE}))
     assert props.size is not None
+    assert props.size.prop == truenas_pylibzfs.enums.ZPOOLProperty.SIZE
 
 
 # ---------------------------------------------------------------------------
@@ -142,20 +143,20 @@ def test_accepts_frozenset(pool):
 def test_set_comment_roundtrip(pool):
     _, p = pool
     p.set_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT: "hello world"})
-    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT}).comment == "hello world"
+    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT}).comment.value == "hello world"
 
 
 def test_set_comment_to_empty_string(pool):
     _, p = pool
     p.set_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT: "first"})
     p.set_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT: ""})
-    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT}).comment == ""
+    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT}).comment.value == ""
 
 
 def test_set_comment_string_key(pool):
     _, p = pool
     p.set_properties(properties={"comment": "via string key"})
-    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT}).comment == "via string key"
+    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT}).comment.value == "via string key"
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +172,7 @@ def test_set_comment_string_key(pool):
 def test_autotrim_coercion(pool, value, expected):
     _, p = pool
     p.set_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.AUTOTRIM: value})
-    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.AUTOTRIM}).autotrim == expected
+    assert p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.AUTOTRIM}).autotrim.value == expected
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +186,8 @@ def test_set_multiple_properties(pool):
         truenas_pylibzfs.enums.ZPOOLProperty.AUTOTRIM: True,
     })
     props = p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.COMMENT, truenas_pylibzfs.enums.ZPOOLProperty.AUTOTRIM})
-    assert props.comment == "multi"
-    assert props.autotrim == "on"
+    assert props.comment.value == "multi"
+    assert props.autotrim.value == "on"
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +373,7 @@ def test_get_class_space_properties(pool):
     _, p = pool
     props = p.get_properties(properties=truenas_pylibzfs.property_sets.ZPOOL_CLASS_SPACE)
     assert props.class_normal_size is not None
-    assert isinstance(props.class_normal_size, int)
+    assert isinstance(props.class_normal_size.value, int)
 
 
 def test_get_space_properties(pool):
@@ -381,3 +382,56 @@ def test_get_space_properties(pool):
     assert props.size is not None
     assert props.free is not None
     assert props.class_normal_size is not None
+
+
+# ---------------------------------------------------------------------------
+# struct_zpool_prop_type — new fields: prop, raw, source
+# ---------------------------------------------------------------------------
+
+def test_prop_field_is_zpool_property_enum(pool):
+    _, p = pool
+    props = p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.SIZE})
+    slot = props.size
+    assert slot is not None
+    assert slot.prop == truenas_pylibzfs.enums.ZPOOLProperty.SIZE
+
+
+def test_raw_field_is_str(pool):
+    _, p = pool
+    props = p.get_properties(properties={
+        truenas_pylibzfs.enums.ZPOOLProperty.SIZE,
+        truenas_pylibzfs.enums.ZPOOLProperty.COMMENT,
+    })
+    assert isinstance(props.size.raw, str)
+    assert isinstance(props.comment.raw, str)
+
+
+def test_readonly_stat_source_is_none(pool):
+    """Read-only stats (SIZE, GUID, etc.) should have source=None."""
+    _, p = pool
+    props = p.get_properties(properties={
+        truenas_pylibzfs.enums.ZPOOLProperty.SIZE,
+        truenas_pylibzfs.enums.ZPOOLProperty.GUID,
+    })
+    assert props.size.source is None
+    assert props.guid.source is None
+
+
+def test_writable_prop_source_is_property_source(pool):
+    """Writable props (COMMENT, AUTOTRIM) should have a PropertySource source."""
+    _, p = pool
+    props = p.get_properties(properties={
+        truenas_pylibzfs.enums.ZPOOLProperty.COMMENT,
+        truenas_pylibzfs.enums.ZPOOLProperty.AUTOTRIM,
+    })
+    assert isinstance(props.comment.source, truenas_pylibzfs.PropertySource)
+    assert isinstance(props.autotrim.source, truenas_pylibzfs.PropertySource)
+
+
+def test_prop_raw_consistent_with_value_for_numeric(pool):
+    """For numeric props, raw should be a decimal string matching int(value)."""
+    _, p = pool
+    props = p.get_properties(properties={truenas_pylibzfs.enums.ZPOOLProperty.SIZE})
+    slot = props.size
+    assert slot is not None
+    assert int(slot.raw) == slot.value

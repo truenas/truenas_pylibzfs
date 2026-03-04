@@ -118,6 +118,12 @@ typedef struct {
 	 * Used as the return type of ZFSPool.get_properties().
 	 */
 	PyTypeObject *struct_zpool_props_type;
+
+	/*
+	 * Per-property wrapper type returned inside struct_zpool_property slots.
+	 * Fields: (prop, value, raw, source)
+	 */
+	PyTypeObject *struct_zpool_prop_type;
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);
