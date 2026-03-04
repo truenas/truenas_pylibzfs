@@ -1,21 +1,20 @@
 import os
 import pytest
 import shutil
-import subprocess
 import truenas_pylibzfs
 
-TEST_ALTROOT = '/tmp/altroot'
 FAKE_DISK_DIR = '/tmp/truenas_pylibzfs_disks'
 DISK_SZ = 1024 * 1048576
 DISKS = ('d1.img',)
 POOLS = ('testdozer',)
+
+VDevType = truenas_pylibzfs.VDevType
 
 
 @pytest.fixture
 def disks():
     out = []
     os.makedirs(FAKE_DISK_DIR, exist_ok=True)
-    os.makedirs(TEST_ALTROOT, exist_ok=True)
     for disk in DISKS:
         path = os.path.join(FAKE_DISK_DIR, disk)
         with open(path, 'w') as f:
@@ -27,18 +26,26 @@ def disks():
         yield out
     finally:
         shutil.rmtree(FAKE_DISK_DIR)
-        shutil.rmtree(TEST_ALTROOT)
 
 
 @pytest.fixture
 def data_pool1(disks):
-    # TODO: add replace with truenas_pylibzfs methods once they are complete
-    subprocess.run(['zpool', 'create', POOLS[0], disks[0], '-R', TEST_ALTROOT])
+    lz = truenas_pylibzfs.open_handle()
+    lz.create_pool(
+        name=POOLS[0],
+        storage_vdevs=[
+            truenas_pylibzfs.create_vdev_spec(vdev_type=VDevType.FILE, name=disks[0])
+        ],
+        force=True,
+    )
 
     try:
         yield POOLS[0]
     finally:
-        subprocess.run(['zpool', 'destroy', POOLS[0]])
+        try:
+            lz.destroy_pool(name=POOLS[0], force=True)
+        except Exception:
+            pass
 
 
 @pytest.fixture

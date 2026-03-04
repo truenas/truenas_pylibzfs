@@ -1,12 +1,12 @@
 import os
 import pytest
 import shutil
-import subprocess
 import tempfile
 import truenas_pylibzfs
 
 ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
 VDevState = truenas_pylibzfs.enums.VDevState
+VDevType = truenas_pylibzfs.VDevType
 
 POOL_NAME = 'testpool_status'
 DISK_SZ = 1024 * 1048576
@@ -41,22 +41,38 @@ def make_disks():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _create_pool(vdev_args):
-    """Create POOL_NAME with the given vdev argument list."""
-    subprocess.run(
-        ['zpool', 'create', '-f', POOL_NAME] + vdev_args,
-        check=True
+def _spec(path):
+    return truenas_pylibzfs.create_vdev_spec(vdev_type=VDevType.FILE, name=path)
+
+
+def _mirror(disks):
+    return truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.MIRROR, children=[_spec(d) for d in disks]
     )
 
 
-def _destroy_pool():
-    subprocess.run(['zpool', 'destroy', '-f', POOL_NAME], check=False)
+def _raidz1(disks):
+    return truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ1, children=[_spec(d) for d in disks]
+    )
 
 
-def _open_pool():
-    lz = truenas_pylibzfs.open_handle()
-    pool = lz.open_pool(name=POOL_NAME)
-    return lz, pool
+def _raidz2(disks):
+    return truenas_pylibzfs.create_vdev_spec(
+        vdev_type=VDevType.RAIDZ2, children=[_spec(d) for d in disks]
+    )
+
+
+def _make_pool(lz, **kwargs):
+    lz.create_pool(name=POOL_NAME, force=True, **kwargs)
+    return lz.open_pool(name=POOL_NAME)
+
+
+def _destroy(lz):
+    try:
+        lz.destroy_pool(name=POOL_NAME, force=True)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -66,170 +82,197 @@ def _open_pool():
 @pytest.fixture
 def pool_stripe(make_disks):
     disks = make_disks(1)
-    _create_pool(disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[_spec(disks[0])])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_mirror(make_disks):
     disks = make_disks(2)
-    _create_pool(['mirror'] + disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[_mirror(disks)])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_raidz1(make_disks):
     disks = make_disks(3)
-    _create_pool(['raidz'] + disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[_raidz1(disks)])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_raidz2(make_disks):
     disks = make_disks(4)
-    _create_pool(['raidz2'] + disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[_raidz2(disks)])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_2x_mirror(make_disks):
     disks = make_disks(4)
-    _create_pool(['mirror', disks[0], disks[1], 'mirror', disks[2], disks[3]])
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[
+        _mirror(disks[0:2]),
+        _mirror(disks[2:4]),
+    ])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_2x_raidz1(make_disks):
     disks = make_disks(6)
-    _create_pool([
-        'raidz', disks[0], disks[1], disks[2],
-        'raidz', disks[3], disks[4], disks[5],
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[
+        _raidz1(disks[0:3]),
+        _raidz1(disks[3:6]),
     ])
-    lz, pool = _open_pool()
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_2x_raidz2(make_disks):
     disks = make_disks(8)
-    _create_pool([
-        'raidz2', disks[0], disks[1], disks[2], disks[3],
-        'raidz2', disks[4], disks[5], disks[6], disks[7],
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[
+        _raidz2(disks[0:4]),
+        _raidz2(disks[4:8]),
     ])
-    lz, pool = _open_pool()
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_with_cache(make_disks):
     disks = make_disks(3)
-    _create_pool(['mirror', disks[0], disks[1], 'cache', disks[2]])
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        cache_vdevs=[_spec(disks[2])],
+    )
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_with_log(make_disks):
     disks = make_disks(3)
-    _create_pool(['mirror', disks[0], disks[1], 'log', disks[2]])
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        log_vdevs=[_spec(disks[2])],
+    )
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_multi_support(make_disks):
     """mirror + 2 cache + 2 log + 2 special vdevs"""
     disks = make_disks(8)
-    _create_pool([
-        'mirror', disks[0], disks[1],
-        'cache',  disks[2], disks[3],
-        'log',    disks[4], disks[5],
-        'special', disks[6], disks[7],
-    ])
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        cache_vdevs=[_spec(disks[2]), _spec(disks[3])],
+        log_vdevs=[_spec(disks[4]), _spec(disks[5])],
+        special_vdevs=[_spec(disks[6]), _spec(disks[7])],
+    )
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_with_spare(make_disks):
     disks = make_disks(3)
-    _create_pool(['mirror', disks[0], disks[1], 'spare', disks[2]])
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        spare_vdevs=[_spec(disks[2])],
+    )
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_draid1(make_disks):
     """draid1 with 4 disks: draid1:3d:4c:0s"""
     disks = make_disks(4)
-    _create_pool(['draid1:3d:4c:0s'] + disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type=VDevType.DRAID1, name='3d:0s',
+            children=[_spec(d) for d in disks],
+        )
+    ])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_draid2(make_disks):
     """draid2 with 4 disks: draid2:2d:4c:0s"""
     disks = make_disks(4)
-    _create_pool(['draid2:2d:4c:0s'] + disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type=VDevType.DRAID2, name='2d:0s',
+            children=[_spec(d) for d in disks],
+        )
+    ])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 @pytest.fixture
 def pool_draid1_with_spare(make_disks):
     """draid1 with 5 disks and 1 distributed spare: draid1:3d:5c:1s"""
     disks = make_disks(5)
-    _create_pool(['draid1:3d:5c:1s'] + disks)
-    lz, pool = _open_pool()
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz, storage_vdevs=[
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type=VDevType.DRAID1, name='3d:1s',
+            children=[_spec(d) for d in disks],
+        )
+    ])
     try:
         yield lz, pool
     finally:
-        _destroy_pool()
+        _destroy(lz)
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +570,7 @@ def test_status_ok(pool_stripe):
     assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
 
 
-def test_status_offline_dev(pool_2x_mirror, make_disks):
+def test_status_offline_dev(pool_2x_mirror):
     lz, pool = pool_2x_mirror
 
     # Identify a leaf vdev in the first mirror to take offline
@@ -535,7 +578,7 @@ def test_status_offline_dev(pool_2x_mirror, make_disks):
     first_mirror = status.storage_vdevs[0]
     victim = first_mirror.children[0]
 
-    subprocess.run(['zpool', 'offline', POOL_NAME, victim.name], check=True)
+    pool.offline_device(device=victim.name)
     try:
         pool.refresh_stats()
         status = pool.status()
@@ -555,7 +598,10 @@ def test_status_offline_dev(pool_2x_mirror, make_disks):
             assert child.state == VDevState.ONLINE, \
                 f'expected ONLINE in second mirror, got {child.state}'
     finally:
-        subprocess.run(['zpool', 'online', POOL_NAME, victim.name], check=False)
+        try:
+            pool.online_device(device=victim.name)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
