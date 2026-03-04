@@ -205,6 +205,21 @@ PyStructSequence_Field struct_vdev_stats [] = {
 	{"dio_verify_errors", "Number of O_DIRECT checksum errors"},
 	{"slow_ios", "Number of slow I/Os. None for non-leaf vdevs (those with children)."},
 	{"self_healed_bytes", "Number of self-healed bytes"},
+	{"fragmentation", "Device fragmentation (0-100). None if not yet available."},
+	{"scan_processed", "Bytes processed by the most recent scan (scrub/resilver)."},
+	{"scan_removing", "Non-zero while this vdev is being removed from the pool."},
+	{"rebuild_processed", "Bytes rebuilt during an online RAIDZ expansion."},
+	{"noalloc", "Non-zero when new allocations to this vdev are halted. "
+	            "None if ZFS does not support this field."},
+	{"ops_read", "Count of read ZIOs issued to this vdev."},
+	{"ops_write", "Count of write ZIOs issued to this vdev."},
+	{"bytes_read", "Bytes read from this vdev."},
+	{"bytes_write", "Bytes written to this vdev."},
+	{"configured_ashift", "Configured sector-size exponent (2^n bytes). "
+	                      "None for non-leaf vdevs or older ZFS versions."},
+	{"logical_ashift", "Logical ashift. None for non-leaf vdevs or older ZFS versions."},
+	{"physical_ashift", "Physical (native) ashift. "
+	                    "None for non-leaf vdevs or older ZFS versions."},
 	{0},
 };
 
@@ -212,7 +227,7 @@ PyStructSequence_Desc struct_vdev_stats_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_stats",
 	.fields = struct_vdev_stats,
 	.doc = "Python ZFS vdev stats structure",
-	.n_in_sequence = 13
+	.n_in_sequence = 25
 };
 
 /* Index constants for struct_vdev_stats fields — must stay in sync with
@@ -230,6 +245,21 @@ PyStructSequence_Desc struct_vdev_stats_desc = {
 #define VS_DIO_VERIFY_ERRORS_IDX 10
 #define VS_SLOW_IOS_IDX 11
 #define VS_SELF_HEALED_IDX 12
+#define VS_FRAGMENTATION_IDX      13
+#define VS_SCAN_PROCESSED_IDX     14
+#define VS_SCAN_REMOVING_IDX      15
+#define VS_REBUILD_PROCESSED_IDX  16
+#define VS_NOALLOC_IDX            17
+#define VS_OPS_READ_IDX           18
+#define VS_OPS_WRITE_IDX          19
+#define VS_BYTES_READ_IDX         20
+#define VS_BYTES_WRITE_IDX        21
+#define VS_CONFIGURED_ASHIFT_IDX  22
+#define VS_LOGICAL_ASHIFT_IDX     23
+#define VS_PHYSICAL_ASHIFT_IDX    24
+
+#define PY_ZIO_TYPE_READ  1   /* ZIO_TYPE_READ  */
+#define PY_ZIO_TYPE_WRITE 2   /* ZIO_TYPE_WRITE */
 
 PyStructSequence_Field struct_vdev_status_prop [] = {
 	{"name", "name of the vdev"},
@@ -283,6 +313,7 @@ PyStructSequence_Desc struct_vdev_status_desc = {
 
 static
 boolean_t parse_vdev_stats(vdev_stat_t *vs,
+			   uint_t vsc,
 			   boolean_t has_children,
 			   PyObject *pyvdev)
 {
@@ -374,6 +405,88 @@ boolean_t parse_vdev_stats(vdev_stat_t *vs,
 		return B_FALSE;
 
 	PyStructSequence_SetItem(pyvdev, VS_SELF_HEALED_IDX, val);
+
+	/* fragmentation: UINT64_MAX = no info yet */
+	if (vs->vs_fragmentation == UINT64_MAX) {
+		PyStructSequence_SetItem(pyvdev, VS_FRAGMENTATION_IDX,
+		    Py_NewRef(Py_None));
+	} else {
+		val = PyLong_FromUnsignedLong(vs->vs_fragmentation);
+		if (val == NULL)
+			return B_FALSE;
+		PyStructSequence_SetItem(pyvdev, VS_FRAGMENTATION_IDX, val);
+	}
+
+	val = PyLong_FromUnsignedLong(vs->vs_scan_processed);
+	if (val == NULL)
+		return B_FALSE;
+	PyStructSequence_SetItem(pyvdev, VS_SCAN_PROCESSED_IDX, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_scan_removing);
+	if (val == NULL)
+		return B_FALSE;
+	PyStructSequence_SetItem(pyvdev, VS_SCAN_REMOVING_IDX, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_rebuild_processed);
+	if (val == NULL)
+		return B_FALSE;
+	PyStructSequence_SetItem(pyvdev, VS_REBUILD_PROCESSED_IDX, val);
+
+	/* noalloc: conditional on VDEV_STAT_VALID */
+	if (VDEV_STAT_VALID(vs_noalloc, vsc)) {
+		val = PyLong_FromUnsignedLong(vs->vs_noalloc);
+		if (val == NULL)
+			return B_FALSE;
+		PyStructSequence_SetItem(pyvdev, VS_NOALLOC_IDX, val);
+	} else {
+		PyStructSequence_SetItem(pyvdev, VS_NOALLOC_IDX,
+		    Py_NewRef(Py_None));
+	}
+
+	val = PyLong_FromUnsignedLong(vs->vs_ops[PY_ZIO_TYPE_READ]);
+	if (val == NULL)
+		return B_FALSE;
+	PyStructSequence_SetItem(pyvdev, VS_OPS_READ_IDX, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_ops[PY_ZIO_TYPE_WRITE]);
+	if (val == NULL)
+		return B_FALSE;
+	PyStructSequence_SetItem(pyvdev, VS_OPS_WRITE_IDX, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_bytes[PY_ZIO_TYPE_READ]);
+	if (val == NULL)
+		return B_FALSE;
+	PyStructSequence_SetItem(pyvdev, VS_BYTES_READ_IDX, val);
+
+	val = PyLong_FromUnsignedLong(vs->vs_bytes[PY_ZIO_TYPE_WRITE]);
+	if (val == NULL)
+		return B_FALSE;
+	PyStructSequence_SetItem(pyvdev, VS_BYTES_WRITE_IDX, val);
+
+	/* ashift fields: leaf-only AND require VDEV_STAT_VALID */
+	if (!has_children && VDEV_STAT_VALID(vs_configured_ashift, vsc)) {
+		val = PyLong_FromUnsignedLong(vs->vs_configured_ashift);
+		if (val == NULL)
+			return B_FALSE;
+		PyStructSequence_SetItem(pyvdev, VS_CONFIGURED_ASHIFT_IDX, val);
+
+		val = PyLong_FromUnsignedLong(vs->vs_logical_ashift);
+		if (val == NULL)
+			return B_FALSE;
+		PyStructSequence_SetItem(pyvdev, VS_LOGICAL_ASHIFT_IDX, val);
+
+		val = PyLong_FromUnsignedLong(vs->vs_physical_ashift);
+		if (val == NULL)
+			return B_FALSE;
+		PyStructSequence_SetItem(pyvdev, VS_PHYSICAL_ASHIFT_IDX, val);
+	} else {
+		PyStructSequence_SetItem(pyvdev, VS_CONFIGURED_ASHIFT_IDX,
+		    Py_NewRef(Py_None));
+		PyStructSequence_SetItem(pyvdev, VS_LOGICAL_ASHIFT_IDX,
+		    Py_NewRef(Py_None));
+		PyStructSequence_SetItem(pyvdev, VS_PHYSICAL_ASHIFT_IDX,
+		    Py_NewRef(Py_None));
+	}
 
 	return B_TRUE;
 }
@@ -515,7 +628,7 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 		if (vdev_stats == NULL)
 			goto fail;
 
-		if (!parse_vdev_stats(vs, children, vdev_stats)) {
+		if (!parse_vdev_stats(vs, vsc, children, vdev_stats)) {
 			Py_CLEAR(vdev_stats);
 			goto fail;
 		}

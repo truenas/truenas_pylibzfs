@@ -559,6 +559,75 @@ def test_status_offline_dev(pool_2x_mirror, make_disks):
 
 
 # ---------------------------------------------------------------------------
+# New vdev_stats fields
+# ---------------------------------------------------------------------------
+
+NEW_STATS_FIELDS = (
+    'fragmentation', 'scan_processed', 'scan_removing', 'rebuild_processed',
+    'noalloc', 'ops_read', 'ops_write', 'bytes_read', 'bytes_write',
+    'configured_ashift', 'logical_ashift', 'physical_ashift',
+)
+
+def test_new_stats_fields_present(pool_mirror):
+    lz, pool = pool_mirror
+    status = pool.status(get_stats=True)
+    for top_vdev in status.storage_vdevs:
+        for vdev in _all_vdevs(top_vdev):
+            s = vdev.stats
+            for field in NEW_STATS_FIELDS:
+                assert hasattr(s, field), \
+                    f'{vdev.name}.stats missing field: {field}'
+
+
+def test_ashift_leaf_vs_nonleaf(pool_mirror):
+    lz, pool = pool_mirror
+    status = pool.status(get_stats=True)
+    top_vdev = status.storage_vdevs[0]
+    assert top_vdev.vdev_type == 'mirror'
+
+    # Non-leaf mirror vdev: all three ashift fields must be None
+    s = top_vdev.stats
+    assert s.configured_ashift is None, \
+        f'expected configured_ashift=None for mirror, got {s.configured_ashift}'
+    assert s.logical_ashift is None, \
+        f'expected logical_ashift=None for mirror, got {s.logical_ashift}'
+    assert s.physical_ashift is None, \
+        f'expected physical_ashift=None for mirror, got {s.physical_ashift}'
+
+    # Leaf disk vdevs: all three ashift fields must be non-negative int
+    for child in top_vdev.children:
+        cs = child.stats
+        assert isinstance(cs.configured_ashift, int) and cs.configured_ashift >= 0, \
+            f'{child.name}.configured_ashift = {cs.configured_ashift!r}'
+        assert isinstance(cs.logical_ashift, int) and cs.logical_ashift >= 0, \
+            f'{child.name}.logical_ashift = {cs.logical_ashift!r}'
+        assert isinstance(cs.physical_ashift, int) and cs.physical_ashift >= 0, \
+            f'{child.name}.physical_ashift = {cs.physical_ashift!r}'
+
+
+def test_fragmentation_type(pool_mirror):
+    lz, pool = pool_mirror
+    status = pool.status(get_stats=True)
+    for top_vdev in status.storage_vdevs:
+        for vdev in _all_vdevs(top_vdev):
+            f = vdev.stats.fragmentation
+            assert f is None or (isinstance(f, int) and f >= 0), \
+                f'{vdev.name}.fragmentation = {f!r}'
+
+
+def test_ops_bytes_non_negative(pool_mirror):
+    lz, pool = pool_mirror
+    status = pool.status(get_stats=True)
+    for top_vdev in status.storage_vdevs:
+        for vdev in _all_vdevs(top_vdev):
+            s = vdev.stats
+            for field in ('ops_read', 'ops_write', 'bytes_read', 'bytes_write'):
+                val = getattr(s, field)
+                assert isinstance(val, int) and val >= 0, \
+                    f'{vdev.name}.stats.{field} = {val!r}'
+
+
+# ---------------------------------------------------------------------------
 # Slow_ios leaf-only rule
 # ---------------------------------------------------------------------------
 
