@@ -768,13 +768,14 @@ class ZFSPool:
         """Iterate over the pool's command history log.
 
         Each yielded item is a dict with raw history-record key names, e.g.:
-          'history_time'     - Unix timestamp (int)
-          'history_command'  - Command string (str, user-visible commands only)
-          'history_who'      - UID that ran the command (int)
-          'history_hostname' - Hostname (str)
+          'history time'     - Unix timestamp (int)
+          'history command'  - Command string (str, user-visible commands only)
+          'history who'      - UID that ran the command (int)
+          'history hostname' - Hostname (str)
 
-        When skip_internal is True (default) kernel-internal events are
-        suppressed, matching the default output of 'zpool history'.
+        When skip_internal is True (default) any record that lacks a
+        'history command' key is suppressed, matching the default output
+        of 'zpool history'.
 
         since and until are optional Unix timestamp bounds (inclusive).
         Use 0 (default) to mean no bound.  Filtering is applied directly

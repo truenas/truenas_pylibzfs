@@ -80,8 +80,16 @@ py_zfs_history_iter_next(PyObject *self_obj)
 				}
 			}
 
+			/*
+			 * "Internal" means any record that lacks a user
+			 * command (ZPOOL_HIST_CMD).  This matches the default
+			 * behaviour of `zpool history`: records with
+			 * ZPOOL_HIST_INT_EVENT, ZPOOL_HIST_INT_NAME,
+			 * ZPOOL_HIST_IOCTL, etc. are all suppressed unless
+			 * the caller opts in via skip_internal=False.
+			 */
 			if (self->skip_internal &&
-			    nvlist_exists(rec, ZPOOL_HIST_INT_EVENT)) {
+			    !nvlist_exists(rec, ZPOOL_HIST_CMD)) {
 				continue;
 			}
 
@@ -144,11 +152,11 @@ PyDoc_STRVAR(py_zfs_history_iter__doc__,
 "------------------\n\n"
 "Iterator yielding per-pool ZFS history records as dicts.\n\n"
 "Each record is a dict with raw nvlist key names from the pool history log:\n"
-"  'history_time'     - Unix timestamp of the event (int)\n"
-"  'history_command'  - Command string (str, user-visible commands only)\n"
-"  'history_who'      - UID that ran the command (int)\n"
-"  'history_hostname' - Hostname (str)\n"
-"  'history_internal_event' - present only for kernel-internal events\n\n"
+"  'history time'     - Unix timestamp of the event (int)\n"
+"  'history command'  - Command string (str, user-visible commands only)\n"
+"  'history who'      - UID that ran the command (int)\n"
+"  'history hostname' - Hostname (str)\n"
+"  'history internal event' - present only on ZPOOL_HIST_INT_EVENT records\n\n"
 "Timestamp filtering (since / until) is applied directly on the raw nvlist\n"
 "before any Python object is allocated, so filtered records are free.\n\n"
 "Raises\n"
