@@ -37,11 +37,13 @@ def _snap_names(root):
 
 class TestCreateSnapshots:
     def test_basic(self, pool):
+        # Two snapshots of the SAME dataset must be created in separate calls
         lz, _, root = pool
         snap1 = f'{POOL_NAME}@cs_snap1'
         snap2 = f'{POOL_NAME}@cs_snap2'
         try:
-            lzc.create_snapshots(snapshot_names=[snap1, snap2])
+            lzc.create_snapshots(snapshot_names=[snap1])
+            lzc.create_snapshots(snapshot_names=[snap2])
             names = _snap_names(root)
             assert snap1 in names
             assert snap2 in names
@@ -124,14 +126,14 @@ class TestSnapshotGetHolds:
         hold_tag = 'myhold'
         lzc.create_snapshots(snapshot_names=[snap_name])
         try:
-            lzc.create_holds(holds={snap_name: hold_tag})
+            lzc.create_holds(holds=[(snap_name, hold_tag)])
             snap = lz.open_resource(name=snap_name)
             holds = snap.get_holds()
             assert isinstance(holds, tuple)
             assert hold_tag in holds
         finally:
             try:
-                lzc.release_holds(holds={snap_name: [hold_tag]})
+                lzc.release_holds(holds=[(snap_name, hold_tag)])
             except Exception:
                 pass
             lzc.destroy_snapshots(snapshot_names=[snap_name])
@@ -161,7 +163,9 @@ class TestSnapshotGetClones:
         try:
             snap = lz.open_resource(name=snap_name)
             snap.clone(name=clone_name)
-            clones = snap.get_clones()
+            # Re-open the snapshot to get a fresh handle with updated clone info
+            snap_fresh = lz.open_resource(name=snap_name)
+            clones = snap_fresh.get_clones()
             assert isinstance(clones, tuple)
             assert clone_name in clones
         finally:

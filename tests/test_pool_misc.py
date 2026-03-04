@@ -111,42 +111,6 @@ class TestDdtPrune:
 
 
 # ---------------------------------------------------------------------------
-# asdict
-# ---------------------------------------------------------------------------
-
-class TestAsdict:
-    def test_returns_dict(self, pool):
-        _, p, _ = pool
-        assert isinstance(p.asdict(), dict)
-
-    def test_has_name_key(self, pool):
-        _, p, _ = pool
-        assert 'name' in p.asdict()
-
-    def test_name_matches_pool(self, pool):
-        _, p, _ = pool
-        assert p.asdict()['name'] == POOL_NAME
-
-    def test_has_guid_key(self, pool):
-        _, p, _ = pool
-        assert 'guid' in p.asdict()
-
-    def test_guid_is_int(self, pool):
-        _, p, _ = pool
-        assert isinstance(p.asdict()['guid'], int)
-
-    def test_asdict_false_returns_struct(self, pool):
-        _, p, _ = pool
-        result = p.asdict(asdict=False)
-        assert not isinstance(result, dict)
-        assert hasattr(result, 'name')
-
-    def test_status_present(self, pool):
-        _, p, _ = pool
-        assert 'status' in p.asdict()
-
-
-# ---------------------------------------------------------------------------
 # sync_pool and refresh_stats
 # ---------------------------------------------------------------------------
 

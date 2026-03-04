@@ -80,16 +80,19 @@ def test_rollback_to_most_recent_returns_snap_name(dataset_with_snap):
 
 def test_rollback_with_named_snapshot(dataset_with_two_snaps):
     lz, ds_name, snap1, snap2 = dataset_with_two_snaps
-    # snap2 is the most recent — rollback to it by name should succeed
-    result = lzc.rollback(resource_name=ds_name, snapshot_name=snap2)
+    # snapshot_name is the snap component only — the function builds
+    # the full name as "{resource_name}@{snapshot_name}" internally
+    snap2_component = snap2.split('@')[1]
+    result = lzc.rollback(resource_name=ds_name, snapshot_name=snap2_component)
     assert isinstance(result, str)
 
 
 def test_rollback_to_non_recent_raises(dataset_with_two_snaps):
     lz, ds_name, snap1, snap2 = dataset_with_two_snaps
     # snap1 is not the most recent — must raise
+    snap1_component = snap1.split('@')[1]
     with pytest.raises((FileExistsError, lzc.ZFSCoreException)):
-        lzc.rollback(resource_name=ds_name, snapshot_name=snap1)
+        lzc.rollback(resource_name=ds_name, snapshot_name=snap1_component)
 
 
 def test_rollback_nonexistent_resource_raises(pool):
