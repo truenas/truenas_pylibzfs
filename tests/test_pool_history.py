@@ -202,7 +202,7 @@ def test_upgrade_history_entry(pool_a):
 def test_scan_history_entry(pool_a):
     """scan(POOL_SCAN_SCRUB) must write 'zpool scrub <pool_name>'."""
     _, p = pool_a
-    p.scan(func=truenas_pylibzfs.enums.ScanFunction.POOL_SCAN_SCRUB)
+    p.scan(func=truenas_pylibzfs.enums.ScanFunction.SCRUB)
     cmds = _commands(p)
     expected = f"zpool scrub {POOL_A}"
     assert any(expected in cmd for cmd in cmds), (
