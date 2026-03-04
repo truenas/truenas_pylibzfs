@@ -807,7 +807,7 @@ PyObject *py_zfs_pool_scan(PyObject *self, PyObject *args, PyObject *kwargs)
 	    &py_func, &py_cmd))
 		return NULL;
 
-	if (py_func == NULL) {
+	if (NULL_OR_NONE(py_func)) {
 		PyErr_SetString(PyExc_ValueError,
 		    "func is required");
 		return NULL;
@@ -825,7 +825,7 @@ PyObject *py_zfs_pool_scan(PyObject *self, PyObject *args, PyObject *kwargs)
 	}
 
 	/* Default cmd to POOL_SCRUB_NORMAL */
-	if (py_cmd == NULL) {
+	if (NULL_OR_NONE(py_cmd)) {
 		cmd_val = POOL_SCRUB_NORMAL;
 	} else {
 		cmd_val = PyLong_AsLong(py_cmd);
