@@ -94,6 +94,14 @@ class TestOfflineDevice:
         # temporary=True should also succeed
         pool.offline_device(device=disk0, temporary=True)
 
+    def test_offline_second_device_raises(self, mirror_pool):
+        lz, pool, disk0, disk1 = mirror_pool
+        pool.offline_device(device=disk0)
+        # Offlining the only remaining online device would make the pool
+        # inaccessible; libzfs must reject this.
+        with pytest.raises(truenas_pylibzfs.ZFSException):
+            pool.offline_device(device=disk1)
+
     def test_offline_missing_device_raises(self, mirror_pool):
         lz, pool, disk0, disk1 = mirror_pool
         with pytest.raises(truenas_pylibzfs.ZFSException):
@@ -121,11 +129,6 @@ class TestOnlineDevice:
         pool.offline_device(device=disk0)
         result = pool.online_device(device=disk0)
         assert result is None
-
-    def test_online_after_offline_succeeds(self, mirror_pool):
-        lz, pool, disk0, disk1 = mirror_pool
-        pool.offline_device(device=disk0)
-        pool.online_device(device=disk0)
 
     def test_online_missing_device_raises(self, mirror_pool):
         lz, pool, disk0, disk1 = mirror_pool
