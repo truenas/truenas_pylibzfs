@@ -571,8 +571,8 @@ PyObject *py_zfs_pool_destroy(PyObject *self, PyObject *args, PyObject *kwargs)
 		}
 		if (err)
 			py_get_zfs_error(plz->lzh, &zfs_err);
+		zpool_close(zhp);
 	}
-	zpool_close(zhp);
 	PY_ZFS_UNLOCK(plz);
 	Py_END_ALLOW_THREADS
 
