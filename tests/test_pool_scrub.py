@@ -314,7 +314,7 @@ def test_scan_cancel_on_mirror(pool_mirror):
     ds.mount()
     with open(f'/{POOL_NAME}/fill', 'wb') as f:
         f.write(os.urandom(64 * 1024 * 1024))
-    pool.sync()
+    pool.sync_pool()
 
     pool.scan(func=ScanFunction.SCRUB)
     pool.scan(func=ScanFunction.NONE)
