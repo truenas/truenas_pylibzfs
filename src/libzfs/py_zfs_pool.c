@@ -1084,6 +1084,145 @@ PyObject *py_zfs_pool_set_user_properties(PyObject *self,
 	return py_zpool_set_user_properties(p, user_properties);
 }
 
+PyDoc_STRVAR(py_zfs_pool_offline_device__doc__,
+"offline_device(*, device, temporary=False) -> None\n\n"
+"---------------------------------------------------\n\n"
+"Take a pool device offline.\n\n"
+"Parameters\n"
+"----------\n"
+"device: str, required\n"
+"    Path or name of the device vdev to offline.\n"
+"temporary: bool, optional, default=False\n"
+"    If True, the offline state is not persisted across pool exports/imports.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while taking the device offline.\n"
+);
+static
+PyObject *py_zfs_pool_offline_device(PyObject *self,
+    PyObject *args,
+    PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	char *device = NULL;
+	boolean_t temporary = B_FALSE;
+	int ret;
+	int error;
+	py_zfs_error_t zfs_err;
+	char *kwnames[] = {"device", "temporary", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sp", kwnames,
+	    &device, &temporary))
+		return NULL;
+
+	if (device == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "offline_device() requires 'device' argument");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.offline_device",
+	    "Os", p->name, device) < 0)
+		return NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_vdev_offline(p->zhp, device, temporary);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err, "zpool_vdev_offline() failed");
+		return NULL;
+	}
+
+	error = py_log_history_fmt(p->pylibzfsp,
+	    "zpool offline%s %s %s",
+	    temporary ? " -t" : "", zpool_get_name(p->zhp), device);
+	if (error)
+		return NULL;
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_online_device__doc__,
+"online_device(*, device, expand=False) -> None\n\n"
+"------------------------------------------------\n\n"
+"Bring a pool device back online.\n\n"
+"Parameters\n"
+"----------\n"
+"device: str, required\n"
+"    Path or name of the device vdev to online.\n"
+"expand: bool, optional, default=False\n"
+"    Expand the device to use all available space (equivalent to\n"
+"    'zpool online -e').\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while bringing the device online.\n"
+);
+static
+PyObject *py_zfs_pool_online_device(PyObject *self,
+    PyObject *args,
+    PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	char *device = NULL;
+	boolean_t expand = B_FALSE;
+	int flags;
+	int ret;
+	int error;
+	py_zfs_error_t zfs_err;
+	vdev_state_t newstate;
+	char *kwnames[] = {"device", "expand", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sp", kwnames,
+	    &device, &expand))
+		return NULL;
+
+	if (device == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "online_device() requires 'device' argument");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.online_device",
+	    "Os", p->name, device) < 0)
+		return NULL;
+
+	flags = expand ? ZFS_ONLINE_EXPAND : 0;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_vdev_online(p->zhp, device, flags, &newstate);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err, "zpool_vdev_online() failed");
+		return NULL;
+	}
+
+	error = py_log_history_fmt(p->pylibzfsp,
+	    "zpool online%s %s %s",
+	    expand ? " -e" : "", zpool_get_name(p->zhp), device);
+	if (error)
+		return NULL;
+
+	Py_RETURN_NONE;
+}
+
 PyGetSetDef zfs_pool_getsetters[] = {
 	{
 		.name	= "name",
@@ -1194,6 +1333,18 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_set_user_properties,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_set_user_properties__doc__
+	},
+	{
+		.ml_name = "offline_device",
+		.ml_meth = (PyCFunction)py_zfs_pool_offline_device,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_offline_device__doc__
+	},
+	{
+		.ml_name = "online_device",
+		.ml_meth = (PyCFunction)py_zfs_pool_online_device,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_online_device__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

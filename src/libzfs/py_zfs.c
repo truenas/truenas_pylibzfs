@@ -571,13 +571,87 @@ PyObject *py_zfs_pool_destroy(PyObject *self, PyObject *args, PyObject *kwargs)
 		}
 		if (err)
 			py_get_zfs_error(plz->lzh, &zfs_err);
+		zpool_close(zhp);
 	}
-	zpool_close(zhp);
 	PY_ZFS_UNLOCK(plz);
 	Py_END_ALLOW_THREADS
 
 	if (err) {
 		set_exc_from_libzfs(&zfs_err, "destroy_pool() failed");
+		return NULL;
+	}
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_export__doc__,
+"export_pool(*, name, force=False) -> None\n\n"
+"------------------------------------------\n\n"
+"Export a pool, making it available for import on another system.\n\n"
+"Parameters\n"
+"----------\n"
+"name: str, required\n"
+"    Name of the pool to export.\n"
+"force: bool, optional, default=False\n"
+"    Forcefully unmount all active datasets before exporting.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred during export.\n"
+);
+static
+PyObject *py_zfs_export_pool(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	boolean_t force = B_FALSE;
+	char *pool_name = NULL;
+	py_zfs_t *plz = (py_zfs_t *)self;
+	py_zfs_error_t zfs_err;
+	zpool_handle_t *zhp;
+	const char *log_str = NULL;
+	char history_entry[256];
+	int err = -1;
+	char *kwnames[] = {"name", "force", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sp", kwnames,
+	    &pool_name, &force))
+		return NULL;
+
+	if (pool_name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "export_pool() requires 'name' argument");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".export_pool", "sO",
+	    pool_name, kwargs ? kwargs : Py_None) < 0)
+		return NULL;
+
+	if (plz->history) {
+		snprintf(history_entry, sizeof (history_entry),
+		    "%s zpool export%s", plz->history_prefix,
+		    force ? " -f" : "");
+		log_str = history_entry;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	zhp = zpool_open(plz->lzh, pool_name);
+	if (zhp == NULL) {
+		py_get_zfs_error(plz->lzh, &zfs_err);
+	} else {
+		err = zpool_export(zhp, force, log_str);
+		if (err)
+			py_get_zfs_error(plz->lzh, &zfs_err);
+		zpool_close(zhp);
+	}
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "export_pool() failed");
 		return NULL;
 	}
 
@@ -1513,6 +1587,12 @@ PyMethodDef zfs_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_destroy,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_destroy__doc__
+	},
+	{
+		.ml_name = "export_pool",
+		.ml_meth = (PyCFunction)py_zfs_export_pool,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_export__doc__
 	},
 	{
 		.ml_name = "resource_cryptography_config",
