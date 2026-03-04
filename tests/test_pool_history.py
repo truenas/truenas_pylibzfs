@@ -7,11 +7,16 @@ Tests then verify that iter_history() surfaces those entries correctly.
 
 History entries written by truenas_pylibzfs carry the default prefix
 "truenas-pylibzfs: " followed by the operation string.
+
+ZFS history nvlist keys use spaces, not underscores:
+  'history time', 'history command', 'history hostname', etc.
+Records without a 'history command' key are "internal" events.
 """
 
 import os
 import shutil
 import tempfile
+import time
 
 import pytest
 import truenas_pylibzfs
@@ -36,11 +41,11 @@ def _vdev(path):
 
 
 def _commands(pool):
-    """Return all 'history_command' strings from pool history (user-visible)."""
+    """Return all 'history command' strings from pool history (user-visible)."""
     return [
-        rec["history_command"]
+        rec["history command"]
         for rec in pool.iter_history()
-        if "history_command" in rec
+        if "history command" in rec
     ]
 
 
@@ -101,13 +106,13 @@ def test_iter_history_records_are_dicts(pool_a):
 
 
 def test_iter_history_has_time_field(pool_a):
-    """Every record must have 'history_time' as an int."""
+    """Every record must have 'history time' as an int."""
     _, p = pool_a
     records = list(p.iter_history(skip_internal=False))
     assert records, "no history records found"
     for rec in records:
-        assert "history_time" in rec, f"missing 'history_time' in {rec}"
-        assert isinstance(rec["history_time"], int)
+        assert "history time" in rec, f"missing 'history time' in {rec}"
+        assert isinstance(rec["history time"], int)
 
 
 # ---------------------------------------------------------------------------
@@ -115,22 +120,24 @@ def test_iter_history_has_time_field(pool_a):
 # ---------------------------------------------------------------------------
 
 def test_skip_internal_default(pool_a):
-    """With skip_internal=True (default) no record should contain
-    'history_internal_event'."""
+    """With skip_internal=True (default) every record must have
+    'history command' — records without it are internal and must be hidden."""
     _, p = pool_a
-    for rec in p.iter_history():
-        assert "history_internal_event" not in rec, (
-            f"internal event leaked through: {rec}"
+    records = list(p.iter_history())
+    assert records, "no records returned with skip_internal=True"
+    for rec in records:
+        assert "history command" in rec, (
+            f"non-command record leaked through skip_internal filter: {rec}"
         )
 
 
 def test_include_internal(pool_a):
-    """With skip_internal=False at least one record with
-    'history_internal_event' is expected (pool creation generates them)."""
+    """With skip_internal=False some records must lack 'history command'
+    (pool creation always generates internal events)."""
     _, p = pool_a
     internal = [
         rec for rec in p.iter_history(skip_internal=False)
-        if "history_internal_event" in rec
+        if "history command" not in rec
     ]
     assert internal, "no internal events found with skip_internal=False"
 
@@ -319,7 +326,7 @@ def test_dataset_inherit_property_history_entry(pool_a):
         ds.inherit_property(property=truenas_pylibzfs.ZFSProperty.ATIME)
         cmds = _commands(p)
         assert any(
-            f"zfs inherit" in cmd and ds_name in cmd for cmd in cmds
+            "zfs inherit" in cmd and ds_name in cmd for cmd in cmds
         ), (
             f"expected 'zfs inherit ... {ds_name}' in history; commands: {cmds}"
         )
@@ -351,10 +358,7 @@ def test_history_entries_carry_prefix(pool_a):
     _, p = pool_a
     # clear() is a simple operation that always adds a prefixed entry
     p.clear()
-    our_cmds = [
-        cmd for cmd in _commands(p)
-        if HIST_PREFIX in cmd
-    ]
+    our_cmds = [cmd for cmd in _commands(p) if HIST_PREFIX in cmd]
     assert our_cmds, (
         f"no history commands with prefix '{HIST_PREFIX}' found"
     )
@@ -367,17 +371,15 @@ def test_history_entries_carry_prefix(pool_a):
 def test_since_excludes_earlier_records(pool_a):
     """Records before `since` must not appear."""
     _, p = pool_a
-    # Collect all records to find a split point
     all_recs = list(p.iter_history(skip_internal=False))
     assert len(all_recs) >= 2, "need at least 2 records to test since"
 
-    # Use the timestamp of the last record as `since`; only that record
-    # (and any with the same timestamp) should be returned.
-    last_ts = all_recs[-1]["history_time"]
+    # Use the last record's timestamp as since — only it (and ties) return.
+    last_ts = all_recs[-1]["history time"]
     filtered = list(p.iter_history(skip_internal=False, since=last_ts))
     assert filtered, "since=last_ts should still yield at least one record"
     for rec in filtered:
-        assert rec["history_time"] >= last_ts, (
+        assert rec["history time"] >= last_ts, (
             f"record before since={last_ts} leaked through: {rec}"
         )
 
@@ -388,22 +390,18 @@ def test_until_excludes_later_records(pool_a):
     all_recs = list(p.iter_history(skip_internal=False))
     assert len(all_recs) >= 2, "need at least 2 records to test until"
 
-    # Use the timestamp of the first record as `until`
-    first_ts = all_recs[0]["history_time"]
+    first_ts = all_recs[0]["history time"]
     filtered = list(p.iter_history(skip_internal=False, until=first_ts))
     assert filtered, "until=first_ts should still yield at least one record"
     for rec in filtered:
-        assert rec["history_time"] <= first_ts, (
+        assert rec["history time"] <= first_ts, (
             f"record after until={first_ts} leaked through: {rec}"
         )
 
 
 def test_since_until_range(pool_a):
     """since + until together form an inclusive time window."""
-    lz, p = pool_a
-    import time
-
-    # Record timestamp before the new operation
+    _, p = pool_a
     before = int(time.time())
     p.clear()
     after = int(time.time())
@@ -414,7 +412,7 @@ def test_since_until_range(pool_a):
         f"all records: {list(p.iter_history())}"
     )
     for rec in windowed:
-        ts = rec["history_time"]
+        ts = rec["history time"]
         assert before <= ts <= after, (
             f"record outside window [{before}, {after}]: ts={ts}"
         )
@@ -443,7 +441,7 @@ def test_until_zero_means_no_upper_bound(pool_a):
 def test_future_since_yields_nothing(pool_a):
     """since=far_future must yield no records."""
     _, p = pool_a
-    far_future = 2**62  # well beyond any real timestamp
+    far_future = 2**62
     result = list(p.iter_history(skip_internal=False, since=far_future))
     assert result == [], (
         f"expected empty result for since=far_future, got {result}"
@@ -468,11 +466,9 @@ def test_iter_history_multiple_pools(pool_a, pool_b):
     lz_a, pa = pool_a
     lz_b, pb = pool_b
 
-    # Perform a distinct operation on each pool
     pa.set_user_properties(user_properties={"org.truenas:pool": "a"})
     pb.set_user_properties(user_properties={"org.truenas:pool": "b"})
 
-    # Create a dataset in each pool so both have dataset-level entries
     ds_a = f"{POOL_A}/ds_a"
     ds_b = f"{POOL_B}/ds_b"
     lz_a.create_resource(
@@ -485,13 +481,11 @@ def test_iter_history_multiple_pools(pool_a, pool_b):
     cmds_a = _commands(pa)
     cmds_b = _commands(pb)
 
-    # Pool A's history must not contain Pool B's name or its dataset
     for cmd in cmds_a:
         assert POOL_B not in cmd, (
             f"pool B name found in pool A history: {cmd!r}"
         )
 
-    # Pool B's history must not contain Pool A's name or its dataset
     for cmd in cmds_b:
         assert POOL_A not in cmd, (
             f"pool A name found in pool B history: {cmd!r}"
