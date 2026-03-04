@@ -1235,7 +1235,7 @@ PyObject *py_zfs_enc_change_key(PyObject *self,
 		return NULL;
 	}
 
-	if (NULL_OR_NONE(py_info)) {
+	if (py_info == NULL) {
 		PyErr_SetString(PyExc_ValueError,
 				"info: keyword argument is required.");
 		return NULL;
