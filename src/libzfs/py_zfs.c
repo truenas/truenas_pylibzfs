@@ -111,7 +111,7 @@ boolean_t py_zfs_create(py_zfs_t *self,
 		return B_FALSE;
 	}
 
-	if (pyprops != NULL) {
+	if (!NULL_OR_NONE(pyprops)) {
 		props = py_zfsprops_to_nvlist(state,
 					      pyprops,
 					      ztype,
@@ -120,7 +120,7 @@ boolean_t py_zfs_create(py_zfs_t *self,
 			return B_FALSE;
 
 	}
-	if (pyuserprops != NULL) {
+	if (!NULL_OR_NONE(pyuserprops)) {
 		userprops = py_userprops_dict_to_nvlist(pyuserprops);
 		if (userprops == NULL) {
 			fnvlist_free(props);
@@ -145,7 +145,7 @@ boolean_t py_zfs_create(py_zfs_t *self,
 		return B_FALSE;
 	}
 
-	if (pycrypto) {
+	if (!NULL_OR_NONE(pycrypto)) {
 		// pyzfs_creat_crypto() will handle the history entry and
 		// freeing `props`
 		return pyzfs_create_crypto(self, name, ztype, props, pycrypto);
