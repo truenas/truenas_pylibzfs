@@ -308,11 +308,13 @@ def test_scan_cancel(pool_stripe):
 def test_scan_cancel_on_mirror(pool_mirror):
     """Mirror pool with data gives a better chance of catching in-flight cancel."""
     lz, pool = pool_mirror
-    # Write data so the scrub has something to process
-    fill_path = f'/{POOL_NAME}/fill'
-    with open(fill_path, 'wb') as f:
+    # Mount the root dataset and write data so the scrub has something to
+    # process, increasing the chance of catching it in-flight.
+    ds = lz.open_resource(name=POOL_NAME)
+    ds.mount()
+    with open(f'/{POOL_NAME}/fill', 'wb') as f:
         f.write(os.urandom(64 * 1024 * 1024))
-    os.sync()
+    pool.sync()
 
     pool.scan(func=ScanFunction.SCRUB)
     pool.scan(func=ScanFunction.NONE)
