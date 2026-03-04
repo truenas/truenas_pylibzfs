@@ -63,6 +63,18 @@ class struct_vdev_stats:
     dio_verify_errors: int
     slow_ios: int | None
     self_healed_bytes: int
+    fragmentation: int | None       # None when not yet available
+    scan_processed: int
+    scan_removing: int
+    rebuild_processed: int
+    noalloc: int | None             # None on older ZFS versions
+    ops_read: int
+    ops_write: int
+    bytes_read: int
+    bytes_write: int
+    configured_ashift: int | None   # None for non-leaf or older ZFS versions
+    logical_ashift: int | None
+    physical_ashift: int | None
 
 class struct_vdev:
     name: str
