@@ -7,6 +7,10 @@
  * Internally it buffers one ~1 MiB batch from zpool_get_history() and
  * drains it record-by-record before fetching the next batch.
  *
+ * Timestamp filtering (since / until) is applied directly against the
+ * ZPOOL_HIST_TIME nvpair on the raw nvlist — before the JSON roundtrip —
+ * so that discarded records never produce Python objects.
+ *
  * History record dicts use raw nvlist key names, e.g.:
  *   "history_time"     (uint64)
  *   "history_command"  (string) - user-visible commands
@@ -25,6 +29,8 @@ typedef struct {
 	uint_t		 num_records;
 	uint_t		 record_idx;
 	boolean_t	 skip_internal;	  /* skip ZPOOL_HIST_INT_EVENT records        */
+	uint64_t	 since;		  /* 0 = no lower bound; skip rec if ts < since */
+	uint64_t	 until;		  /* 0 = no upper bound; skip rec if ts > until */
 } py_zfs_history_iter_t;
 
 
@@ -61,6 +67,18 @@ py_zfs_history_iter_next(PyObject *self_obj)
 		/* Drain the current batch */
 		while (self->record_idx < self->num_records) {
 			nvlist_t *rec = self->records[self->record_idx++];
+
+			/* Timestamp filter — checked before any Python allocation */
+			if (self->since != 0 || self->until != 0) {
+				uint64_t ts = 0;
+				if (nvlist_lookup_uint64(rec,
+				    ZPOOL_HIST_TIME, &ts) == 0) {
+					if (self->since != 0 && ts < self->since)
+						continue;
+					if (self->until != 0 && ts > self->until)
+						continue;
+				}
+			}
 
 			if (self->skip_internal &&
 			    nvlist_exists(rec, ZPOOL_HIST_INT_EVENT)) {
@@ -122,8 +140,8 @@ py_zfs_history_iter_next(PyObject *self_obj)
 }
 
 PyDoc_STRVAR(py_zfs_history_iter__doc__,
-"ZFSHistoryIterator(pool, *, skip_internal=True)\n"
-"-------------------------------------------------\n\n"
+"ZFSHistoryIterator\n"
+"------------------\n\n"
 "Iterator yielding per-pool ZFS history records as dicts.\n\n"
 "Each record is a dict with raw nvlist key names from the pool history log:\n"
 "  'history_time'     - Unix timestamp of the event (int)\n"
@@ -131,17 +149,8 @@ PyDoc_STRVAR(py_zfs_history_iter__doc__,
 "  'history_who'      - UID that ran the command (int)\n"
 "  'history_hostname' - Hostname (str)\n"
 "  'history_internal_event' - present only for kernel-internal events\n\n"
-"Parameters\n"
-"----------\n"
-"pool: truenas_pylibzfs.ZFSPool\n"
-"    The pool whose history to iterate.\n"
-"skip_internal: bool, optional, default=True\n"
-"    When True (default) records containing 'history_internal_event' are\n"
-"    suppressed, matching the default output of 'zpool history'.\n\n"
-"Yields\n"
-"------\n"
-"dict\n"
-"    One history record.  Keys depend on the event type.\n\n"
+"Timestamp filtering (since / until) is applied directly on the raw nvlist\n"
+"before any Python object is allocated, so filtered records are free.\n\n"
 "Raises\n"
 "------\n"
 "ZFSException\n"
@@ -162,9 +171,14 @@ PyTypeObject ZFSHistoryIterator = {
 /*
  * Factory: create a ZFSHistoryIterator for the given pool.
  * Called by py_zfs_pool_iter_history().
+ *
+ * since / until: Unix timestamps (uint64).  Use 0 to mean "no bound".
+ * A record is yielded only when:
+ *   (since == 0 || ts >= since) && (until == 0 || ts <= until)
  */
 PyObject *
-py_zfs_history_iter_create(py_zfs_pool_t *pool, boolean_t skip_internal)
+py_zfs_history_iter_create(py_zfs_pool_t *pool, boolean_t skip_internal,
+    uint64_t since, uint64_t until)
 {
 	py_zfs_history_iter_t *it;
 
@@ -182,6 +196,8 @@ py_zfs_history_iter_create(py_zfs_pool_t *pool, boolean_t skip_internal)
 	it->num_records = 0;
 	it->record_idx = 0;
 	it->skip_internal = skip_internal;
+	it->since = since;
+	it->until = until;
 
 	return ((PyObject *)it);
 }

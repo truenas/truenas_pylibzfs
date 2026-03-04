@@ -1224,8 +1224,8 @@ PyObject *py_zfs_pool_online_device(PyObject *self,
 }
 
 PyDoc_STRVAR(py_zfs_pool_iter_history__doc__,
-"iter_history(*, skip_internal=True) -> Iterator[dict]\n\n"
-"------------------------------------------------------\n\n"
+"iter_history(*, skip_internal=True, since=0, until=0) -> Iterator[dict]\n\n"
+"------------------------------------------------------------------------\n\n"
 "Iterate over the pool's command history log.\n\n"
 "Each yielded item is a dict with raw history-record key names, e.g.:\n"
 "  'history_time'     - Unix timestamp (int)\n"
@@ -1237,7 +1237,14 @@ PyDoc_STRVAR(py_zfs_pool_iter_history__doc__,
 "skip_internal: bool, optional, default=True\n"
 "    When True (default) kernel-internal events (records that contain\n"
 "    'history_internal_event') are suppressed, matching the default\n"
-"    output of 'zpool history'.\n\n"
+"    output of 'zpool history'.\n"
+"since: int, optional, default=0\n"
+"    Unix timestamp lower bound (inclusive).  Records with\n"
+"    'history_time' < since are skipped.  0 means no lower bound.\n"
+"    Filtering is applied before any Python object is allocated.\n"
+"until: int, optional, default=0\n"
+"    Unix timestamp upper bound (inclusive).  Records with\n"
+"    'history_time' > until are skipped.  0 means no upper bound.\n\n"
 "Yields\n"
 "------\n"
 "dict\n"
@@ -1252,10 +1259,11 @@ py_zfs_pool_iter_history(PyObject *self, PyObject *args, PyObject *kwds)
 {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	boolean_t skip_internal = B_TRUE;
-	char *kwlist[] = {"skip_internal", NULL};
+	unsigned long long since = 0, until = 0;
+	char *kwlist[] = {"skip_internal", "since", "until", NULL};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|p", kwlist,
-	    &skip_internal)) {
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|pKK", kwlist,
+	    &skip_internal, &since, &until)) {
 		return (NULL);
 	}
 
@@ -1264,7 +1272,8 @@ py_zfs_pool_iter_history(PyObject *self, PyObject *args, PyObject *kwds)
 		return (NULL);
 	}
 
-	return (py_zfs_history_iter_create(p, skip_internal));
+	return (py_zfs_history_iter_create(p, skip_internal,
+	    (uint64_t)since, (uint64_t)until));
 }
 
 PyGetSetDef zfs_pool_getsetters[] = {

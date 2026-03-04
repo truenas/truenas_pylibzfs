@@ -289,7 +289,7 @@ extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
 
 /* Provided by py_zfs_history.c */
 extern PyObject *py_zfs_history_iter_create(py_zfs_pool_t *pool,
-    boolean_t skip_internal);
+    boolean_t skip_internal, uint64_t since, uint64_t until);
 
 /* Provided by py_zfs_pool_create.c */
 typedef struct {
