@@ -1,5 +1,10 @@
 """
-Tests for lzc.create_holds() and lzc.release_holds():
+Tests for lzc.create_holds() and lzc.release_holds().
+
+The `holds` parameter is an iterable of (snapshot_name, tag) tuples for both
+create_holds and release_holds.
+
+Covers:
   - create_holds basic
   - release_holds basic
   - hold prevents direct destroy
@@ -43,11 +48,11 @@ def test_create_holds_basic(snapshot):
     lz, root, snap_name, snap = snapshot
     tag = 'testhold'
     try:
-        lzc.create_holds(holds={snap_name: tag})
+        lzc.create_holds(holds=[(snap_name, tag)])
         assert tag in snap.get_holds()
     finally:
         try:
-            lzc.release_holds(holds={snap_name: [tag]})
+            lzc.release_holds(holds=[(snap_name, tag)])
         except Exception:
             pass
 
@@ -56,11 +61,11 @@ def test_create_holds_returns_tuple(snapshot):
     lz, root, snap_name, snap = snapshot
     tag = 'testhold_tuple'
     try:
-        result = lzc.create_holds(holds={snap_name: tag})
+        result = lzc.create_holds(holds=[(snap_name, tag)])
         assert isinstance(result, tuple)
     finally:
         try:
-            lzc.release_holds(holds={snap_name: [tag]})
+            lzc.release_holds(holds=[(snap_name, tag)])
         except Exception:
             pass
 
@@ -68,14 +73,14 @@ def test_create_holds_returns_tuple(snapshot):
 def test_create_holds_nonexistent_snap_in_result(pool):
     lz, _, root = pool
     bogus = f'{POOL_NAME}@doesnotexist_hold'
-    result = lzc.create_holds(holds={bogus: 'tag'})
+    result = lzc.create_holds(holds=[(bogus, 'tag')])
     assert isinstance(result, tuple)
     assert bogus in result
 
 
 def test_create_holds_keyword_only():
     with pytest.raises(TypeError):
-        lzc.create_holds({'snap': 'tag'})
+        lzc.create_holds([(f'{POOL_NAME}@snap', 'tag')])
 
 
 # ---------------------------------------------------------------------------
@@ -85,30 +90,30 @@ def test_create_holds_keyword_only():
 def test_release_holds_basic(snapshot):
     lz, root, snap_name, snap = snapshot
     tag = 'reltesthold'
-    lzc.create_holds(holds={snap_name: tag})
+    lzc.create_holds(holds=[(snap_name, tag)])
     assert tag in snap.get_holds()
 
-    lzc.release_holds(holds={snap_name: [tag]})
+    lzc.release_holds(holds=[(snap_name, tag)])
     assert tag not in snap.get_holds()
 
 
 def test_release_holds_returns_tuple(snapshot):
     lz, root, snap_name, snap = snapshot
     tag = 'reltag_tuple'
-    lzc.create_holds(holds={snap_name: tag})
-    result = lzc.release_holds(holds={snap_name: [tag]})
+    lzc.create_holds(holds=[(snap_name, tag)])
+    result = lzc.release_holds(holds=[(snap_name, tag)])
     assert isinstance(result, tuple)
 
 
 def test_release_nonexistent_hold_in_result(snapshot):
     lz, root, snap_name, snap = snapshot
-    result = lzc.release_holds(holds={snap_name: ['nosuchold']})
+    result = lzc.release_holds(holds=[(snap_name, 'nosuchold')])
     assert isinstance(result, tuple)
 
 
 def test_release_holds_keyword_only():
     with pytest.raises(TypeError):
-        lzc.release_holds({'snap': ['tag']})
+        lzc.release_holds([(f'{POOL_NAME}@snap', 'tag')])
 
 
 # ---------------------------------------------------------------------------
@@ -118,12 +123,12 @@ def test_release_holds_keyword_only():
 def test_hold_prevents_direct_destroy(snapshot):
     lz, root, snap_name, snap = snapshot
     tag = 'destroyhold'
-    lzc.create_holds(holds={snap_name: tag})
+    lzc.create_holds(holds=[(snap_name, tag)])
     try:
         with pytest.raises(lzc.ZFSCoreException):
             lzc.destroy_snapshots(snapshot_names=[snap_name])
     finally:
-        lzc.release_holds(holds={snap_name: [tag]})
+        lzc.release_holds(holds=[(snap_name, tag)])
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +141,7 @@ def test_defer_destroy_hold_lifecycle(pool):
     tag = 'deferhold'
 
     lzc.create_snapshots(snapshot_names=[snap_name])
-    lzc.create_holds(holds={snap_name: tag})
+    lzc.create_holds(holds=[(snap_name, tag)])
 
     # defer_destroy=True succeeds even with an active hold
     lzc.destroy_snapshots(snapshot_names=[snap_name], defer_destroy=True)
@@ -152,7 +157,7 @@ def test_defer_destroy_hold_lifecycle(pool):
     assert snap_name in seen, 'expected deferred snap to persist while held'
 
     # Release the hold — snap should now be gone
-    lzc.release_holds(holds={snap_name: [tag]})
+    lzc.release_holds(holds=[(snap_name, tag)])
 
     seen2 = []
     root.iter_snapshots(callback=cb, state=seen2)

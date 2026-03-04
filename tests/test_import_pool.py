@@ -72,7 +72,7 @@ def exported_pool(make_disks):
         force=True,
     )
     pool = lz.open_pool(name=POOL_NAME)
-    guid = pool.get_properties(properties={ZPOOLProperty.GUID}).guid
+    guid = pool.get_properties(properties={ZPOOLProperty.GUID}).guid.value
     lz.export_pool(name=POOL_NAME)
     try:
         yield lz, disk_dir, guid
