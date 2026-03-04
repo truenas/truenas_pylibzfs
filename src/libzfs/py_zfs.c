@@ -631,7 +631,8 @@ PyObject *py_zfs_export_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 
 	if (plz->history) {
 		snprintf(history_entry, sizeof (history_entry),
-		    "%s zpool export", plz->history_prefix);
+		    "%s zpool export%s", plz->history_prefix,
+		    force ? " -f" : "");
 		log_str = history_entry;
 	}
 
