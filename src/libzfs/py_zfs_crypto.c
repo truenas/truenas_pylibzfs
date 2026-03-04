@@ -12,7 +12,6 @@
 #define MIN_PASSPHRASE_LEN 8
 #define MAX_PASSPHRASE_LEN 512
 #define WRAPPING_KEY_LEN 32  // defined in zio_crypt.h
-#define NULL_OR_NONE(x) ((x == NULL) || (x == Py_None))
 
 PyDoc_STRVAR(py_zfs_crypto_encroot__doc__,
 "The encryption_root shows the name of the ZFS resource that this resource\n"
@@ -1236,7 +1235,7 @@ PyObject *py_zfs_enc_change_key(PyObject *self,
 		return NULL;
 	}
 
-	if (py_info == NULL) {
+	if (NULL_OR_NONE(py_info)) {
 		PyErr_SetString(PyExc_ValueError,
 				"info: keyword argument is required.");
 		return NULL;
