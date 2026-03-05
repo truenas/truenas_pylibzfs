@@ -280,15 +280,16 @@ py_zfs_snapshot_send_progress(PyObject *self, PyObject *args, PyObject *kwargs)
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(ds->rsrc.obj.pylibzfsp);
 	err = zfs_send_progress(ds->rsrc.obj.zhp, fd, &written, &blocks);
-	if (err)
-		py_get_zfs_error(ds->rsrc.obj.pylibzfsp->lzh, &zfs_err);
 	PY_ZFS_UNLOCK(ds->rsrc.obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	if (err) {
-		set_exc_from_libzfs(&zfs_err, "zfs_send_progress() failed");
-		return NULL;
-	}
+	/*
+	 * zfs_send_progress() returns raw errno (not a libzfs error) on
+	 * failure.  Errors here typically mean no active send is in progress
+	 * on this fd; treat as (0, 0) since this is a polling function.
+	 */
+	if (err)
+		return Py_BuildValue("(KK)", 0ULL, 0ULL);
 
 	return Py_BuildValue("(KK)", (unsigned long long)written,
 			     (unsigned long long)blocks);
