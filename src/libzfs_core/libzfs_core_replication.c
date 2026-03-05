@@ -147,12 +147,6 @@ py_lzc_send(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 					err, Py_None);
 			return NULL;
 		}
-
-		err = py_log_history_impl(NULL, NULL,
-					  "zfs send -t <resume_token>%s%s %s",
-					  fromsnap ? " -i " : "",
-					  fromsnap ? fromsnap : "",
-					  snapname);
 	} else {
 		Py_BEGIN_ALLOW_THREADS
 		err = lzc_send(snapname, fromsnap, fd,
@@ -164,16 +158,24 @@ py_lzc_send(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 					err, Py_None);
 			return NULL;
 		}
-
-		err = py_log_history_impl(NULL, NULL,
-					  "zfs send%s%s %s",
-					  fromsnap ? " -i " : "",
-					  fromsnap ? fromsnap : "",
-					  snapname);
 	}
 
+#if 0
+	/*
+	 * ZFS_IOC_SEND and ZFS_IOC_SEND_NEW are registered with
+	 * allow_log = B_FALSE in the kernel, so the zfs_allow_log_key TSD
+	 * is never set after a send ioctl.  ZFS_IOC_LOG_HISTORY requires
+	 * this TSD (returning EPERM otherwise).  Additional design work is
+	 * required to support history logging for lzc send operations.
+	 */
+	err = py_log_history_impl(NULL, NULL,
+				  "zfs send%s%s %s",
+				  fromsnap ? " -i " : "",
+				  fromsnap ? fromsnap : "",
+				  snapname);
 	if (err)
 		return NULL;
+#endif
 
 	Py_RETURN_NONE;
 }
@@ -242,12 +244,21 @@ py_lzc_receive(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		return NULL;
 	}
 
+#if 0
+	/*
+	 * Non-resumable receives use the legacy ZFS_IOC_RECV ioctl which is
+	 * registered with allow_log = B_FALSE, so ZFS_IOC_LOG_HISTORY fails
+	 * with EPERM.  Resumable/raw receives use ZFS_IOC_RECV_NEW
+	 * (allow_log = B_TRUE) which already logs history in the kernel.
+	 * Additional design work is required to handle the non-resumable case.
+	 */
 	err = py_log_history_impl(NULL, NULL,
 				  "zfs receive%s %s",
 				  force ? " -F" : "",
 				  snapname);
 	if (err)
 		return NULL;
+#endif
 
 	Py_RETURN_NONE;
 }

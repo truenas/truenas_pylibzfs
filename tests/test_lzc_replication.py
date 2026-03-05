@@ -140,6 +140,7 @@ def pool_fixture():
         name=src,
         type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
     )
+    lz.open_resource(name=src).mount()
     try:
         yield lz, POOL
     finally:
