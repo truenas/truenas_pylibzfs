@@ -631,14 +631,16 @@ def test_ashift_leaf_vs_nonleaf(pool_mirror):
     top_vdev = status.storage_vdevs[0]
     assert top_vdev.vdev_type == 'mirror'
 
-    # Non-leaf mirror vdev: all three ashift fields must be None
+    # All vdevs (leaf and non-leaf) should have ashift populated
+    # The kernel populates vs_configured_ashift, vs_logical_ashift,
+    # and vs_physical_ashift for all vdev types.
     s = top_vdev.stats
-    assert s.configured_ashift is None, \
-        f'expected configured_ashift=None for mirror, got {s.configured_ashift}'
-    assert s.logical_ashift is None, \
-        f'expected logical_ashift=None for mirror, got {s.logical_ashift}'
-    assert s.physical_ashift is None, \
-        f'expected physical_ashift=None for mirror, got {s.physical_ashift}'
+    assert isinstance(s.configured_ashift, int) and s.configured_ashift >= 0, \
+        f'expected configured_ashift>=0 for mirror, got {s.configured_ashift!r}'
+    assert isinstance(s.logical_ashift, int) and s.logical_ashift >= 0, \
+        f'expected logical_ashift>=0 for mirror, got {s.logical_ashift!r}'
+    assert isinstance(s.physical_ashift, int) and s.physical_ashift >= 0, \
+        f'expected physical_ashift>=0 for mirror, got {s.physical_ashift!r}'
 
     # Leaf disk vdevs: all three ashift fields must be non-negative int
     for child in top_vdev.children:

@@ -216,10 +216,10 @@ PyStructSequence_Field struct_vdev_stats [] = {
 	{"bytes_read", "Bytes read from this vdev."},
 	{"bytes_write", "Bytes written to this vdev."},
 	{"configured_ashift", "Configured sector-size exponent (2^n bytes). "
-	                      "None for non-leaf vdevs or older ZFS versions."},
-	{"logical_ashift", "Logical ashift. None for non-leaf vdevs or older ZFS versions."},
+	                      "None on older ZFS versions."},
+	{"logical_ashift", "Logical ashift. None on older ZFS versions."},
 	{"physical_ashift", "Physical (native) ashift. "
-	                    "None for non-leaf vdevs or older ZFS versions."},
+	                    "None on older ZFS versions."},
 	{0},
 };
 
@@ -463,8 +463,8 @@ boolean_t parse_vdev_stats(vdev_stat_t *vs,
 		return B_FALSE;
 	PyStructSequence_SetItem(pyvdev, VS_BYTES_WRITE_IDX, val);
 
-	/* ashift fields: leaf-only AND require VDEV_STAT_VALID */
-	if (!has_children && VDEV_STAT_VALID(vs_configured_ashift, vsc)) {
+	/* ashift fields: require VDEV_STAT_VALID */
+	if (VDEV_STAT_VALID(vs_configured_ashift, vsc)) {
 		val = PyLong_FromUnsignedLong(vs->vs_configured_ashift);
 		if (val == NULL)
 			return B_FALSE;
