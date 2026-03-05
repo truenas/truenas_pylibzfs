@@ -1709,6 +1709,26 @@ py_lzc_wait(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	return PyBool_FromLong(waited);
 }
 
+PyDoc_STRVAR(py_lzc_send_progress__doc__,
+"send_progress(*, snapshot_name, fd) -> tuple[int, int]\n"
+"-------------------------------------------------------\n\n"
+"NOT IMPLEMENTED: lzc_send_progress() is incomplete in libzfs_core.\n\n"
+"Always raises NotImplementedError. Use ZFSSnapshot.send_progress() instead,\n"
+"which uses zfs_send_progress() from libzfs.\n\n"
+"Parameters\n"
+"----------\n"
+"snapshot_name: str, required\n"
+"    Full snapshot name, e.g. \"pool/ds@snap\".\n"
+"fd: int, required\n"
+"    The write-end file descriptor passed to send().\n\n"
+"Raises\n"
+"------\n"
+"NotImplementedError:\n"
+"    Always. lzc_send_progress() is incomplete in libzfs_core.\n"
+"ValueError:\n"
+"    snapshot_name or fd was omitted.\n"
+);
+
 PyDoc_STRVAR(py_lzc_send_space__doc__,
 "send_space(*, snapname, fromsnap=None, flags=0) -> int\n"
 "------------------------------------------------------\n\n"
@@ -1735,27 +1755,6 @@ PyDoc_STRVAR(py_lzc_send_space__doc__,
 "    - ENOENT: snapshot does not exist.\n"
 "    - EXDEV: fromsnap is not an ancestor of snapname.\n"
 "    - EACCES: encryption key not loaded for raw send.\n"
-);
-
-PyDoc_STRVAR(py_lzc_send_progress__doc__,
-"send_progress(*, fd) -> int\n"
-"---------------------------\n\n"
-"Return the number of bytes written so far on a send file descriptor.\n\n"
-"This is a non-blocking query that reads the kernel-maintained counter\n"
-"for the given send fd. It never raises an exception; an invalid fd\n"
-"simply returns 0.\n\n"
-"Parameters\n"
-"----------\n"
-"fd: int, required\n"
-"    The write-end file descriptor passed to send().\n\n"
-"Returns\n"
-"-------\n"
-"int\n"
-"    Number of bytes written so far. Returns 0 if fd is invalid.\n\n"
-"Raises\n"
-"------\n"
-"ValueError:\n"
-"    fd was omitted.\n"
 );
 
 PyDoc_STRVAR(py_lzc_send__doc__,

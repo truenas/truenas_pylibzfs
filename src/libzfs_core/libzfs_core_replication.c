@@ -1,6 +1,33 @@
 #include "libzfs_core_replication.h"
 
 PyObject *
+py_lzc_send_progress(PyObject *self, PyObject *args_unused, PyObject *kwargs)
+{
+	char *kwnames[] = { "snapshot_name", "fd", NULL };
+	const char *snapname = NULL;
+	int fd = -1;
+
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$zi",
+					 kwnames, &snapname, &fd))
+		return NULL;
+
+	if (snapname == NULL) {
+		PyErr_SetString(PyExc_ValueError, "snapshot_name is required");
+		return NULL;
+	}
+
+	if (fd == -1) {
+		PyErr_SetString(PyExc_ValueError, "fd is required");
+		return NULL;
+	}
+
+	PyErr_SetString(PyExc_NotImplementedError,
+			"lzc_send_progress() is not yet implemented in "
+			"libzfs_core; use ZFSSnapshot.send_progress() instead");
+	return NULL;
+}
+
+PyObject *
 py_lzc_send_space(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 {
 	const char *snapname = NULL;
@@ -39,35 +66,6 @@ py_lzc_send_space(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	}
 
 	return PyLong_FromUnsignedLongLong(size);
-}
-
-PyObject *
-py_lzc_send_progress(PyObject *self, PyObject *args_unused, PyObject *kwargs)
-{
-	int fd = -1;
-	uint64_t written;
-
-	char *kwnames[] = { "fd", NULL };
-
-	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$i",
-					 kwnames, &fd))
-		return NULL;
-
-	if (fd == -1) {
-		PyErr_SetString(PyExc_ValueError, "fd is required");
-		return NULL;
-	}
-
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.send_progress", "i",
-			fd) < 0) {
-		return NULL;
-	}
-
-	Py_BEGIN_ALLOW_THREADS
-	written = lzc_send_progress(fd);
-	Py_END_ALLOW_THREADS
-
-	return PyLong_FromUnsignedLongLong(written);
 }
 
 PyObject *
