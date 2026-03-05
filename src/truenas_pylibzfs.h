@@ -6,6 +6,13 @@
 #include "truenas_pylibzfs_core.h"
 #include "truenas_pylibzfs_crypto.h"
 
+/*
+ * Evaluate to true when a PyObject argument is absent (not passed) or
+ * was explicitly passed as None.  Use this instead of a bare == NULL
+ * check whenever the Python-level default is None.
+ */
+#define NULL_OR_NONE(x) ((x) == NULL || (x) == Py_None)
+
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
 	ZFS_TYPE_SNAPSHOT
