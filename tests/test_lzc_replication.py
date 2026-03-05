@@ -540,6 +540,9 @@ class TestReceiveFlags:
             s.seek(0)
             lzc.receive(snapname=recv1, fd=s.fileno())
 
+        # Mount the received filesystem before writing data to it
+        lz.open_resource(name=recv_fs).mount()
+
         # Write data to recv to put it in a "modified after snap1" state
         _write_data(f"/{recv_fs}", 256 * 1024, filename="extra.dat")
 
@@ -641,7 +644,10 @@ class TestSendResume:
         with tempfile.TemporaryFile() as s:
             lzc.send(snapname=snap, fd=s.fileno(), resume_token=token)
             s.seek(0)
-            lzc.receive(snapname=recv_snap, fd=s.fileno(), resumable=True)
+            try:
+                lzc.receive(snapname=recv_snap, fd=s.fileno(), resumable=True)
+            except lzc.ZFSCoreException as e:
+                pytest.fail(f"resume receive failed: code={e.code} {e}")
 
         ds = lz.open_resource(name=recv_snap)
         assert ds is not None
