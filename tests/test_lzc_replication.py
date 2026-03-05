@@ -644,12 +644,17 @@ class TestSendResume:
         if token == "-":
             pytest.skip("no resume token after partial receive (stream too small)")
 
-        # Resume the send from where we left off
+        # Resume the send from where we left off.
+        # force=True is required: resuming a full (non-incremental) send into
+        # a pre-existing filesystem requires the force flag to confirm the
+        # kernel that we intend to overwrite it (ZFS_ERR_RESUME_EXISTS / EEXIST
+        # is returned otherwise).
         with tempfile.TemporaryFile() as s:
             lzc.send(snapname=snap, fd=s.fileno(), resume_token=token)
             s.seek(0)
             try:
-                lzc.receive(snapname=recv_snap, fd=s.fileno(), resumable=True)
+                lzc.receive(snapname=recv_snap, fd=s.fileno(),
+                            resumable=True, force=True)
             except lzc.ZFSCoreException as e:
                 pytest.fail(f"resume receive failed: code={e.code} {e}")
 
