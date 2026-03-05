@@ -5,7 +5,7 @@ Tests cover:
   - SendFlags enum values
   - send_space: size estimation, incremental vs full, error handling
   - send + receive: full-stream and incremental round-trips
-  - send_progress: byte counter during an active send
+  - send_progress: byte/block counter on ZFSSnapshot during an active send
   - receive flags: resumable, force, props
   - send(resume_token=...): interrupted receive resumed to completion
   - Argument validation for all functions
@@ -399,9 +399,10 @@ class TestSendReceiveIncremental:
 # ---------------------------------------------------------------------------
 
 class TestSendProgress:
-    def test_progress_returns_int(self, snapped_pool):
-        """send_progress must return an int even for a zero-bytes fd."""
-        _, _, snap = snapped_pool
+    def test_progress_returns_tuple(self, snapped_pool):
+        """send_progress must return a (bytes, blocks) tuple."""
+        lz, _, snap = snapped_pool
+        snap_obj = lz.open_resource(name=snap)
         r, w = os.pipe()
         errors = []
 
@@ -416,7 +417,6 @@ class TestSendProgress:
         t = threading.Thread(target=_send, daemon=True)
         t.start()
 
-        # Drain and sample progress
         samples = []
         buf = b""
         while True:
@@ -427,18 +427,21 @@ class TestSendProgress:
             if not chunk:
                 break
             buf += chunk
-            samples.append(lzc.send_progress(fd=w))
+            samples.append(snap_obj.send_progress(fd=w))
 
         os.close(r)
         t.join(timeout=30)
         assert not errors, f"send raised: {errors[0]}"
         for s in samples:
-            assert isinstance(s, int)
-            assert s >= 0
+            assert isinstance(s, tuple)
+            assert len(s) == 2
+            assert s[0] >= 0
+            assert s[1] >= 0
 
     def test_progress_increases_during_large_send(self, large_snapped_pool):
-        """For a large send, progress must reach > 0 at some point."""
-        _, pool, snap = large_snapped_pool
+        """For a large send, bytes_written must reach > 0 at some point."""
+        lz, pool, snap = large_snapped_pool
+        snap_obj = lz.open_resource(name=snap)
         r, w = os.pipe()
         errors   = []
         progress = []
@@ -464,26 +467,30 @@ class TestSendProgress:
             if not chunk:
                 break
             buf += chunk
-            p = lzc.send_progress(fd=w)
+            p = snap_obj.send_progress(fd=w)
             progress.append(p)
 
         os.close(r)
         t.join(timeout=60)
         assert not errors, f"send raised: {errors[0]}"
-        # At least one sample must be > 0 (the kernel counter should have moved)
-        assert any(p > 0 for p in progress), (
+        # At least one sample must have bytes_written > 0
+        assert any(p[0] > 0 for p in progress), (
             f"send_progress never exceeded 0; samples: {progress[:10]}"
         )
 
-    def test_progress_missing_fd_raises(self):
+    def test_progress_missing_fd_raises(self, snapped_pool):
+        """Omitting fd must raise ValueError."""
+        lz, _, snap = snapped_pool
+        snap_obj = lz.open_resource(name=snap)
         with pytest.raises(ValueError):
-            lzc.send_progress()
+            snap_obj.send_progress()
 
-    def test_progress_invalid_fd_returns_zero(self):
-        """Closed / invalid fd must not raise — lzc_send_progress returns 0."""
-        # fd 99999 is almost certainly not open
-        result = lzc.send_progress(fd=99999)
-        assert isinstance(result, int)
+    def test_progress_positional_arg_raises(self, snapped_pool):
+        """Positional argument must raise TypeError (keyword-only)."""
+        lz, _, snap = snapped_pool
+        snap_obj = lz.open_resource(name=snap)
+        with pytest.raises(TypeError):
+            snap_obj.send_progress(3)  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -705,14 +712,26 @@ class TestArgValidation:
         with pytest.raises(TypeError):
             lzc.send_space("pool/ds@snap")  # type: ignore[call-arg]
 
-    # ---- send_progress ----------------------------------------------------
+    # ---- send_progress (lzc stub) -----------------------------------------
     def test_send_progress_no_args(self):
         with pytest.raises(ValueError):
             lzc.send_progress()
 
+    def test_send_progress_missing_fd(self):
+        with pytest.raises(ValueError):
+            lzc.send_progress(snapshot_name="pool/ds@snap")
+
+    def test_send_progress_missing_snapshot_name(self):
+        with pytest.raises(ValueError):
+            lzc.send_progress(fd=1)
+
+    def test_send_progress_raises_not_implemented(self):
+        with pytest.raises(NotImplementedError):
+            lzc.send_progress(snapshot_name="pool/ds@snap", fd=1)
+
     def test_send_progress_positional_arg(self):
         with pytest.raises(TypeError):
-            lzc.send_progress(3)  # type: ignore[call-arg]
+            lzc.send_progress("pool/ds@snap", 1)  # type: ignore[call-arg]
 
     # ---- send -------------------------------------------------------------
     def test_send_no_args(self):
