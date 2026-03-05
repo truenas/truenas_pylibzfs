@@ -62,11 +62,15 @@ def _destroy_pool(lz):
         pass
 
 
-def _write_data(mountpoint, size, filename="payload.dat"):
-    """Write *size* bytes to *mountpoint*/*filename*, overwriting if present."""
+def _write_data(mountpoint, size, filename="payload.dat", random=False):
+    """Write *size* bytes to *mountpoint*/*filename*, overwriting if present.
+
+    Pass random=True to write incompressible data (needed when the test
+    relies on a large send stream that must not be deflated by ZFS LZ4).
+    """
     path = os.path.join(mountpoint, filename)
+    chunk = os.urandom(65536) if random else b"Z" * 65536
     with open(path, "wb") as f:
-        chunk = b"Z" * 65536
         written = 0
         while written < size:
             n = min(len(chunk), size - written)
