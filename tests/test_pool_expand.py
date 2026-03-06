@@ -48,6 +48,7 @@ def pool_raidz():
         ],
         force=True,
     )
+    lz.open_resource(name=POOL_NAME).mount()
     pool = lz.open_pool(name=POOL_NAME)
     try:
         yield lz, pool
@@ -65,8 +66,7 @@ def pool_after_expand(pool_raidz):
 
     # Write some data so there is something to reflow
     chunk = os.urandom(1 << 20)  # 1 MB
-    mountpoint = f'/{POOL_NAME}'
-    with open(os.path.join(mountpoint, 'testfile'), 'wb') as f:
+    with open(f'/{POOL_NAME}/testfile', 'wb') as f:
         for _ in range(4):
             f.write(chunk)
 
