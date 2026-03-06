@@ -62,13 +62,13 @@ static PyStructSequence_Desc struct_zpool_expand_desc = {
 };
 
 /* Field index constants — must stay in sync with struct_zpool_expand_fields[] */
-#define EXPAND_STATE_IDX		0
-#define EXPAND_EXPANDING_VDEV_IDX	1
-#define EXPAND_START_TIME_IDX		2
-#define EXPAND_END_TIME_IDX		3
-#define EXPAND_TO_REFLOW_IDX		4
-#define EXPAND_REFLOWED_IDX		5
-#define EXPAND_WAITING_RESILVER_IDX	6
+#define EXPAND_STATE_IDX			0
+#define EXPAND_EXPANDING_VDEV_IDX		1
+#define EXPAND_START_TIME_IDX			2
+#define EXPAND_END_TIME_IDX			3
+#define EXPAND_TO_REFLOW_IDX			4
+#define EXPAND_REFLOWED_IDX			5
+#define EXPAND_WAITING_RESILVER_IDX		6
 
 /* -------------------------------------------------------------------------
  * Internal helpers
