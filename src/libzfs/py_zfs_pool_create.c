@@ -1116,7 +1116,7 @@ build_pool_root_nvlist(
 	Py_ssize_t idx;
 	Py_ssize_t i;
 
-	storage_n = PyObject_Length(storage_seq);
+	storage_n = storage_seq != NULL ? PyObject_Length(storage_seq) : 0;
 	cache_n = cache_seq != NULL ? PyObject_Length(cache_seq) : 0;
 	log_n = log_seq != NULL ? PyObject_Length(log_seq) : 0;
 	special_n = special_seq != NULL ? PyObject_Length(special_seq) : 0;
@@ -1488,9 +1488,18 @@ pool_get_storage_info(zpool_handle_t *zhp)
 
 		(void) strlcpy(info.type, type_str, sizeof (info.type));
 
-		info.parity = 0;
-		(void) nvlist_lookup_uint64(child, ZPOOL_CONFIG_NPARITY,
-		    &info.parity);
+		/*
+		 * Mirrors do not store ZPOOL_CONFIG_NPARITY in the config
+		 * nvlist; set parity explicitly.  raidz/draid read it from
+		 * the nvlist; everything else (disk/file stripe) stays 0.
+		 */
+		if (strcmp(info.type, VDEV_TYPE_MIRROR) == 0) {
+			info.parity = 1;
+		} else {
+			info.parity = 0;
+			(void) nvlist_lookup_uint64(child, ZPOOL_CONFIG_NPARITY,
+			    &info.parity);
+		}
 
 		info.nchildren = 0;
 		if (nvlist_lookup_nvlist_array(child, ZPOOL_CONFIG_CHILDREN,
@@ -1790,6 +1799,10 @@ py_zfs_do_add_vdevs(py_zfs_pool_t *pool, py_zfs_add_vdevs_args_t *ava)
 	err = zpool_add(pool->zhp, root_nvl, !ava->force);
 	if (err)
 		py_get_zfs_error(pool->pylibzfsp->lzh, &zfs_err);
+	else {
+		boolean_t missing;
+		(void) zpool_refresh_stats(pool->zhp, &missing);
+	}
 	PY_ZFS_UNLOCK(pool->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
