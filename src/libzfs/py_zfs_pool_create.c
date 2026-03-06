@@ -1514,15 +1514,45 @@ pool_get_storage_info(zpool_handle_t *zhp)
 }
 
 /*
- * Validate a sequence of metadata vdevs (special or dedup):
- *   - dRAID is never permitted
- *   - parity must be >= existing pool storage parity (when existing->valid)
- *
- * context is the argument name for error messages (e.g. "special_vdevs").
+ * Reject dRAID in a metadata vdev sequence (special or dedup).
+ * This check always runs regardless of force=True.
  * Returns B_TRUE on success, B_FALSE with exception set on failure.
  */
 static boolean_t
-validate_metadata_vdevs(PyObject *seq, const char *context,
+validate_metadata_no_draid(PyObject *seq, const char *context)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+
+	iterator = PyObject_GetIter(seq);
+	if (iterator == NULL)
+		return (B_FALSE);
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+		if (is_draid_type(py_type)) {
+			PyErr_Format(PyExc_ValueError,
+			    "%s: dRAID is not permitted for metadata vdevs",
+			    context);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+		Py_DECREF(spec);
+	}
+
+	Py_DECREF(iterator);
+	return (B_TRUE);
+}
+
+/*
+ * Validate parity of metadata vdevs (special or dedup) against the existing
+ * pool storage parity.  Only called when force=False and existing->valid.
+ * Returns B_TRUE on success, B_FALSE with exception set on failure.
+ */
+static boolean_t
+validate_metadata_parity(PyObject *seq, const char *context,
     const pool_storage_info_t *existing)
 {
 	PyObject *iterator = NULL;
@@ -1536,31 +1566,17 @@ validate_metadata_vdevs(PyObject *seq, const char *context,
 
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-
-		if (is_draid_type(py_type)) {
+		parity = vdev_parity_level(py_type);
+		if (parity < (int)existing->parity) {
 			PyErr_Format(PyExc_ValueError,
-			    "%s: dRAID is not permitted for metadata vdevs",
-			    context);
+			    "%s: vdev type \"%U\" (parity %d) provides less "
+			    "redundancy than existing pool storage (parity %llu)",
+			    context, py_type, parity,
+			    (unsigned long long)existing->parity);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return (B_FALSE);
 		}
-
-		if (existing->valid) {
-			parity = vdev_parity_level(py_type);
-			if (parity < (int)existing->parity) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: vdev type \"%U\" (parity %d) "
-				    "provides less redundancy than existing "
-				    "pool storage (parity %llu)",
-				    context, py_type, parity,
-				    (unsigned long long)existing->parity);
-				Py_DECREF(spec);
-				Py_DECREF(iterator);
-				return (B_FALSE);
-			}
-		}
-
 		Py_DECREF(spec);
 	}
 
@@ -1657,27 +1673,25 @@ validate_storage_vdevs_match(PyObject *storage_seq,
 }
 
 /*
- * Top-level topology validation for add_vdevs().
+ * Structural validation for add_vdevs() — always runs regardless of force.
  *
- * Checks (in order):
+ * Checks:
  *   1. At least one category is non-empty
  *   2. cache/spare are leaf-only
  *   3. log vdevs are leaf or mirror
- *   4. special/dedup carry no dRAID and sufficient parity
- *   5. New storage vdevs match the existing pool geometry
+ *   4. special/dedup carry no dRAID (a hard constraint, not a pool-match rule)
  *
  * All seq pointers are validated PySequence_Fast sequences or NULL.
  * Returns B_TRUE on success, B_FALSE with a Python exception set on failure.
  */
 static boolean_t
-validate_add_topology(
+validate_add_structure(
     PyObject *storage_seq,
     PyObject *cache_seq,
     PyObject *log_seq,
     PyObject *special_seq,
     PyObject *dedup_seq,
-    PyObject *spare_seq,
-    const pool_storage_info_t *existing)
+    PyObject *spare_seq)
 {
 	Py_ssize_t storage_n = storage_seq != NULL ?
 	    PyObject_Length(storage_seq) : 0;
@@ -1713,11 +1727,49 @@ validate_add_topology(
 		return (B_FALSE);
 
 	if (special_n > 0 &&
-	    !validate_metadata_vdevs(special_seq, "special_vdevs", existing))
+	    !validate_metadata_no_draid(special_seq, "special_vdevs"))
 		return (B_FALSE);
 
 	if (dedup_n > 0 &&
-	    !validate_metadata_vdevs(dedup_seq, "dedup_vdevs", existing))
+	    !validate_metadata_no_draid(dedup_seq, "dedup_vdevs"))
+		return (B_FALSE);
+
+	return (B_TRUE);
+}
+
+/*
+ * Pool-match validation for add_vdevs() — skipped when force=True.
+ *
+ * Checks:
+ *   1. special/dedup parity >= existing pool storage parity
+ *   2. New storage vdevs match the existing pool geometry
+ *
+ * All seq pointers are validated PySequence_Fast sequences or NULL.
+ * Returns B_TRUE on success, B_FALSE with a Python exception set on failure.
+ */
+static boolean_t
+validate_add_topology(
+    PyObject *storage_seq,
+    PyObject *special_seq,
+    PyObject *dedup_seq,
+    const pool_storage_info_t *existing)
+{
+	Py_ssize_t storage_n = storage_seq != NULL ?
+	    PyObject_Length(storage_seq) : 0;
+	Py_ssize_t special_n = special_seq != NULL ?
+	    PyObject_Length(special_seq) : 0;
+	Py_ssize_t dedup_n = dedup_seq != NULL ?
+	    PyObject_Length(dedup_seq) : 0;
+
+	if (storage_n < 0 || special_n < 0 || dedup_n < 0)
+		return (B_FALSE);
+
+	if (special_n > 0 && existing->valid &&
+	    !validate_metadata_parity(special_seq, "special_vdevs", existing))
+		return (B_FALSE);
+
+	if (dedup_n > 0 && existing->valid &&
+	    !validate_metadata_parity(dedup_seq, "dedup_vdevs", existing))
 		return (B_FALSE);
 
 	if (storage_n > 0 && existing->valid &&
@@ -1772,16 +1824,21 @@ py_zfs_do_add_vdevs(py_zfs_pool_t *pool, py_zfs_add_vdevs_args_t *ava)
 	    "spare_vdevs", &spare_seq))
 		goto fail;
 
+	/* Structural checks always run regardless of force */
+	if (!validate_add_structure(storage_seq, cache_seq, log_seq,
+	    special_seq, dedup_seq, spare_seq))
+		goto fail;
+
 	if (!ava->force) {
-		/* Read existing pool geometry before topology validation */
+		/* Pool-match checks: read existing geometry then validate */
 		Py_BEGIN_ALLOW_THREADS
 		PY_ZFS_LOCK(pool->pylibzfsp);
 		existing = pool_get_storage_info(pool->zhp);
 		PY_ZFS_UNLOCK(pool->pylibzfsp);
 		Py_END_ALLOW_THREADS
 
-		if (!validate_add_topology(storage_seq, cache_seq, log_seq,
-		    special_seq, dedup_seq, spare_seq, &existing))
+		if (!validate_add_topology(storage_seq, special_seq,
+		    dedup_seq, &existing))
 			goto fail;
 	}
 
