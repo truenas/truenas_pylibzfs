@@ -1116,7 +1116,7 @@ build_pool_root_nvlist(
 	Py_ssize_t idx;
 	Py_ssize_t i;
 
-	storage_n = PyObject_Length(storage_seq);
+	storage_n = storage_seq != NULL ? PyObject_Length(storage_seq) : 0;
 	cache_n = cache_seq != NULL ? PyObject_Length(cache_seq) : 0;
 	log_n = log_seq != NULL ? PyObject_Length(log_seq) : 0;
 	special_n = special_seq != NULL ? PyObject_Length(special_seq) : 0;
@@ -1408,6 +1408,492 @@ fail:
 	Py_XDECREF(dedup_seq);
 	Py_XDECREF(spare_seq);
 	return NULL;
+}
+
+/* --------------------------------------------------------------------------
+ * add_vdevs() support — pool storage info + topology validation
+ * -------------------------------------------------------------------------- */
+
+/*
+ * Snapshot of an existing pool's storage tier geometry.
+ * Used by validate_add_topology() to enforce that new storage vdevs
+ * match the existing pool layout.
+ */
+typedef struct {
+	char type[64];		/* kernel vdev type string */
+	uint64_t parity;	/* nparity for raidz/draid; 0 for mirror/disk */
+	uint64_t nchildren;	/* child count; 0 for leaf vdevs */
+	boolean_t valid;	/* B_FALSE if pool has no storage vdevs */
+} pool_storage_info_t;
+
+/*
+ * Walk the pool's vdev tree config and extract geometry of the first storage
+ * (non-log, non-special, non-dedup) child vdev.
+ *
+ * Must be called under PY_ZFS_LOCK.  zpool_get_config() returns a non-owning
+ * pointer that is valid only while the lock is held.
+ */
+static pool_storage_info_t
+pool_get_storage_info(zpool_handle_t *zhp)
+{
+	pool_storage_info_t info;
+	nvlist_t *config = NULL;
+	nvlist_t *vdev_tree = NULL;
+	nvlist_t **children = NULL;
+	nvlist_t *child = NULL;
+	uint_t nchildren = 0;
+	uint_t i;
+	const char *type_str = NULL;
+	uint64_t is_log = 0;
+	const char *alloc_bias = NULL;
+	nvlist_t **grandchildren = NULL;
+	uint_t ngrandchildren = 0;
+
+	memset(&info, 0, sizeof (info));
+	info.valid = B_FALSE;
+
+	config = zpool_get_config(zhp, NULL);
+	if (config == NULL)
+		return (info);
+
+	if (nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &vdev_tree) != 0)
+		return (info);
+
+	if (nvlist_lookup_nvlist_array(vdev_tree, ZPOOL_CONFIG_CHILDREN,
+	    &children, &nchildren) != 0)
+		return (info);
+
+	for (i = 0; i < nchildren; i++) {
+		child = children[i];
+
+		/* Skip log vdevs */
+		is_log = 0;
+		(void) nvlist_lookup_uint64(child, ZPOOL_CONFIG_IS_LOG,
+		    &is_log);
+		if (is_log)
+			continue;
+
+		/* Skip special / dedup vdevs */
+		alloc_bias = NULL;
+		(void) nvlist_lookup_string(child,
+		    ZPOOL_CONFIG_ALLOCATION_BIAS, &alloc_bias);
+		if (alloc_bias != NULL)
+			continue;
+
+		/* First storage vdev found */
+		if (nvlist_lookup_string(child, ZPOOL_CONFIG_TYPE,
+		    &type_str) != 0)
+			break;
+
+		(void) strlcpy(info.type, type_str, sizeof (info.type));
+
+		/*
+		 * Mirrors do not store ZPOOL_CONFIG_NPARITY in the config
+		 * nvlist; set parity explicitly.  raidz/draid read it from
+		 * the nvlist; everything else (disk/file stripe) stays 0.
+		 */
+		if (strcmp(info.type, VDEV_TYPE_MIRROR) == 0) {
+			info.parity = 1;
+		} else {
+			info.parity = 0;
+			(void) nvlist_lookup_uint64(child, ZPOOL_CONFIG_NPARITY,
+			    &info.parity);
+		}
+
+		info.nchildren = 0;
+		if (nvlist_lookup_nvlist_array(child, ZPOOL_CONFIG_CHILDREN,
+		    &grandchildren, &ngrandchildren) == 0)
+			info.nchildren = ngrandchildren;
+
+		info.valid = B_TRUE;
+		break;
+	}
+
+	return (info);
+}
+
+/*
+ * Reject dRAID in a metadata vdev sequence (special or dedup).
+ * This check always runs regardless of force=True.
+ * Returns B_TRUE on success, B_FALSE with exception set on failure.
+ */
+static boolean_t
+validate_metadata_no_draid(PyObject *seq, const char *context)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+
+	iterator = PyObject_GetIter(seq);
+	if (iterator == NULL)
+		return (B_FALSE);
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+		if (is_draid_type(py_type)) {
+			PyErr_Format(PyExc_ValueError,
+			    "%s: dRAID is not permitted for metadata vdevs",
+			    context);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+		Py_DECREF(spec);
+	}
+
+	Py_DECREF(iterator);
+	return (B_TRUE);
+}
+
+/*
+ * Validate parity of metadata vdevs (special or dedup) against the existing
+ * pool storage parity.  Only called when force=False and existing->valid.
+ * Returns B_TRUE on success, B_FALSE with exception set on failure.
+ */
+static boolean_t
+validate_metadata_parity(PyObject *seq, const char *context,
+    const pool_storage_info_t *existing)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+	int parity;
+
+	iterator = PyObject_GetIter(seq);
+	if (iterator == NULL)
+		return (B_FALSE);
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+		parity = vdev_parity_level(py_type);
+		if (parity < (int)existing->parity) {
+			PyErr_Format(PyExc_ValueError,
+			    "%s: vdev type \"%U\" (parity %d) provides less "
+			    "redundancy than existing pool storage (parity %llu)",
+			    context, py_type, parity,
+			    (unsigned long long)existing->parity);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+		Py_DECREF(spec);
+	}
+
+	Py_DECREF(iterator);
+	return (B_TRUE);
+}
+
+/*
+ * Validate that each new storage vdev spec matches the existing pool's
+ * storage geometry: same kernel type, same parity, same child count.
+ *
+ * Only called when storage_seq is non-empty and existing->valid is B_TRUE.
+ * Returns B_TRUE on success, B_FALSE with exception set on failure.
+ */
+static boolean_t
+validate_storage_vdevs_match(PyObject *storage_seq,
+    const pool_storage_info_t *existing)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+	PyObject *py_children = NULL;
+	const char *ktype = NULL;
+	uint64_t kparity = 0;
+	Py_ssize_t nch = 0;
+
+	iterator = PyObject_GetIter(storage_seq);
+	if (iterator == NULL)
+		return (B_FALSE);
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+		py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
+
+		/* Map Python vdev type to kernel type string + parity */
+		if (is_mirror_type(py_type)) {
+			ktype = VDEV_TYPE_MIRROR;
+			kparity = 1;
+		} else if (is_raidz_type(py_type)) {
+			ktype = VDEV_TYPE_RAIDZ;
+			kparity = (uint64_t)vdev_parity_level(py_type);
+		} else if (is_draid_type(py_type)) {
+			ktype = VDEV_TYPE_DRAID;
+			kparity = (uint64_t)vdev_parity_level(py_type);
+		} else if (PyUnicode_CompareWithASCIIString(py_type, "disk") == 0) {
+			ktype = VDEV_TYPE_DISK;
+			kparity = 0;
+		} else {
+			ktype = VDEV_TYPE_FILE;
+			kparity = 0;
+		}
+
+		nch = (py_children != Py_None) ? PyTuple_Size(py_children) : 0;
+
+		if (strcmp(ktype, existing->type) != 0) {
+			PyErr_Format(PyExc_ValueError,
+			    "storage_vdevs: new vdev type \"%U\" "
+			    "(kernel type \"%s\") does not match "
+			    "existing pool storage type \"%s\"",
+			    py_type, ktype, existing->type);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+
+		if (kparity != existing->parity) {
+			PyErr_Format(PyExc_ValueError,
+			    "storage_vdevs: new vdev \"%U\" parity %llu "
+			    "does not match existing pool storage parity %llu",
+			    py_type,
+			    (unsigned long long)kparity,
+			    (unsigned long long)existing->parity);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+
+		if ((uint64_t)nch != existing->nchildren) {
+			PyErr_Format(PyExc_ValueError,
+			    "storage_vdevs: new vdev \"%U\" has %zd children "
+			    "but existing pool storage has %llu children",
+			    py_type, nch,
+			    (unsigned long long)existing->nchildren);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+
+		Py_DECREF(spec);
+	}
+
+	Py_DECREF(iterator);
+	return (B_TRUE);
+}
+
+/*
+ * Structural validation for add_vdevs() — always runs regardless of force.
+ *
+ * Checks:
+ *   1. At least one category is non-empty
+ *   2. cache/spare are leaf-only
+ *   3. log vdevs are leaf or mirror
+ *   4. special/dedup carry no dRAID (a hard constraint, not a pool-match rule)
+ *
+ * All seq pointers are validated PySequence_Fast sequences or NULL.
+ * Returns B_TRUE on success, B_FALSE with a Python exception set on failure.
+ */
+static boolean_t
+validate_add_structure(
+    PyObject *storage_seq,
+    PyObject *cache_seq,
+    PyObject *log_seq,
+    PyObject *special_seq,
+    PyObject *dedup_seq,
+    PyObject *spare_seq)
+{
+	Py_ssize_t storage_n = storage_seq != NULL ?
+	    PyObject_Length(storage_seq) : 0;
+	Py_ssize_t cache_n = cache_seq != NULL ?
+	    PyObject_Length(cache_seq) : 0;
+	Py_ssize_t log_n = log_seq != NULL ?
+	    PyObject_Length(log_seq) : 0;
+	Py_ssize_t special_n = special_seq != NULL ?
+	    PyObject_Length(special_seq) : 0;
+	Py_ssize_t dedup_n = dedup_seq != NULL ?
+	    PyObject_Length(dedup_seq) : 0;
+	Py_ssize_t spare_n = spare_seq != NULL ?
+	    PyObject_Length(spare_seq) : 0;
+
+	if (storage_n < 0 || cache_n < 0 || log_n < 0 ||
+	    special_n < 0 || dedup_n < 0 || spare_n < 0)
+		return (B_FALSE);
+
+	if (storage_n == 0 && cache_n == 0 && log_n == 0 &&
+	    special_n == 0 && dedup_n == 0 && spare_n == 0) {
+		PyErr_SetString(PyExc_ValueError,
+		    "add_vdevs: at least one vdev category must be non-empty");
+		return (B_FALSE);
+	}
+
+	if (cache_seq != NULL && !validate_all_leaf(cache_seq, "cache_vdevs"))
+		return (B_FALSE);
+
+	if (spare_seq != NULL && !validate_all_leaf(spare_seq, "spare_vdevs"))
+		return (B_FALSE);
+
+	if (log_seq != NULL && !validate_log_vdevs(log_seq))
+		return (B_FALSE);
+
+	if (special_n > 0 &&
+	    !validate_metadata_no_draid(special_seq, "special_vdevs"))
+		return (B_FALSE);
+
+	if (dedup_n > 0 &&
+	    !validate_metadata_no_draid(dedup_seq, "dedup_vdevs"))
+		return (B_FALSE);
+
+	return (B_TRUE);
+}
+
+/*
+ * Pool-match validation for add_vdevs() — skipped when force=True.
+ *
+ * Checks:
+ *   1. special/dedup parity >= existing pool storage parity
+ *   2. New storage vdevs match the existing pool geometry
+ *
+ * All seq pointers are validated PySequence_Fast sequences or NULL.
+ * Returns B_TRUE on success, B_FALSE with a Python exception set on failure.
+ */
+static boolean_t
+validate_add_topology(
+    PyObject *storage_seq,
+    PyObject *special_seq,
+    PyObject *dedup_seq,
+    const pool_storage_info_t *existing)
+{
+	Py_ssize_t storage_n = storage_seq != NULL ?
+	    PyObject_Length(storage_seq) : 0;
+	Py_ssize_t special_n = special_seq != NULL ?
+	    PyObject_Length(special_seq) : 0;
+	Py_ssize_t dedup_n = dedup_seq != NULL ?
+	    PyObject_Length(dedup_seq) : 0;
+
+	if (storage_n < 0 || special_n < 0 || dedup_n < 0)
+		return (B_FALSE);
+
+	if (special_n > 0 && existing->valid &&
+	    !validate_metadata_parity(special_seq, "special_vdevs", existing))
+		return (B_FALSE);
+
+	if (dedup_n > 0 && existing->valid &&
+	    !validate_metadata_parity(dedup_seq, "dedup_vdevs", existing))
+		return (B_FALSE);
+
+	if (storage_n > 0 && existing->valid &&
+	    !validate_storage_vdevs_match(storage_seq, existing))
+		return (B_FALSE);
+
+	return (B_TRUE);
+}
+
+/*
+ * py_zfs_do_add_vdevs() — core implementation of ZFSPool.add_vdevs().
+ *
+ * Called from the Python wrapper in py_zfs_pool.c.
+ */
+PyObject *
+py_zfs_do_add_vdevs(py_zfs_pool_t *pool, py_zfs_add_vdevs_args_t *ava)
+{
+	pylibzfs_state_t *state = py_get_module_state(pool->pylibzfsp);
+	PyObject *storage_seq = NULL;
+	PyObject *cache_seq = NULL;
+	PyObject *log_seq = NULL;
+	PyObject *special_seq = NULL;
+	PyObject *dedup_seq = NULL;
+	PyObject *spare_seq = NULL;
+	nvlist_t *root_nvl = NULL;
+	pool_storage_info_t existing;
+	py_zfs_error_t zfs_err;
+	int err;
+
+	/* Validate and normalise all vdev lists */
+	if (!validate_vdev_list(state, ava->storage_vdevs,
+	    "storage_vdevs", &storage_seq))
+		goto fail;
+
+	if (!validate_vdev_list(state, ava->cache_vdevs,
+	    "cache_vdevs", &cache_seq))
+		goto fail;
+
+	if (!validate_vdev_list(state, ava->log_vdevs,
+	    "log_vdevs", &log_seq))
+		goto fail;
+
+	if (!validate_vdev_list(state, ava->special_vdevs,
+	    "special_vdevs", &special_seq))
+		goto fail;
+
+	if (!validate_vdev_list(state, ava->dedup_vdevs,
+	    "dedup_vdevs", &dedup_seq))
+		goto fail;
+
+	if (!validate_vdev_list(state, ava->spare_vdevs,
+	    "spare_vdevs", &spare_seq))
+		goto fail;
+
+	/* Structural checks always run regardless of force */
+	if (!validate_add_structure(storage_seq, cache_seq, log_seq,
+	    special_seq, dedup_seq, spare_seq))
+		goto fail;
+
+	if (!ava->force) {
+		/* Pool-match checks: read existing geometry then validate */
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(pool->pylibzfsp);
+		existing = pool_get_storage_info(pool->zhp);
+		PY_ZFS_UNLOCK(pool->pylibzfsp);
+		Py_END_ALLOW_THREADS
+
+		if (!validate_add_topology(storage_seq, special_seq,
+		    dedup_seq, &existing))
+			goto fail;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.add_vdevs", "O",
+	    pool->name) < 0)
+		goto fail;
+
+	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
+	    special_seq, dedup_seq, spare_seq);
+	if (root_nvl == NULL)
+		goto fail;
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(pool->pylibzfsp);
+	err = zpool_add(pool->zhp, root_nvl, !ava->force);
+	if (err)
+		py_get_zfs_error(pool->pylibzfsp->lzh, &zfs_err);
+	else {
+		boolean_t missing;
+		(void) zpool_refresh_stats(pool->zhp, &missing);
+	}
+	PY_ZFS_UNLOCK(pool->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	fnvlist_free(root_nvl);
+	root_nvl = NULL;
+
+	Py_XDECREF(storage_seq);
+	Py_XDECREF(cache_seq);
+	Py_XDECREF(log_seq);
+	Py_XDECREF(special_seq);
+	Py_XDECREF(dedup_seq);
+	Py_XDECREF(spare_seq);
+
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zpool_add() failed");
+		return (NULL);
+	}
+
+	err = py_log_history_fmt(pool->pylibzfsp, "zpool add%s %s",
+	    ava->force ? " -f" : "", zpool_get_name(pool->zhp));
+	if (err)
+		return (NULL);
+
+	Py_RETURN_NONE;
+
+fail:
+	fnvlist_free(root_nvl);
+	Py_XDECREF(storage_seq);
+	Py_XDECREF(cache_seq);
+	Py_XDECREF(log_seq);
+	Py_XDECREF(special_seq);
+	Py_XDECREF(dedup_seq);
+	Py_XDECREF(spare_seq);
+	return (NULL);
 }
 
 /* --------------------------------------------------------------------------
