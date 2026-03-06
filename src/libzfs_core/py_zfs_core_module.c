@@ -1,5 +1,6 @@
 #include "../truenas_pylibzfs.h"
 #include "lua_channel_programs.h"
+#include "libzfs_core_replication.h"
 
 typedef struct {
 	PyObject *zc_exc;
@@ -143,7 +144,6 @@ void setup_zfs_core_exception(PyObject *module)
 	Py_DECREF(errno_mod);
 }
 
-static
 void set_zfscore_exc(PyObject *module,
 		     const char *msg,
 		     int code,
@@ -1709,6 +1709,160 @@ py_lzc_wait(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	return PyBool_FromLong(waited);
 }
 
+PyDoc_STRVAR(py_lzc_send_progress__doc__,
+"send_progress(*, snapshot_name, fd) -> tuple[int, int]\n"
+"-------------------------------------------------------\n\n"
+"Return progress of an active send operation on the given file descriptor.\n\n"
+"Parameters\n"
+"----------\n"
+"snapshot_name: str, required\n"
+"    Full snapshot name, e.g. \"pool/ds@snap\".\n"
+"fd: int, required\n"
+"    The write-end file descriptor passed to send().\n\n"
+"Returns\n"
+"-------\n"
+"tuple[int, int]\n"
+"    (bytes_written, blocks_visited) counters from the kernel.\n"
+"    Returns (0, 0) when no active send is in flight on the fd.\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    snapshot_name or fd was omitted.\n"
+);
+
+PyDoc_STRVAR(py_lzc_send_space__doc__,
+"send_space(*, snapname, fromsnap=None, flags=0) -> int\n"
+"------------------------------------------------------\n\n"
+"Estimate the number of bytes that would be sent in a ZFS send stream.\n\n"
+"Parameters\n"
+"----------\n"
+"snapname: str, required\n"
+"    Full snapshot name, e.g. \"pool/ds@snap\".\n"
+"fromsnap: str | None, optional, default=None\n"
+"    Incremental source snapshot name. If None, estimate a full stream.\n"
+"flags: SendFlags | int, optional, default=0\n"
+"    Bitwise combination of SendFlags values:\n"
+"    - EMBED_DATA: include WRITE_EMBEDDED records for small blocks;\n"
+"      reduces stream size for compressible data. Requires the\n"
+"      embedded_data feature on the receiving pool.\n"
+"    - LARGE_BLOCK: allow blocks larger than 128 KiB. Requires the\n"
+"      large_blocks feature on the receiving pool.\n"
+"    - COMPRESS: send compressed WRITE records; reduces wire size but\n"
+"      requires matching compression on the receiving pool.\n"
+"    - RAW: send raw encrypted/authenticated records without decrypting.\n"
+"      Required for sending encrypted datasets without the wrapping key.\n\n"
+"Returns\n"
+"-------\n"
+"int\n"
+"    Estimated number of bytes that would be sent.\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    snapname was omitted.\n"
+"ZFSCoreException:\n"
+"    lzc_send_space() returned a non-zero errno.\n"
+"    Common errors:\n"
+"    - ENOENT: snapshot does not exist.\n"
+"    - EXDEV: fromsnap is not an ancestor of snapname.\n"
+"    - EACCES: encryption key not loaded for raw send.\n"
+);
+
+PyDoc_STRVAR(py_lzc_send__doc__,
+"send(*, snapname, fd, fromsnap=None, flags=0, resume_token=None) -> None\n"
+"------------------------------------------------------------------------\n\n"
+"Send a ZFS snapshot stream to a file descriptor.\n\n"
+"If resume_token is provided, the raw token string (as returned by\n"
+"\"zfs get receive_resume_token\") is decoded internally and\n"
+"lzc_send_resume() is called to continue an interrupted transfer.\n"
+"Otherwise lzc_send() is called for a full or incremental send.\n\n"
+"Parameters\n"
+"----------\n"
+"snapname: str, required\n"
+"    Full snapshot name to send, e.g. \"pool/ds@snap\".\n"
+"fd: int, required\n"
+"    Write-end file descriptor to write the stream to.\n"
+"fromsnap: str | None, optional, default=None\n"
+"    Incremental source snapshot name. If None, send a full stream.\n"
+"    May be combined with resume_token for an incremental resume.\n"
+"flags: SendFlags | int, optional, default=0\n"
+"    Bitwise combination of SendFlags values:\n"
+"    - EMBED_DATA: include WRITE_EMBEDDED records for small blocks;\n"
+"      reduces stream size for compressible data. Requires the\n"
+"      embedded_data feature on the receiving pool.\n"
+"    - LARGE_BLOCK: allow blocks larger than 128 KiB. Requires the\n"
+"      large_blocks feature on the receiving pool.\n"
+"    - COMPRESS: send compressed WRITE records; reduces wire size but\n"
+"      requires matching compression on the receiving pool.\n"
+"    - RAW: send raw encrypted/authenticated records without decrypting.\n"
+"      Required for sending encrypted datasets without the wrapping key.\n"
+"    - SAVED: send a partially-received (saved) stream; used with\n"
+"      resume_token to rescue an interrupted receive.\n"
+"resume_token: str | None, optional, default=None\n"
+"    Raw resume token from \"zfs get receive_resume_token\". When\n"
+"    provided, lzc_send_resume() is used instead of lzc_send().\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    snapname or fd was omitted, or resume_token could not be decoded.\n"
+"RuntimeError:\n"
+"    libzfs_init() failed during token decoding, or history log failed.\n"
+"ZFSCoreException:\n"
+"    lzc_send() or lzc_send_resume() returned a non-zero errno.\n"
+"    Common errors:\n"
+"    - ENOENT: snapshot does not exist.\n"
+"    - EXDEV: fromsnap is not an ancestor of snapname.\n"
+"    - EACCES: encryption key not loaded for raw send.\n"
+);
+
+PyDoc_STRVAR(py_lzc_receive__doc__,
+"receive(*, snapname, fd, origin=None, props=None, force=False, resumable=False, raw=False) -> None\n"
+"--------------------------------------------------------------------------------------------------\n\n"
+"Receive a ZFS send stream into a snapshot or dataset.\n\n"
+"Parameters\n"
+"----------\n"
+"snapname: str, required\n"
+"    Target dataset or snapshot name, e.g. \"pool/recv@snap\".\n"
+"fd: int, required\n"
+"    Read-end file descriptor containing the send stream.\n"
+"origin: str | None, optional, default=None\n"
+"    Clone origin dataset name. Required when receiving a clone stream\n"
+"    that was sent with a -S (saved) flag or from a clone source.\n"
+"props: dict | None, optional, default=None\n"
+"    Dictionary of property overrides to apply to the received dataset.\n"
+"    Keys and values may be strings, ints, or nested dicts.\n"
+"force: bool, optional, default=False\n"
+"    If True, roll back the target dataset to its most recent snapshot\n"
+"    before receiving, allowing a full stream to overwrite a modified\n"
+"    filesystem (equivalent to zfs receive -F).\n"
+"resumable: bool, optional, default=False\n"
+"    If True, make the receive resumable on interruption. If interrupted\n"
+"    a receive_resume_token property is written to the partial dataset,\n"
+"    and send(resume_token=...) can restart from that point.\n"
+"raw: bool, optional, default=False\n"
+"    If True, receive a raw (encrypted) stream without decrypting.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    snapname or fd was omitted.\n"
+"TypeError:\n"
+"    props is not a dictionary.\n"
+"ZFSCoreException:\n"
+"    lzc_receive() returned a non-zero errno.\n"
+"    Common errors:\n"
+"    - ENOENT: parent dataset does not exist.\n"
+"    - EEXIST: snapshot already exists and force=False.\n"
+"    - EINVAL: stream is corrupt or incompatible.\n"
+"    - ENOTSUP: required pool feature not enabled.\n"
+"RuntimeError:\n"
+"    Failed to log history.\n"
+);
+
 static int
 py_zfs_core_module_clear(PyObject *module)
 {
@@ -1770,6 +1924,30 @@ static PyMethodDef TruenasPylibzfsCoreMethods[] = {
 		.ml_meth = (PyCFunction)py_lzc_wait,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_lzc_wait__doc__
+	},
+	{
+		.ml_name = "send",
+		.ml_meth = (PyCFunction)py_lzc_send,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_lzc_send__doc__
+	},
+	{
+		.ml_name = "send_space",
+		.ml_meth = (PyCFunction)py_lzc_send_space,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_lzc_send_space__doc__
+	},
+	{
+		.ml_name = "send_progress",
+		.ml_meth = (PyCFunction)py_lzc_send_progress,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_lzc_send_progress__doc__
+	},
+	{
+		.ml_name = "receive",
+		.ml_meth = (PyCFunction)py_lzc_receive,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_lzc_receive__doc__
 	},
 	{NULL}
 };
@@ -1867,6 +2045,33 @@ wait_activity_dict(void)
 	return dict;
 }
 
+static PyObject *
+send_flags_dict(void)
+{
+	static const struct { const char *name; int val; } tbl[] = {
+		{ "EMBED_DATA",  LZC_SEND_FLAG_EMBED_DATA  },
+		{ "LARGE_BLOCK", LZC_SEND_FLAG_LARGE_BLOCK },
+		{ "COMPRESS",    LZC_SEND_FLAG_COMPRESS    },
+		{ "RAW",         LZC_SEND_FLAG_RAW         },
+		{ "SAVED",       LZC_SEND_FLAG_SAVED       },
+	};
+	PyObject *dict = PyDict_New();
+	if (dict == NULL)
+		return NULL;
+
+	for (size_t i = 0; i < ARRAY_SIZE(tbl); i++) {
+		PyObject *val = PyLong_FromLong(tbl[i].val);
+		if (val == NULL ||
+		    PyDict_SetItemString(dict, tbl[i].name, val) < 0) {
+			Py_XDECREF(val);
+			Py_DECREF(dict);
+			return NULL;
+		}
+		Py_DECREF(val);
+	}
+	return dict;
+}
+
 static int
 py_add_lzc_enums(PyObject *module)
 {
@@ -1874,6 +2079,7 @@ py_add_lzc_enums(PyObject *module)
 	PyObject *enum_mod = NULL;
 	PyObject *str_enum = NULL;
 	PyObject *int_enum = NULL;
+	PyObject *intflag_enum = NULL;
 	PyObject *kwargs = NULL;
 	pylibzfs_core_state_t *state = NULL;
 
@@ -1895,6 +2101,10 @@ py_add_lzc_enums(PyObject *module)
 	if (int_enum == NULL)
 		goto out;
 
+	intflag_enum = PyObject_GetAttrString(enum_mod, "IntFlag");
+	if (intflag_enum == NULL)
+		goto out;
+
 	err = add_enum(module, NULL, str_enum, "ChannelProgramEnum",
 		       zcp_table_to_dict, kwargs,
 		       &state->zcp_enum);
@@ -1903,12 +2113,18 @@ py_add_lzc_enums(PyObject *module)
 
 	err = add_enum(module, NULL, int_enum, "ZpoolWaitActivity",
 		       wait_activity_dict, kwargs, NULL);
+	if (err)
+		goto out;
+
+	err = add_enum(module, NULL, intflag_enum, "SendFlags",
+		       send_flags_dict, kwargs, NULL);
 
 out:
 	Py_XDECREF(kwargs);
 	Py_XDECREF(enum_mod);
 	Py_XDECREF(str_enum);
 	Py_XDECREF(int_enum);
+	Py_XDECREF(intflag_enum);
 	return err;
 }
 
