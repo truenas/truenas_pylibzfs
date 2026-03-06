@@ -610,4 +610,8 @@ extern void init_py_pool_feature_state(pylibzfs_state_t *state);
 /* provided by py_zfs_pool_scrub.c */
 extern void init_py_zpool_scrub_state(pylibzfs_state_t *state);
 extern PyObject *py_get_pool_scrub_info(py_zfs_pool_t *p);
+
+/* provided by py_zfs_pool_expand.c */
+extern void init_py_zpool_expand_state(pylibzfs_state_t *state);
+extern PyObject *py_get_pool_expand_info(py_zfs_pool_t *p);
 #endif  /* _TRUENAS_PYLIBZFS_H */

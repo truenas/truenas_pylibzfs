@@ -764,6 +764,35 @@ PyObject *py_zfs_pool_scrub_info(PyObject *self, PyObject *args)
 	return py_get_pool_scrub_info(p);
 }
 
+PyDoc_STRVAR(py_zfs_pool_expand__doc__,
+"expand_info() -> struct_zpool_expand | None\n\n"
+"-----------------------------------------------\n\n"
+"Return current RAIDZ expansion statistics for the pool as a\n"
+"struct_zpool_expand named tuple.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"truenas_pylibzfs.struct_zpool_expand if expansion statistics are available,\n"
+"or None if the pool has never had a RAIDZ expansion.\n\n"
+"Raises\n"
+"------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error that occurred while refreshing pool statistics.\n"
+);
+static
+PyObject *py_zfs_pool_expand_info(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.expand_info", "O",
+	    p->name) < 0)
+		return NULL;
+
+	return py_get_pool_expand_info(p);
+}
+
 PyDoc_STRVAR(py_zfs_pool_scan__doc__,
 "scan(*, func, cmd=ScanScrubCmd.NORMAL) -> None\n\n"
 "-----------------------------------------------\n\n"
@@ -1303,6 +1332,12 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = py_zfs_pool_scrub_info,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_pool_scrub__doc__
+	},
+	{
+		.ml_name = "expand_info",
+		.ml_meth = py_zfs_pool_expand_info,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_expand__doc__
 	},
 	{
 		.ml_name = "scan",

@@ -121,6 +121,15 @@ class struct_zpool_scrub:
     pass_error_scrub_pause: int | None
     percentage: float | None
 
+class struct_zpool_expand:
+    state: enums.ScanState
+    expanding_vdev: int
+    start_time: int
+    end_time: int
+    to_reflow: int
+    reflowed: int
+    waiting_for_resilver: int
+
 class struct_zpool_status:
     status: ZPOOLStatus
     reason: str | None
@@ -694,6 +703,10 @@ class ZFSPool:
 
     def scrub_info(self) -> struct_zpool_scrub | None:
         """Return current scan/scrub statistics, or None if pool never scrubbed."""
+        ...
+
+    def expand_info(self) -> struct_zpool_expand | None:
+        """Return current RAIDZ expansion statistics, or None if pool has never been expanded."""
         ...
 
     def scan(self, *, func: enums.ScanFunction, cmd: enums.ScanScrubCmd = ...) -> None:

@@ -96,6 +96,7 @@ typedef struct {
 	PyObject *scan_function_enum;
 	PyObject *scan_state_enum;
 	PyTypeObject *struct_zpool_scrub_type;
+	PyTypeObject *struct_zpool_expand_type;
 
 	/*
 	 * Per-property lookup table for ZPOOLProperty enum members.

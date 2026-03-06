@@ -244,6 +244,7 @@ int init_py_zfs_state(PyObject *module)
 		return -1;
 
 	init_py_zpool_scrub_state(state);
+	init_py_zpool_expand_state(state);
 
 	module_init_zfs_crypto(module);
 
@@ -359,6 +360,7 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->scan_function_enum);
 	Py_CLEAR(state->scan_state_enum);
 	Py_CLEAR(state->struct_zpool_scrub_type);
+	Py_CLEAR(state->struct_zpool_expand_type);
 	for (idx = 0; idx < ZPOOL_NUM_PROPS; idx++) {
 		Py_CLEAR(state->zpool_prop_enum_tbl[idx].name);
 		Py_CLEAR(state->zpool_prop_enum_tbl[idx].obj);
