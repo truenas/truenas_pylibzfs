@@ -319,6 +319,19 @@ extern PyObject *py_zfs_do_create_pool(py_zfs_t *plz,
 extern int init_vdev_create_spec_state(pylibzfs_state_t *state,
     PyObject *module);
 
+typedef struct {
+	PyObject *storage_vdevs;
+	PyObject *cache_vdevs;
+	PyObject *log_vdevs;
+	PyObject *special_vdevs;
+	PyObject *dedup_vdevs;
+	PyObject *spare_vdevs;
+	boolean_t force;
+} py_zfs_add_vdevs_args_t;
+
+extern PyObject *py_zfs_do_add_vdevs(py_zfs_pool_t *pool,
+    py_zfs_add_vdevs_args_t *ava);
+
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
