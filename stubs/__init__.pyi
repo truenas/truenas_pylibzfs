@@ -771,6 +771,20 @@ class ZFSPool:
         """Bring a pool device back online."""
         ...
 
+    def add_vdevs(
+        self,
+        *,
+        storage_vdevs: Iterable[struct_vdev_create_spec] | None = None,
+        cache_vdevs: Iterable[struct_vdev_create_spec] | None = None,
+        log_vdevs: Iterable[struct_vdev_create_spec] | None = None,
+        special_vdevs: Iterable[struct_vdev_create_spec] | None = None,
+        dedup_vdevs: Iterable[struct_vdev_create_spec] | None = None,
+        spare_vdevs: Iterable[struct_vdev_create_spec] | None = None,
+        force: bool = False,
+    ) -> None:
+        """Add vdevs to an existing pool (zpool add)."""
+        ...
+
     def iter_history(
         self,
         *,

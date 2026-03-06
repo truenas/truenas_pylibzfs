@@ -1252,6 +1252,66 @@ PyObject *py_zfs_pool_online_device(PyObject *self,
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_zfs_pool_add_vdevs__doc__,
+"add_vdevs(*, storage_vdevs=None, cache_vdevs=None, log_vdevs=None,\n"
+"          special_vdevs=None, dedup_vdevs=None, spare_vdevs=None,\n"
+"          force=False) -> None\n\n"
+"-----------------------------------------------------------------------\n\n"
+"Add vdevs to an existing pool (equivalent to 'zpool add').\n\n"
+"At least one vdev category must be non-empty.\n\n"
+"Parameters\n"
+"----------\n"
+"storage_vdevs: iterable of struct_vdev_create_spec, optional\n"
+"    Data vdevs to add.  When the pool already has storage vdevs, each\n"
+"    new vdev must match the existing pool's type, parity, and child\n"
+"    count (unless force=True).\n"
+"cache_vdevs: iterable of struct_vdev_create_spec, optional\n"
+"    L2ARC cache vdevs (leaf vdevs only).\n"
+"log_vdevs: iterable of struct_vdev_create_spec, optional\n"
+"    ZIL log vdevs (leaf or mirror).\n"
+"special_vdevs: iterable of struct_vdev_create_spec, optional\n"
+"    Special allocation class vdevs.  dRAID is not permitted.\n"
+"    Parity must be >= existing pool storage parity (unless force=True).\n"
+"dedup_vdevs: iterable of struct_vdev_create_spec, optional\n"
+"    Dedup allocation class vdevs.  dRAID is not permitted.\n"
+"    Parity must be >= existing pool storage parity (unless force=True).\n"
+"spare_vdevs: iterable of struct_vdev_create_spec, optional\n"
+"    Hot spare vdevs (leaf vdevs only).\n"
+"force: bool, optional, default=False\n"
+"    Skip Python-level topology validation and the kernel ashift check.\n"
+"    Equivalent to 'zpool add -f'.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    A vdev specification is invalid or topology constraints are violated.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while adding vdevs.\n"
+);
+static PyObject *
+py_zfs_pool_add_vdevs(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	py_zfs_add_vdevs_args_t ava = {0};
+	boolean_t force = B_FALSE;
+	char *kwnames[] = {
+		"storage_vdevs", "cache_vdevs", "log_vdevs",
+		"special_vdevs", "dedup_vdevs", "spare_vdevs",
+		"force", NULL
+	};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OOOOOOp", kwnames,
+	    &ava.storage_vdevs, &ava.cache_vdevs, &ava.log_vdevs,
+	    &ava.special_vdevs, &ava.dedup_vdevs, &ava.spare_vdevs,
+	    &force))
+		return (NULL);
+
+	ava.force = force ? B_TRUE : B_FALSE;
+	return (py_zfs_do_add_vdevs(p, &ava));
+}
+
 PyDoc_STRVAR(py_zfs_pool_iter_history__doc__,
 "iter_history(*, skip_internal=True, since=0, until=0) -> Iterator[dict]\n\n"
 "------------------------------------------------------------------------\n\n"
@@ -1433,6 +1493,12 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_online_device,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_online_device__doc__
+	},
+	{
+		.ml_name = "add_vdevs",
+		.ml_meth = (PyCFunction)py_zfs_pool_add_vdevs,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_add_vdevs__doc__
 	},
 	{
 		.ml_name = "iter_history",
