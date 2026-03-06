@@ -1443,9 +1443,9 @@ pool_get_storage_info(zpool_handle_t *zhp)
 	nvlist_t *child = NULL;
 	uint_t nchildren = 0;
 	uint_t i;
-	char *type_str = NULL;
+	const char *type_str = NULL;
 	uint64_t is_log = 0;
-	char *alloc_bias = NULL;
+	const char *alloc_bias = NULL;
 	nvlist_t **grandchildren = NULL;
 	uint_t ngrandchildren = 0;
 
