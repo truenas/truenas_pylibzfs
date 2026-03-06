@@ -233,67 +233,6 @@ PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs
 	Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(py_zfs_snapshot_send_progress__doc__,
-"send_progress(*, fd) -> tuple[int, int]\n"
-"---------------------------------------\n\n"
-"Return progress of an active send operation on the given file descriptor.\n\n"
-"Note: This method will be deprecated in a future version once\n"
-"lzc.send_progress() is fully implemented in libzfs_core.\n\n"
-"Parameters\n"
-"----------\n"
-"fd: int, required\n"
-"    The write-end file descriptor passed to send().\n\n"
-"Returns\n"
-"-------\n"
-"tuple[int, int]\n"
-"    (bytes_written, blocks_visited) counters from the kernel.\n\n"
-"Raises\n"
-"------\n"
-"ValueError:\n"
-"    fd was omitted.\n"
-"ZFSException:\n"
-"    The kernel ioctl failed.\n"
-);
-static
-PyObject *
-py_zfs_snapshot_send_progress(PyObject *self, PyObject *args, PyObject *kwargs)
-{
-	py_zfs_snapshot_t *ds = (py_zfs_snapshot_t *)self;
-	int fd = -1;
-	uint64_t written = 0, blocks = 0;
-	int err;
-	py_zfs_error_t zfs_err;
-
-	char *kwnames[] = { "fd", NULL };
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$i", kwnames, &fd))
-		return NULL;
-
-	if (fd == -1) {
-		PyErr_SetString(PyExc_ValueError, "fd is required");
-		return NULL;
-	}
-
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSSnapshot.send_progress",
-			"Oi", ds->rsrc.obj.name, fd) < 0)
-		return NULL;
-
-	Py_BEGIN_ALLOW_THREADS
-	PY_ZFS_LOCK(ds->rsrc.obj.pylibzfsp);
-	err = zfs_send_progress(ds->rsrc.obj.zhp, fd, &written, &blocks);
-	PY_ZFS_UNLOCK(ds->rsrc.obj.pylibzfsp);
-	Py_END_ALLOW_THREADS
-
-	/*
-	 * zfs_send_progress() returns raw errno (not a libzfs error) on
-	 * failure.  Errors here typically mean no active send is in progress
-	 * on this fd; treat as (0, 0) since this is a polling function.
-	 */
-	if (err)
-		return Py_BuildValue("(KK)", 0ULL, 0ULL);
-
-	return Py_BuildValue("(KK)", (unsigned long long)written,
-			     (unsigned long long)blocks);
-}
 
 static
 PyGetSetDef zfs_snapshot_getsetters[] = {
@@ -319,12 +258,6 @@ PyMethodDef zfs_snapshot_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_snapshot_clone,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_snapshot_clone__doc__
-	},
-	{
-		.ml_name = "send_progress",
-		.ml_meth = (PyCFunction)py_zfs_snapshot_send_progress,
-		.ml_flags = METH_VARARGS | METH_KEYWORDS,
-		.ml_doc = py_zfs_snapshot_send_progress__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

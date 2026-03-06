@@ -6,6 +6,8 @@ py_lzc_send_progress(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	char *kwnames[] = { "snapshot_name", "fd", NULL };
 	const char *snapname = NULL;
 	int fd = -1;
+	uint64_t written = 0, blocks = 0;
+	int err;
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$zi",
 					 kwnames, &snapname, &fd))
@@ -21,10 +23,28 @@ py_lzc_send_progress(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		return NULL;
 	}
 
-	PyErr_SetString(PyExc_NotImplementedError,
-			"lzc_send_progress() is not yet implemented in "
-			"libzfs_core; use ZFSSnapshot.send_progress() instead");
-	return NULL;
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.send_progress", "si",
+			snapname, fd) < 0)
+		return NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	err = lzc_send_progress(snapname, fd, &written, &blocks);
+	Py_END_ALLOW_THREADS
+
+	/*
+	 * The kernel returns ENOENT for two distinct conditions:
+	 *   1. The snapshot does not exist.
+	 *   2. No active send stream for this fd exists (the normal case
+	 *      when polling and the send has not started yet or just finished).
+	 * Because these are indistinguishable by error code, all errors are
+	 * treated as (0, 0) — this is a polling function and callers expect
+	 * zero progress rather than an exception when no send is in flight.
+	 */
+	if (err)
+		return Py_BuildValue("(KK)", 0ULL, 0ULL);
+
+	return Py_BuildValue("(KK)", (unsigned long long)written,
+			     (unsigned long long)blocks);
 }
 
 PyObject *
