@@ -1505,8 +1505,157 @@ pool_get_storage_info(zpool_handle_t *zhp)
 }
 
 /*
- * Validate the vdev categories supplied to add_vdevs() against each other
- * and (for storage) against the existing pool geometry.
+ * Validate a sequence of metadata vdevs (special or dedup):
+ *   - dRAID is never permitted
+ *   - parity must be >= existing pool storage parity (when existing->valid)
+ *
+ * context is the argument name for error messages (e.g. "special_vdevs").
+ * Returns B_TRUE on success, B_FALSE with exception set on failure.
+ */
+static boolean_t
+validate_metadata_vdevs(PyObject *seq, const char *context,
+    const pool_storage_info_t *existing)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+	int parity;
+
+	iterator = PyObject_GetIter(seq);
+	if (iterator == NULL)
+		return (B_FALSE);
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+
+		if (is_draid_type(py_type)) {
+			PyErr_Format(PyExc_ValueError,
+			    "%s: dRAID is not permitted for metadata vdevs",
+			    context);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+
+		if (existing->valid) {
+			parity = vdev_parity_level(py_type);
+			if (parity < (int)existing->parity) {
+				PyErr_Format(PyExc_ValueError,
+				    "%s: vdev type \"%U\" (parity %d) "
+				    "provides less redundancy than existing "
+				    "pool storage (parity %llu)",
+				    context, py_type, parity,
+				    (unsigned long long)existing->parity);
+				Py_DECREF(spec);
+				Py_DECREF(iterator);
+				return (B_FALSE);
+			}
+		}
+
+		Py_DECREF(spec);
+	}
+
+	Py_DECREF(iterator);
+	return (B_TRUE);
+}
+
+/*
+ * Validate that each new storage vdev spec matches the existing pool's
+ * storage geometry: same kernel type, same parity, same child count.
+ *
+ * Only called when storage_seq is non-empty and existing->valid is B_TRUE.
+ * Returns B_TRUE on success, B_FALSE with exception set on failure.
+ */
+static boolean_t
+validate_storage_vdevs_match(PyObject *storage_seq,
+    const pool_storage_info_t *existing)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+	PyObject *py_children = NULL;
+	const char *ktype = NULL;
+	uint64_t kparity = 0;
+	Py_ssize_t nch = 0;
+
+	iterator = PyObject_GetIter(storage_seq);
+	if (iterator == NULL)
+		return (B_FALSE);
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+		py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
+
+		/* Map Python vdev type to kernel type string + parity */
+		if (is_mirror_type(py_type)) {
+			ktype = VDEV_TYPE_MIRROR;
+			kparity = 1;
+		} else if (is_raidz_type(py_type)) {
+			ktype = VDEV_TYPE_RAIDZ;
+			kparity = (uint64_t)vdev_parity_level(py_type);
+		} else if (is_draid_type(py_type)) {
+			ktype = VDEV_TYPE_DRAID;
+			kparity = (uint64_t)vdev_parity_level(py_type);
+		} else if (PyUnicode_CompareWithASCIIString(py_type, "disk") == 0) {
+			ktype = VDEV_TYPE_DISK;
+			kparity = 0;
+		} else {
+			ktype = VDEV_TYPE_FILE;
+			kparity = 0;
+		}
+
+		nch = (py_children != Py_None) ? PyTuple_Size(py_children) : 0;
+
+		if (strcmp(ktype, existing->type) != 0) {
+			PyErr_Format(PyExc_ValueError,
+			    "storage_vdevs: new vdev type \"%U\" "
+			    "(kernel type \"%s\") does not match "
+			    "existing pool storage type \"%s\"",
+			    py_type, ktype, existing->type);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+
+		if (kparity != existing->parity) {
+			PyErr_Format(PyExc_ValueError,
+			    "storage_vdevs: new vdev \"%U\" parity %llu "
+			    "does not match existing pool storage parity %llu",
+			    py_type,
+			    (unsigned long long)kparity,
+			    (unsigned long long)existing->parity);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+
+		if ((uint64_t)nch != existing->nchildren) {
+			PyErr_Format(PyExc_ValueError,
+			    "storage_vdevs: new vdev \"%U\" has %zd children "
+			    "but existing pool storage has %llu children",
+			    py_type, nch,
+			    (unsigned long long)existing->nchildren);
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return (B_FALSE);
+		}
+
+		Py_DECREF(spec);
+	}
+
+	Py_DECREF(iterator);
+	return (B_TRUE);
+}
+
+/*
+ * Top-level topology validation for add_vdevs().
+ *
+ * Checks (in order):
+ *   1. At least one category is non-empty
+ *   2. cache/spare are leaf-only
+ *   3. log vdevs are leaf or mirror
+ *   4. special/dedup carry no dRAID and sufficient parity
+ *   5. New storage vdevs match the existing pool geometry
  *
  * All seq pointers are validated PySequence_Fast sequences or NULL.
  * Returns B_TRUE on success, B_FALSE with a Python exception set on failure.
@@ -1521,30 +1670,23 @@ validate_add_topology(
     PyObject *spare_seq,
     const pool_storage_info_t *existing)
 {
-	Py_ssize_t storage_n = 0;
-	Py_ssize_t cache_n = 0;
-	Py_ssize_t log_n = 0;
-	Py_ssize_t special_n = 0;
-	Py_ssize_t dedup_n = 0;
-	Py_ssize_t spare_n = 0;
-	PyObject *iterator = NULL;
-	PyObject *spec = NULL;
-	PyObject *py_type = NULL;
-	PyObject *py_children = NULL;
-	int parity;
-
-	storage_n = storage_seq != NULL ? PyObject_Length(storage_seq) : 0;
-	cache_n = cache_seq != NULL ? PyObject_Length(cache_seq) : 0;
-	log_n = log_seq != NULL ? PyObject_Length(log_seq) : 0;
-	special_n = special_seq != NULL ? PyObject_Length(special_seq) : 0;
-	dedup_n = dedup_seq != NULL ? PyObject_Length(dedup_seq) : 0;
-	spare_n = spare_seq != NULL ? PyObject_Length(spare_seq) : 0;
+	Py_ssize_t storage_n = storage_seq != NULL ?
+	    PyObject_Length(storage_seq) : 0;
+	Py_ssize_t cache_n = cache_seq != NULL ?
+	    PyObject_Length(cache_seq) : 0;
+	Py_ssize_t log_n = log_seq != NULL ?
+	    PyObject_Length(log_seq) : 0;
+	Py_ssize_t special_n = special_seq != NULL ?
+	    PyObject_Length(special_seq) : 0;
+	Py_ssize_t dedup_n = dedup_seq != NULL ?
+	    PyObject_Length(dedup_seq) : 0;
+	Py_ssize_t spare_n = spare_seq != NULL ?
+	    PyObject_Length(spare_seq) : 0;
 
 	if (storage_n < 0 || cache_n < 0 || log_n < 0 ||
 	    special_n < 0 || dedup_n < 0 || spare_n < 0)
 		return (B_FALSE);
 
-	/* At least one category must be non-empty */
 	if (storage_n == 0 && cache_n == 0 && log_n == 0 &&
 	    special_n == 0 && dedup_n == 0 && spare_n == 0) {
 		PyErr_SetString(PyExc_ValueError,
@@ -1552,172 +1694,26 @@ validate_add_topology(
 		return (B_FALSE);
 	}
 
-	/* cache/spare must be leaf */
 	if (cache_seq != NULL && !validate_all_leaf(cache_seq, "cache_vdevs"))
 		return (B_FALSE);
 
 	if (spare_seq != NULL && !validate_all_leaf(spare_seq, "spare_vdevs"))
 		return (B_FALSE);
 
-	/* log must be leaf or mirror */
 	if (log_seq != NULL && !validate_log_vdevs(log_seq))
 		return (B_FALSE);
 
-	/* special/dedup: no dRAID + parity >= existing storage parity */
-	if (special_n > 0) {
-		iterator = PyObject_GetIter(special_seq);
-		if (iterator == NULL)
-			return (B_FALSE);
+	if (special_n > 0 &&
+	    !validate_metadata_vdevs(special_seq, "special_vdevs", existing))
+		return (B_FALSE);
 
-		while ((spec = PyIter_Next(iterator))) {
-			py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+	if (dedup_n > 0 &&
+	    !validate_metadata_vdevs(dedup_seq, "dedup_vdevs", existing))
+		return (B_FALSE);
 
-			if (is_draid_type(py_type)) {
-				PyErr_SetString(PyExc_ValueError,
-				    "special_vdevs: dRAID is not permitted "
-				    "for special vdevs");
-				Py_DECREF(spec);
-				Py_DECREF(iterator);
-				return (B_FALSE);
-			}
-
-			if (existing->valid) {
-				parity = vdev_parity_level(py_type);
-				if (parity < (int)existing->parity) {
-					PyErr_Format(PyExc_ValueError,
-					    "special_vdevs: vdev type \"%U\" "
-					    "(parity %d) provides less "
-					    "redundancy than existing pool "
-					    "storage (parity %llu)",
-					    py_type, parity,
-					    (unsigned long long)existing->parity);
-					Py_DECREF(spec);
-					Py_DECREF(iterator);
-					return (B_FALSE);
-				}
-			}
-			Py_DECREF(spec);
-		}
-		Py_DECREF(iterator);
-	}
-
-	if (dedup_n > 0) {
-		iterator = PyObject_GetIter(dedup_seq);
-		if (iterator == NULL)
-			return (B_FALSE);
-
-		while ((spec = PyIter_Next(iterator))) {
-			py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-
-			if (is_draid_type(py_type)) {
-				PyErr_SetString(PyExc_ValueError,
-				    "dedup_vdevs: dRAID is not permitted "
-				    "for dedup vdevs");
-				Py_DECREF(spec);
-				Py_DECREF(iterator);
-				return (B_FALSE);
-			}
-
-			if (existing->valid) {
-				parity = vdev_parity_level(py_type);
-				if (parity < (int)existing->parity) {
-					PyErr_Format(PyExc_ValueError,
-					    "dedup_vdevs: vdev type \"%U\" "
-					    "(parity %d) provides less "
-					    "redundancy than existing pool "
-					    "storage (parity %llu)",
-					    py_type, parity,
-					    (unsigned long long)existing->parity);
-					Py_DECREF(spec);
-					Py_DECREF(iterator);
-					return (B_FALSE);
-				}
-			}
-			Py_DECREF(spec);
-		}
-		Py_DECREF(iterator);
-	}
-
-	/*
-	 * New storage vdevs must match the existing pool's storage topology:
-	 * same kernel type string, same parity, same child count.
-	 */
-	if (storage_n > 0 && existing->valid) {
-		iterator = PyObject_GetIter(storage_seq);
-		if (iterator == NULL)
-			return (B_FALSE);
-
-		while ((spec = PyIter_Next(iterator))) {
-			const char *ktype = NULL;
-			uint64_t kparity = 0;
-			Py_ssize_t nch = 0;
-
-			py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-			py_children = PyStructSequence_GET_ITEM(spec,
-			    VCSPEC_CHILDREN_IDX);
-
-			/* Map Python vdev type to kernel type string + parity */
-			if (is_mirror_type(py_type)) {
-				ktype = VDEV_TYPE_MIRROR;
-				kparity = 1;
-			} else if (is_raidz_type(py_type)) {
-				ktype = VDEV_TYPE_RAIDZ;
-				kparity = (uint64_t)vdev_parity_level(py_type);
-			} else if (is_draid_type(py_type)) {
-				ktype = VDEV_TYPE_DRAID;
-				kparity = (uint64_t)vdev_parity_level(py_type);
-			} else if (PyUnicode_CompareWithASCIIString(
-			    py_type, "disk") == 0) {
-				ktype = VDEV_TYPE_DISK;
-				kparity = 0;
-			} else {
-				ktype = VDEV_TYPE_FILE;
-				kparity = 0;
-			}
-
-			nch = (py_children != Py_None) ?
-			    PyTuple_Size(py_children) : 0;
-
-			if (strcmp(ktype, existing->type) != 0) {
-				PyErr_Format(PyExc_ValueError,
-				    "storage_vdevs: new vdev type \"%U\" "
-				    "(kernel type \"%s\") does not match "
-				    "existing pool storage type \"%s\"",
-				    py_type, ktype, existing->type);
-				Py_DECREF(spec);
-				Py_DECREF(iterator);
-				return (B_FALSE);
-			}
-
-			if (kparity != existing->parity) {
-				PyErr_Format(PyExc_ValueError,
-				    "storage_vdevs: new vdev \"%U\" parity "
-				    "%llu does not match existing pool "
-				    "storage parity %llu",
-				    py_type,
-				    (unsigned long long)kparity,
-				    (unsigned long long)existing->parity);
-				Py_DECREF(spec);
-				Py_DECREF(iterator);
-				return (B_FALSE);
-			}
-
-			if ((uint64_t)nch != existing->nchildren) {
-				PyErr_Format(PyExc_ValueError,
-				    "storage_vdevs: new vdev \"%U\" has "
-				    "%zd children but existing pool storage "
-				    "has %llu children",
-				    py_type, nch,
-				    (unsigned long long)existing->nchildren);
-				Py_DECREF(spec);
-				Py_DECREF(iterator);
-				return (B_FALSE);
-			}
-
-			Py_DECREF(spec);
-		}
-		Py_DECREF(iterator);
-	}
+	if (storage_n > 0 && existing->valid &&
+	    !validate_storage_vdevs_match(storage_seq, existing))
+		return (B_FALSE);
 
 	return (B_TRUE);
 }
