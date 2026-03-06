@@ -233,6 +233,7 @@ PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs
 	Py_RETURN_NONE;
 }
 
+
 static
 PyGetSetDef zfs_snapshot_getsetters[] = {
 	{ .name = NULL }
