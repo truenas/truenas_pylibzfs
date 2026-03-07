@@ -331,6 +331,14 @@ typedef struct {
 
 extern PyObject *py_zfs_do_add_vdevs(py_zfs_pool_t *pool,
     py_zfs_add_vdevs_args_t *ava);
+extern nvlist_t *py_zfs_build_single_vdev_nvroot(PyObject *spec);
+
+/*
+ * Policy limits for vdev widths.  Mirror and raidz vdevs wider than these
+ * values require force=True to create, add, or expand.
+ */
+#define PYLIBZFS_MAX_MIRROR_WIDTH 4
+#define PYLIBZFS_MAX_RAIDZ_WIDTH  15
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
