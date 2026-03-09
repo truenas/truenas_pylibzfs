@@ -50,6 +50,7 @@ def create_vdev_spec(
     ...
 
 class struct_vdev_stats:
+    timestamp: int
     allocated: int
     space: int
     dspace: int
