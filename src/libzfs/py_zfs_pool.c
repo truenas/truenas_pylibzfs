@@ -1527,6 +1527,10 @@ py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 	    B_FALSE, rebuild);
 	if (ret)
 		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	else {
+		boolean_t missing;
+		(void) zpool_refresh_stats(p->zhp, &missing);
+	}
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
@@ -1791,6 +1795,10 @@ py_zfs_pool_remove_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 	ret = zpool_vdev_remove(p->zhp, device);
 	if (ret)
 		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	else {
+		boolean_t missing;
+		(void) zpool_refresh_stats(p->zhp, &missing);
+	}
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
