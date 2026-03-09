@@ -1,6 +1,8 @@
 #include "../truenas_pylibzfs.h"
+#include <libzutil.h>
 
 #define ZFS_POOL_STR "<" PYLIBZFS_MODULE_NAME ".ZFSPool(name=%U)>"
+
 
 static
 PyObject *py_repr_zfs_pool(PyObject *self) {
@@ -1279,10 +1281,11 @@ PyDoc_STRVAR(py_zfs_pool_add_vdevs__doc__,
 "    Hot spare vdevs (leaf vdevs only).\n"
 "force: bool, optional, default=False\n"
 "    Skip pool-match validation (storage type/parity/width against existing\n"
-"    pool geometry, special/dedup parity requirements) and the kernel ashift\n"
-"    check.  Structural constraints (cache/spare must be leaf, log must be\n"
-"    leaf or mirror, dRAID not permitted for special/dedup) always apply.\n"
-"    Equivalent to 'zpool add -f'.\n\n"
+"    pool geometry, special/dedup parity requirements), storage vdev width\n"
+"    limits (mirror: max 4 members, raidz: max 15 drives), and the kernel\n"
+"    ashift check.  Structural constraints (cache/spare must be leaf, log\n"
+"    must be leaf or mirror, dRAID not permitted for special/dedup) always\n"
+"    apply.  Equivalent to 'zpool add -f'.\n\n"
 "Returns\n"
 "-------\n"
 "None\n\n"
@@ -1366,6 +1369,501 @@ py_zfs_pool_iter_history(PyObject *self, PyObject *args, PyObject *kwds)
 
 	return (py_zfs_history_iter_create(p, skip_internal,
 	    (uint64_t)since, (uint64_t)until));
+}
+
+PyDoc_STRVAR(py_zfs_pool_attach_vdev__doc__,
+"attach_vdev(*, device, new_device, rebuild=False, force=False) -> None\n\n"
+"----------------------------------------------------------------------\n\n"
+"Attach a new device to an existing vdev.\n\n"
+"Converts a single-device vdev into a mirror, or expands a raidz when\n"
+"the raidz_expansion feature is enabled.\n\n"
+"By default an error is raised if the resulting mirror would exceed\n"
+"4 members or the resulting raidz would exceed 15 drives.  Pass\n"
+"force=True to bypass these width limits.\n\n"
+"Parameters\n"
+"----------\n"
+"device: str, required\n"
+"    Path or name of the existing vdev to attach to.\n"
+"new_device: struct_vdev_create_spec, required\n"
+"    Specification for the new leaf device (type DISK or FILE).\n"
+"rebuild: bool, optional, default=False\n"
+"    If True, use sequential reconstruction instead of healing resilver.\n"
+"    Requires the device_rebuild feature on mirrors and dRAID.\n"
+"force: bool, optional, default=False\n"
+"    If True, bypass the mirror/raidz width policy limits.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    A required argument is missing, or a width limit would be exceeded\n"
+"    without force=True.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while attaching the device.\n"
+);
+static PyObject *
+py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	char *device = NULL;
+	PyObject *new_device = NULL;
+	boolean_t rebuild = B_FALSE;
+	boolean_t force = B_FALSE;
+	nvlist_t *nvroot = NULL;
+	PyObject *py_name = NULL;
+	const char *new_path = NULL;
+	int vdev_width = -1;
+	boolean_t is_mirror = B_FALSE;
+	boolean_t is_raidz = B_FALSE;
+	int ret;
+	int error;
+	py_zfs_error_t zfs_err;
+	char *kwnames[] = {"device", "new_device", "rebuild", "force", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOpp", kwnames,
+	    &device, &new_device, &rebuild, &force))
+		return (NULL);
+
+	if (device == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "attach_vdev() requires 'device' argument");
+		return (NULL);
+	}
+	if (new_device == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "attach_vdev() requires 'new_device' argument");
+		return (NULL);
+	}
+
+	nvroot = py_zfs_build_single_vdev_nvroot(new_device);
+	if (nvroot == NULL)
+		return (NULL);
+
+	py_name = PyStructSequence_GET_ITEM(new_device, 0);
+	new_path = PyUnicode_AsUTF8(py_name);
+	if (new_path == NULL) {
+		fnvlist_free(nvroot);
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.attach_vdev",
+	    "Os", p->name, device) < 0) {
+		fnvlist_free(nvroot);
+		return (NULL);
+	}
+
+	/*
+	 * Phase 1: look up the current vdev width so we can apply policy
+	 * limits before handing off to libzfs.
+	 */
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	{
+		boolean_t avail_spare = B_FALSE;
+		boolean_t l2cache = B_FALSE;
+		boolean_t log_dev = B_FALSE;
+		nvlist_t **children;
+		uint_t nchildren;
+		nvlist_t *vdev_nvl;
+		const char *type_ptr;
+
+		/*
+		 * We need the parent vdev (mirror/raidz), not the leaf
+		 * device itself.  zpool_find_parent_vdev() returns the
+		 * parent of the vdev identified by 'device', which is the
+		 * mirror or raidz vdev when 'device' is a member disk.
+		 * For a single-disk pool the parent is the root vdev
+		 * (type="root"), so the mirror/raidz type checks below
+		 * will not fire.
+		 */
+		vdev_nvl = zpool_find_parent_vdev(p->zhp, device,
+		    &avail_spare, &l2cache, &log_dev);
+		if (vdev_nvl != NULL) {
+			if (nvlist_lookup_string(vdev_nvl, ZPOOL_CONFIG_TYPE,
+			    &type_ptr) == 0) {
+				is_mirror =
+				    (strcmp(type_ptr, VDEV_TYPE_MIRROR) == 0);
+				is_raidz =
+				    (strcmp(type_ptr, VDEV_TYPE_RAIDZ) == 0);
+			}
+			if (nvlist_lookup_nvlist_array(vdev_nvl,
+			    ZPOOL_CONFIG_CHILDREN, &children,
+			    &nchildren) == 0)
+				vdev_width = (int)nchildren;
+			else
+				vdev_width = 0;
+		}
+	}
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	/* Apply width policy (GIL held, no lock needed). */
+	if (!force && vdev_width >= 0) {
+		if (is_mirror &&
+		    vdev_width >= PYLIBZFS_MAX_MIRROR_WIDTH) {
+			PyErr_Format(PyExc_ValueError,
+			    "attach_vdev: resulting mirror width (%d) would "
+			    "exceed limit of %d; use force=True to override",
+			    vdev_width + 1, PYLIBZFS_MAX_MIRROR_WIDTH);
+			fnvlist_free(nvroot);
+			return (NULL);
+		}
+		if (is_raidz &&
+		    vdev_width >= PYLIBZFS_MAX_RAIDZ_WIDTH) {
+			PyErr_Format(PyExc_ValueError,
+			    "attach_vdev: resulting raidz width (%d) would "
+			    "exceed limit of %d; use force=True to override",
+			    vdev_width + 1, PYLIBZFS_MAX_RAIDZ_WIDTH);
+			fnvlist_free(nvroot);
+			return (NULL);
+		}
+	}
+
+	/* Phase 2: perform the attach. */
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_vdev_attach(p->zhp, device, new_path, nvroot,
+	    B_FALSE, rebuild);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	else {
+		boolean_t missing;
+		(void) zpool_refresh_stats(p->zhp, &missing);
+	}
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	fnvlist_free(nvroot);
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err, "zpool_vdev_attach() failed");
+		return (NULL);
+	}
+
+	error = py_log_history_fmt(p->pylibzfsp,
+	    "zpool attach%s %s %s %s",
+	    rebuild ? " -s" : "", zpool_get_name(p->zhp), device, new_path);
+	if (error)
+		return (NULL);
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_replace_vdev__doc__,
+"replace_vdev(*, device, new_device=None, rebuild=False) -> None\n\n"
+"---------------------------------------------------------------\n\n"
+"Replace an existing pool device with a new one.\n\n"
+"When new_device is None, replaces the device with itself, which is used\n"
+"to clear a faulted state after physical replacement with the same path.\n\n"
+"Parameters\n"
+"----------\n"
+"device: str, required\n"
+"    Path or name of the existing vdev to replace.\n"
+"new_device: struct_vdev_create_spec or None, optional, default=None\n"
+"    Specification for the replacement device.  If None, the device is\n"
+"    replaced with itself.\n"
+"rebuild: bool, optional, default=False\n"
+"    If True, use sequential reconstruction instead of healing resilver.\n"
+"    Requires the device_rebuild feature on mirrors and dRAID.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    A required argument is missing.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while replacing the device.\n"
+);
+static PyObject *
+py_zfs_pool_replace_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	char *device = NULL;
+	PyObject *new_device = NULL;
+	boolean_t rebuild = B_FALSE;
+	nvlist_t *nvroot = NULL;
+	nvlist_t *child_nvl = NULL;
+	nvlist_t *self_children[1];
+	PyObject *py_name = NULL;
+	const char *new_path = NULL;
+	boolean_t whole_disk = B_FALSE;
+	boolean_t self_replace;
+	int ret;
+	int error;
+	py_zfs_error_t zfs_err;
+	char *kwnames[] = {"device", "new_device", "rebuild", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOp", kwnames,
+	    &device, &new_device, &rebuild))
+		return (NULL);
+
+	if (device == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "replace_vdev() requires 'device' argument");
+		return (NULL);
+	}
+
+	self_replace = (new_device == NULL || new_device == Py_None);
+
+	if (!self_replace) {
+		nvroot = py_zfs_build_single_vdev_nvroot(new_device);
+		if (nvroot == NULL)
+			return (NULL);
+		py_name = PyStructSequence_GET_ITEM(new_device, 0);
+		new_path = PyUnicode_AsUTF8(py_name);
+		if (new_path == NULL) {
+			fnvlist_free(nvroot);
+			return (NULL);
+		}
+	} else {
+		/*
+		 * Replace-with-self: build a root nvlist with a single child
+		 * pointing at the same device path.  Use zfs_dev_is_whole_disk()
+		 * to select the correct vdev type (DISK vs FILE).
+		 */
+		whole_disk = zfs_dev_is_whole_disk(device);
+		child_nvl = fnvlist_alloc();
+		fnvlist_add_string(child_nvl, ZPOOL_CONFIG_TYPE,
+		    whole_disk ? VDEV_TYPE_DISK : VDEV_TYPE_FILE);
+		fnvlist_add_string(child_nvl, ZPOOL_CONFIG_PATH, device);
+		if (whole_disk)
+			fnvlist_add_uint64(child_nvl, ZPOOL_CONFIG_WHOLE_DISK,
+			    1ULL);
+		nvroot = fnvlist_alloc();
+		fnvlist_add_string(nvroot, ZPOOL_CONFIG_TYPE, VDEV_TYPE_ROOT);
+		self_children[0] = child_nvl;
+		fnvlist_add_nvlist_array(nvroot, ZPOOL_CONFIG_CHILDREN,
+		    (const nvlist_t * const *)self_children, 1);
+		fnvlist_free(child_nvl);
+		new_path = device;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.replace_vdev",
+	    "Os", p->name, device) < 0) {
+		fnvlist_free(nvroot);
+		return (NULL);
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_vdev_attach(p->zhp, device, new_path, nvroot,
+	    B_TRUE, rebuild);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	fnvlist_free(nvroot);
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err, "zpool_vdev_attach() failed");
+		return (NULL);
+	}
+
+	if (self_replace) {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool replace%s %s %s",
+		    rebuild ? " -s" : "", zpool_get_name(p->zhp), device);
+	} else {
+		error = py_log_history_fmt(p->pylibzfsp,
+		    "zpool replace%s %s %s %s",
+		    rebuild ? " -s" : "", zpool_get_name(p->zhp), device,
+		    new_path);
+	}
+	if (error)
+		return (NULL);
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_detach_vdev__doc__,
+"detach_vdev(*, device) -> None\n\n"
+"------------------------------\n\n"
+"Detach a device from a mirror or replacing vdev.\n\n"
+"The device must be part of a mirror or replacing vdev.  The operation\n"
+"is rejected by the kernel if it would leave fewer than the required\n"
+"number of replicas.\n\n"
+"Parameters\n"
+"----------\n"
+"device: str, required\n"
+"    Path or name of the vdev to detach.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    A required argument is missing.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while detaching the device.\n"
+);
+static PyObject *
+py_zfs_pool_detach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	char *device = NULL;
+	int ret;
+	int error;
+	py_zfs_error_t zfs_err;
+	char *kwnames[] = {"device", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$s", kwnames,
+	    &device))
+		return (NULL);
+
+	if (device == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "detach_vdev() requires 'device' argument");
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.detach_vdev",
+	    "Os", p->name, device) < 0)
+		return (NULL);
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_vdev_detach(p->zhp, device);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err, "zpool_vdev_detach() failed");
+		return (NULL);
+	}
+
+	error = py_log_history_fmt(p->pylibzfsp,
+	    "zpool detach %s %s", zpool_get_name(p->zhp), device);
+	if (error)
+		return (NULL);
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_remove_vdev__doc__,
+"remove_vdev(*, device) -> None\n\n"
+"------------------------------\n\n"
+"Remove a top-level vdev from the pool (asynchronous).\n\n"
+"Supported for top-level data vdevs, log devices, and redundant vdevs\n"
+"with uniform sector size.  Spares, L2ARC, and dRAID spares are not\n"
+"removable.  The operation is asynchronous; use cancel_remove_vdev()\n"
+"to abort an in-progress removal.\n\n"
+"Parameters\n"
+"----------\n"
+"device: str, required\n"
+"    Path or name of the top-level vdev to remove.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    A required argument is missing.\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred while removing the device.\n"
+);
+static PyObject *
+py_zfs_pool_remove_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	char *device = NULL;
+	int ret;
+	int error;
+	py_zfs_error_t zfs_err;
+	char *kwnames[] = {"device", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$s", kwnames,
+	    &device))
+		return (NULL);
+
+	if (device == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+		    "remove_vdev() requires 'device' argument");
+		return (NULL);
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.remove_vdev",
+	    "Os", p->name, device) < 0)
+		return (NULL);
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_vdev_remove(p->zhp, device);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	else {
+		boolean_t missing;
+		(void) zpool_refresh_stats(p->zhp, &missing);
+	}
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err, "zpool_vdev_remove() failed");
+		return (NULL);
+	}
+
+	error = py_log_history_fmt(p->pylibzfsp,
+	    "zpool remove %s %s", zpool_get_name(p->zhp), device);
+	if (error)
+		return (NULL);
+
+	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_cancel_remove_vdev__doc__,
+"cancel_remove_vdev(*) -> None\n\n"
+"-----------------------------\n\n"
+"Cancel an in-progress asynchronous vdev removal.\n\n"
+"Equivalent to 'zpool remove -s <pool>'.  Raises ZFSError if no removal\n"
+"is currently in progress.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    A libzfs error occurred, or no removal is in progress.\n"
+);
+static PyObject *
+py_zfs_pool_cancel_remove_vdev(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	int ret;
+	int error;
+	py_zfs_error_t zfs_err;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.cancel_remove_vdev",
+	    "O", p->name) < 0)
+		return (NULL);
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(p->pylibzfsp);
+	ret = zpool_vdev_remove_cancel(p->zhp);
+	if (ret)
+		py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+	PY_ZFS_UNLOCK(p->pylibzfsp);
+	Py_END_ALLOW_THREADS
+
+	if (ret) {
+		set_exc_from_libzfs(&zfs_err,
+		    "zpool_vdev_remove_cancel() failed");
+		return (NULL);
+	}
+
+	error = py_log_history_fmt(p->pylibzfsp,
+	    "zpool remove -s %s", zpool_get_name(p->zhp));
+	if (error)
+		return (NULL);
+
+	Py_RETURN_NONE;
 }
 
 PyGetSetDef zfs_pool_getsetters[] = {
@@ -1502,6 +2000,36 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_pool_add_vdevs,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_add_vdevs__doc__
+	},
+	{
+		.ml_name = "attach_vdev",
+		.ml_meth = (PyCFunction)py_zfs_pool_attach_vdev,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_attach_vdev__doc__
+	},
+	{
+		.ml_name = "replace_vdev",
+		.ml_meth = (PyCFunction)py_zfs_pool_replace_vdev,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_replace_vdev__doc__
+	},
+	{
+		.ml_name = "detach_vdev",
+		.ml_meth = (PyCFunction)py_zfs_pool_detach_vdev,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_detach_vdev__doc__
+	},
+	{
+		.ml_name = "remove_vdev",
+		.ml_meth = (PyCFunction)py_zfs_pool_remove_vdev,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_pool_remove_vdev__doc__
+	},
+	{
+		.ml_name = "cancel_remove_vdev",
+		.ml_meth = py_zfs_pool_cancel_remove_vdev,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_cancel_remove_vdev__doc__
 	},
 	{
 		.ml_name = "iter_history",

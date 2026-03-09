@@ -786,6 +786,44 @@ class ZFSPool:
         """Add vdevs to an existing pool (zpool add)."""
         ...
 
+    def attach_vdev(
+        self,
+        *,
+        device: str,
+        new_device: struct_vdev_create_spec,
+        rebuild: bool = False,
+        force: bool = False,
+    ) -> None:
+        """Attach a new device to an existing vdev (zpool attach).
+
+        By default raises ValueError if the resulting mirror would exceed
+        4 members or the resulting raidz would exceed 15 drives.
+        Pass force=True to bypass these width limits.
+        """
+        ...
+
+    def replace_vdev(
+        self,
+        *,
+        device: str,
+        new_device: struct_vdev_create_spec | None = None,
+        rebuild: bool = False,
+    ) -> None:
+        """Replace an existing pool device with a new one (zpool replace)."""
+        ...
+
+    def detach_vdev(self, *, device: str) -> None:
+        """Detach a device from a mirror or replacing vdev (zpool detach)."""
+        ...
+
+    def remove_vdev(self, *, device: str) -> None:
+        """Remove a top-level vdev from the pool (zpool remove)."""
+        ...
+
+    def cancel_remove_vdev(self) -> None:
+        """Cancel an in-progress asynchronous vdev removal (zpool remove -s)."""
+        ...
+
     def iter_history(
         self,
         *,
