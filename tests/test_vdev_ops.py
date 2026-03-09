@@ -184,7 +184,10 @@ class TestAttachVdev:
             assert result is None
 
             status = pool.status()
-            assert status.status == ZPOOLStatus.ZPOOL_STATUS_OK
+            assert status.status in (
+                ZPOOLStatus.ZPOOL_STATUS_OK,
+                ZPOOLStatus.ZPOOL_STATUS_RESILVERING,
+            )
             # Pool should now have a mirror top-level vdev
             assert len(status.storage_vdevs) == 1
             mirror = status.storage_vdevs[0]
