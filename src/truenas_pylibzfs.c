@@ -250,6 +250,117 @@ py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
 	    py_children);
 }
 
+PyDoc_STRVAR(py_read_label__doc__,
+"read_label(*, fd: int) -> dict | None\n"
+"-------------------------------------\n\n"
+"Read the ZFS label from a block device and return its configuration\n"
+"as a dictionary, or None if no valid ZFS label is found.\n\n"
+"All arguments are keyword-only.\n\n"
+"Parameters\n"
+"----------\n"
+"fd: int, required\n"
+"    Open file descriptor for the block device. May be opened O_RDONLY.\n\n"
+"Returns\n"
+"-------\n"
+"dict | None\n"
+"    The nvlist config from the device's ZFS label, or None if no valid\n"
+"    label is found on the device.\n\n"
+"Raises\n"
+"------\n"
+"RuntimeError:\n"
+"    zpool_read_label() failed (out of memory).\n"
+);
+static PyObject *py_read_label(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	int fd = -1, ret = 0, num_labels = 0;
+	nvlist_t *config = NULL;
+	PyObject *nvldump = NULL, *dict_out = NULL;
+	pylibzfs_state_t *state = NULL;
+	char *kwnames[] = {"fd", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$i", kwnames, &fd))
+		return NULL;
+
+	if (fd < 0) {
+		PyErr_SetString(PyExc_ValueError, "fd must be a non-negative integer");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".read_label", "i", fd) < 0)
+		return NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	ret = zpool_read_label(fd, &config, &num_labels);
+	Py_END_ALLOW_THREADS
+
+	if (ret != 0) {
+		PyErr_SetString(PyExc_RuntimeError, "zpool_read_label() failed");
+		return NULL;
+	}
+
+	if (num_labels == 0 || config == NULL) {
+		fnvlist_free(config);
+		Py_RETURN_NONE;
+	}
+
+	state = (pylibzfs_state_t *)PyModule_GetState(self);
+	PYZFS_ASSERT(state, "Failed to get module state");
+
+	nvldump = py_dump_nvlist(config, B_TRUE);
+	fnvlist_free(config);
+	if (nvldump == NULL)
+		return NULL;
+
+	dict_out = PyObject_CallFunction(state->loads_fn, "O", nvldump);
+	Py_DECREF(nvldump);
+	return dict_out;
+}
+
+PyDoc_STRVAR(py_clear_label__doc__,
+"clear_label(*, fd: int) -> None\n"
+"--------------------------------\n\n"
+"Clear (zero) all ZFS label information on a block device.\n\n"
+"All arguments are keyword-only.\n\n"
+"Parameters\n"
+"----------\n"
+"fd: int, required\n"
+"    Open file descriptor for the block device. Must be opened O_RDWR.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"OSError:\n"
+"    A write error occurred while clearing the labels (errno is set).\n"
+);
+static PyObject *py_clear_label(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	int fd = -1, ret;
+	char *kwnames[] = {"fd", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$i", kwnames, &fd))
+		return NULL;
+
+	if (fd < 0) {
+		PyErr_SetString(PyExc_ValueError, "fd must be a non-negative integer");
+		return NULL;
+	}
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".clear_label", "i", fd) < 0)
+		return NULL;
+
+	Py_BEGIN_ALLOW_THREADS
+	ret = zpool_clear_label(fd);
+	Py_END_ALLOW_THREADS
+
+	if (ret != 0) {
+		PyErr_SetFromErrno(PyExc_OSError);
+		return NULL;
+	}
+
+	Py_RETURN_NONE;
+}
+
 /* Module method table */
 static PyMethodDef TruenasPylibzfsMethods[] = {
 	{
@@ -269,6 +380,18 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 		.ml_meth = (PyCFunction)py_create_vdev_spec,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_create_vdev_spec__doc__
+	},
+	{
+		.ml_name = "read_label",
+		.ml_meth = (PyCFunction)py_read_label,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_read_label__doc__
+	},
+	{
+		.ml_name = "clear_label",
+		.ml_meth = (PyCFunction)py_clear_label,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_clear_label__doc__
 	},
 	{NULL}
 };
