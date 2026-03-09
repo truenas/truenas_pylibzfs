@@ -43,7 +43,8 @@ def test_valid_volume_names(name):
     'pool/dataset@snap@snap',  # double @
     'a' * 1024,                # way too long
     'pool/données',            # non-ASCII (Latin)
-    'pool/数据集',              # non-ASCII (CJK)
+    'pool/数据集',             # non-ASCII (CJK)
+    'pool/dataset ',           # trailing space
 ])
 def test_invalid_filesystem_names(name):
     assert truenas_pylibzfs.name_is_valid(name=name, type=ZFSType.ZFS_TYPE_FILESYSTEM) is False
@@ -77,7 +78,7 @@ def test_valid_pool_names(name):
     '',            # empty
     'bad!pool',    # invalid character
     'données',     # non-ASCII (Latin)
-    '数据池',       # non-ASCII (CJK)
+    '数据池',      # non-ASCII (CJK)
     'bad/pool',    # slash not allowed in pool name
     'bad@pool',    # @ not allowed
     'mirror',      # reserved word
@@ -85,6 +86,7 @@ def test_valid_pool_names(name):
     'draid',       # reserved word
     'spare',       # reserved word
     'log',         # reserved word
+    'tank ',       # trailing space
 ])
 def test_invalid_pool_names(name):
     assert truenas_pylibzfs.name_is_valid(name=name, type=ZFSType.ZFS_TYPE_POOL) is False
