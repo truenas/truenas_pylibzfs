@@ -188,7 +188,7 @@ class TestAttachVdev:
             # Pool should now have a mirror top-level vdev
             assert len(status.storage_vdevs) == 1
             mirror = status.storage_vdevs[0]
-            assert mirror.type == "mirror"
+            assert mirror.vdev_type == "mirror"
             assert len(mirror.children) == 2
         finally:
             _destroy(lz)
@@ -207,7 +207,7 @@ class TestAttachVdev:
                 ZPOOLStatus.ZPOOL_STATUS_RESILVERING,
             )
             mirror = status.storage_vdevs[0]
-            assert mirror.type == "mirror"
+            assert mirror.vdev_type == "mirror"
             assert len(mirror.children) == 3
         finally:
             _destroy(lz)
@@ -241,7 +241,7 @@ class TestAttachVdev:
                 device=disks[0], new_device=_spec(disks[4]), force=True
             )
             status = pool.status()
-            assert status.storage_vdevs[0].type == "mirror"
+            assert status.storage_vdevs[0].vdev_type == "mirror"
             assert len(status.storage_vdevs[0].children) == 5
         finally:
             _destroy(lz)
@@ -460,7 +460,7 @@ class TestWidthLimitsCreateAdd:
             )
             pool = lz.open_pool(name=POOL_NAME)
             status = pool.status()
-            assert status.storage_vdevs[0].type == "mirror"
+            assert status.storage_vdevs[0].vdev_type == "mirror"
             assert len(status.storage_vdevs[0].children) == 5
         finally:
             _destroy(lz)

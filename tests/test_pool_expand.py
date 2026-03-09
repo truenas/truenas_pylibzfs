@@ -5,24 +5,21 @@ Covers:
   - expand_info() returns None on a pool that has never had a RAIDZ expansion
   - expand_info() returns struct_zpool_expand after a RAIDZ expansion
   - struct_zpool_expand field presence and types
-
-NOTE: This test uses pre-existing disk files at /root/disks/ and shells out
-to `zpool attach` since truenas_pylibzfs has no attach API.
 """
 
 import os
-import subprocess
 import time
 
 import pytest
 import truenas_pylibzfs
 from truenas_pylibzfs import enums
 
+from conftest import make_vdev_spec
+
 ScanState = enums.ScanState
 VDevType = truenas_pylibzfs.VDevType
 
 POOL_NAME = 'testpool_expand'
-DISKS = [f'/root/disks/disk{i:03d}' for i in range(91, 95)]
 ZPOOLProperty = truenas_pylibzfs.ZPOOLProperty
 
 
@@ -30,20 +27,18 @@ ZPOOLProperty = truenas_pylibzfs.ZPOOLProperty
 # Fixtures
 # ---------------------------------------------------------------------------
 
-def _spec(path):
-    return truenas_pylibzfs.create_vdev_spec(vdev_type=VDevType.FILE, name=path)
-
-
 @pytest.fixture
-def pool_raidz():
+def pool_raidz(make_disks):
     """Create a raidz1 pool with 3 disks; yields (lz, pool)."""
+    disks = make_disks(4)
     lz = truenas_pylibzfs.open_handle()
     lz.create_pool(
         name=POOL_NAME,
         storage_vdevs=[
             truenas_pylibzfs.create_vdev_spec(
                 vdev_type=VDevType.RAIDZ1,
-                children=[_spec(DISKS[0]), _spec(DISKS[1]), _spec(DISKS[2])],
+                children=[make_vdev_spec(disks[0]), make_vdev_spec(disks[1]),
+                          make_vdev_spec(disks[2])],
             )
         ],
         force=True,
@@ -51,7 +46,7 @@ def pool_raidz():
     lz.open_resource(name=POOL_NAME).mount()
     pool = lz.open_pool(name=POOL_NAME)
     try:
-        yield lz, pool
+        yield lz, pool, disks
     finally:
         try:
             lz.destroy_pool(name=POOL_NAME, force=True)
@@ -62,7 +57,7 @@ def pool_raidz():
 @pytest.fixture
 def pool_after_expand(pool_raidz):
     """Raidz1 pool that has had a RAIDZ expansion completed."""
-    lz, pool = pool_raidz
+    lz, pool, disks = pool_raidz
 
     # Write some data so there is something to reflow
     chunk = os.urandom(1 << 20)  # 1 MB
@@ -71,7 +66,7 @@ def pool_after_expand(pool_raidz):
             f.write(chunk)
 
     # Attach 4th disk to trigger raidz expansion
-    subprocess.check_call(['zpool', 'attach', '-f', POOL_NAME, 'raidz1-0', DISKS[3]])
+    pool.attach_vdev(device='raidz1-0', new_device=make_vdev_spec(disks[3]), force=True)
 
     # Wait for expansion to finish
     for _ in range(300):
@@ -90,7 +85,7 @@ def pool_after_expand(pool_raidz):
 
 def test_expand_returns_none_before_any_expansion(pool_raidz):
     """A freshly created pool with no expansion history returns None."""
-    lz, pool = pool_raidz
+    lz, pool, disks = pool_raidz
     assert pool.expand_info() is None
 
 
@@ -157,6 +152,7 @@ def test_expand_to_reflow_nonzero(pool_after_expand):
     """to_reflow should be nonzero since we wrote data before expanding."""
     lz, pool = pool_after_expand
     assert pool.expand_info().to_reflow > 0
+
 
 def test_expand_reflowed_nonzero(pool_after_expand):
     """reflowed should be nonzero after a completed expansion."""
