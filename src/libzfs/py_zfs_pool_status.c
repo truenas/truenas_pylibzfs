@@ -192,6 +192,8 @@ PyStructSequence_Desc struct_pool_support_vdev_desc = {
 };
 
 PyStructSequence_Field struct_vdev_stats [] = {
+	{"timestamp", "High-resolution timestamp (hrtime_t, nanoseconds since boot) "
+	              "when these stats were last updated."},
 	{"allocated", "Space allocated, in bytes"},
 	{"space", "Total capacity, in bytes"},
 	{"dspace", "Deflated capacity, in bytes"},
@@ -227,36 +229,37 @@ PyStructSequence_Desc struct_vdev_stats_desc = {
 	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_stats",
 	.fields = struct_vdev_stats,
 	.doc = "Python ZFS vdev stats structure",
-	.n_in_sequence = 25
+	.n_in_sequence = 26
 };
 
 /* Index constants for struct_vdev_stats fields — must stay in sync with
  * struct_vdev_stats[] above. */
-#define VS_ALLOCATED_IDX 0
-#define VS_SPACE_IDX 1
-#define VS_DSPACE_IDX 2
-#define VS_PSPACE_IDX 3
-#define VS_RSIZE_IDX 4
-#define VS_ESIZE_IDX 5
-#define VS_READ_ERRORS_IDX 6
-#define VS_WRITE_ERRORS_IDX 7
-#define VS_CHECKSUM_ERRORS_IDX 8
-#define VS_INIT_ERRORS_IDX 9
-#define VS_DIO_VERIFY_ERRORS_IDX 10
-#define VS_SLOW_IOS_IDX 11
-#define VS_SELF_HEALED_IDX 12
-#define VS_FRAGMENTATION_IDX      13
-#define VS_SCAN_PROCESSED_IDX     14
-#define VS_SCAN_REMOVING_IDX      15
-#define VS_REBUILD_PROCESSED_IDX  16
-#define VS_NOALLOC_IDX            17
-#define VS_OPS_READ_IDX           18
-#define VS_OPS_WRITE_IDX          19
-#define VS_BYTES_READ_IDX         20
-#define VS_BYTES_WRITE_IDX        21
-#define VS_CONFIGURED_ASHIFT_IDX  22
-#define VS_LOGICAL_ASHIFT_IDX     23
-#define VS_PHYSICAL_ASHIFT_IDX    24
+#define VS_TIMESTAMP_IDX          0
+#define VS_ALLOCATED_IDX          1
+#define VS_SPACE_IDX              2
+#define VS_DSPACE_IDX             3
+#define VS_PSPACE_IDX             4
+#define VS_RSIZE_IDX              5
+#define VS_ESIZE_IDX              6
+#define VS_READ_ERRORS_IDX        7
+#define VS_WRITE_ERRORS_IDX       8
+#define VS_CHECKSUM_ERRORS_IDX    9
+#define VS_INIT_ERRORS_IDX        10
+#define VS_DIO_VERIFY_ERRORS_IDX  11
+#define VS_SLOW_IOS_IDX           12
+#define VS_SELF_HEALED_IDX        13
+#define VS_FRAGMENTATION_IDX      14
+#define VS_SCAN_PROCESSED_IDX     15
+#define VS_SCAN_REMOVING_IDX      16
+#define VS_REBUILD_PROCESSED_IDX  17
+#define VS_NOALLOC_IDX            18
+#define VS_OPS_READ_IDX           19
+#define VS_OPS_WRITE_IDX          20
+#define VS_BYTES_READ_IDX         21
+#define VS_BYTES_WRITE_IDX        22
+#define VS_CONFIGURED_ASHIFT_IDX  23
+#define VS_LOGICAL_ASHIFT_IDX     24
+#define VS_PHYSICAL_ASHIFT_IDX    25
 
 #define PY_ZIO_TYPE_READ  1   /* ZIO_TYPE_READ  */
 #define PY_ZIO_TYPE_WRITE 2   /* ZIO_TYPE_WRITE */
@@ -318,6 +321,12 @@ boolean_t parse_vdev_stats(vdev_stat_t *vs,
 			   PyObject *pyvdev)
 {
 	PyObject *val = NULL;
+
+	val = PyLong_FromLongLong((long long)vs->vs_timestamp);
+	if (val == NULL)
+		return B_FALSE;
+
+	PyStructSequence_SetItem(pyvdev, VS_TIMESTAMP_IDX, val);
 
 	val = PyLong_FromUnsignedLong(vs->vs_alloc);
 	if (val == NULL)
