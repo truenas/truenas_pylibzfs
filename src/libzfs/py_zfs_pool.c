@@ -1466,7 +1466,7 @@ py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		nvlist_t **children;
 		uint_t nchildren;
 		nvlist_t *vdev_nvl;
-		char *type_ptr;
+		const char *type_ptr;
 
 		/*
 		 * We need the parent vdev (mirror/raidz), not the leaf
