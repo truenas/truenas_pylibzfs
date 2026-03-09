@@ -361,6 +361,72 @@ static PyObject *py_clear_label(PyObject *self, PyObject *args, PyObject *kwargs
 	Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(py_name_is_valid__doc__,
+"name_is_valid(*, name, type) -> bool\n\n"
+"-------------------------------------\n\n"
+"Check whether the given name is a valid ZFS name for the specified type.\n\n"
+"Parameters\n"
+"----------\n"
+"name: str, required\n"
+"    The name to validate.\n"
+"type: " PYLIBZFS_MODULE_NAME ".ZFSType, required\n"
+"    The ZFS type to validate the name against.\n\n"
+"Returns\n"
+"-------\n"
+"bool\n"
+"    True if the name is valid for the given type, False otherwise.\n"
+);
+static PyObject *
+py_name_is_valid(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	pylibzfs_state_t *state = NULL;
+	const char *name = NULL;
+	PyObject *pyzfstype = NULL;
+	long ztype;
+	int valid;
+	char *kwnames[] = {"name", "type", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sO",
+					 kwnames, &name, &pyzfstype)) {
+		return NULL;
+	}
+
+	if (name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"\"name\" keyword argument is required.");
+		return NULL;
+	}
+
+	if (pyzfstype == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"\"type\" keyword argument is required.");
+		return NULL;
+	}
+
+	state = (pylibzfs_state_t *)PyModule_GetState(self);
+	PYZFS_ASSERT(state, "Failed to get module state");
+
+	if (!PyObject_IsInstance(pyzfstype, state->zfs_type_enum)) {
+		PyObject *repr = PyObject_Repr(pyzfstype);
+		PyErr_Format(PyExc_TypeError,
+			     "%V: not a valid ZFSType",
+			     repr, "UNKNOWN");
+		Py_XDECREF(repr);
+		return NULL;
+	}
+
+	ztype = PyLong_AsLong(pyzfstype);
+	if (ztype == -1 && PyErr_Occurred())
+		return NULL;
+
+	valid = zfs_name_valid(name, (zfs_type_t)ztype);
+	if (valid && (name[strlen(name) - 1] != ' ')) {
+		Py_RETURN_TRUE;
+	}
+
+	Py_RETURN_FALSE;
+}
+
 /* Module method table */
 static PyMethodDef TruenasPylibzfsMethods[] = {
 	{
@@ -392,6 +458,12 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 		.ml_meth = (PyCFunction)py_clear_label,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_clear_label__doc__
+	},
+	{
+		.ml_name = "name_is_valid",
+		.ml_meth = (PyCFunction)py_name_is_valid,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_name_is_valid__doc__
 	},
 	{NULL}
 };
