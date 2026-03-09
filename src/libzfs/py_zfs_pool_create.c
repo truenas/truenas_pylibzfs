@@ -515,6 +515,63 @@ validate_storage_min_children(PyObject *spec, PyObject *py_type)
 }
 
 /* --------------------------------------------------------------------------
+ * Width policy validation.
+ * -------------------------------------------------------------------------- */
+
+/*
+ * Check that the first storage vdev spec does not exceed the mirror or raidz
+ * width limits.  Only the first spec is inspected because topology validation
+ * already requires all storage specs to share the same type and child count.
+ *
+ * Returns B_TRUE if within limits, B_FALSE with exception set if not.
+ * The caller is responsible for only invoking this when force=False.
+ */
+static boolean_t
+validate_storage_widths(PyObject *storage_seq)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+	PyObject *py_children = NULL;
+	Py_ssize_t nch;
+
+	if (storage_seq == NULL)
+		return (B_TRUE);
+
+	iterator = PyObject_GetIter(storage_seq);
+	if (iterator == NULL)
+		return (B_FALSE);
+
+	spec = PyIter_Next(iterator);
+	Py_DECREF(iterator);
+	if (spec == NULL)
+		return (!PyErr_Occurred());
+
+	py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+	py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
+	nch = (py_children != Py_None) ? PyTuple_Size(py_children) : 0;
+
+	if (is_mirror_type(py_type) && nch > PYLIBZFS_MAX_MIRROR_WIDTH) {
+		PyErr_Format(PyExc_ValueError,
+		    "storage_vdevs: mirror width %zd exceeds limit of %d; "
+		    "use force=True to override",
+		    nch, PYLIBZFS_MAX_MIRROR_WIDTH);
+		Py_DECREF(spec);
+		return (B_FALSE);
+	}
+	if (is_raidz_type(py_type) && nch > PYLIBZFS_MAX_RAIDZ_WIDTH) {
+		PyErr_Format(PyExc_ValueError,
+		    "storage_vdevs: raidz width %zd exceeds limit of %d; "
+		    "use force=True to override",
+		    nch, PYLIBZFS_MAX_RAIDZ_WIDTH);
+		Py_DECREF(spec);
+		return (B_FALSE);
+	}
+	Py_DECREF(spec);
+	return (B_TRUE);
+}
+
+/* --------------------------------------------------------------------------
  * Full pool topology validation.
  * -------------------------------------------------------------------------- */
 
@@ -1278,6 +1335,32 @@ build_default_pool_props(void)
 }
 
 /*
+ * Build a minimal root nvlist containing a single child vdev, suitable
+ * for passing to zpool_vdev_attach().
+ * Caller must fnvlist_free() the returned nvlist.
+ * Returns NULL with exception set on error.
+ */
+nvlist_t *
+py_zfs_build_single_vdev_nvroot(PyObject *spec)
+{
+	nvlist_t *child_nvl = NULL;
+	nvlist_t *root_nvl = NULL;
+	nvlist_t *children[1];
+
+	child_nvl = build_vdev_spec_nvlist(spec);
+	if (child_nvl == NULL)
+		return (NULL);
+
+	root_nvl = fnvlist_alloc();
+	fnvlist_add_string(root_nvl, ZPOOL_CONFIG_TYPE, VDEV_TYPE_ROOT);
+	children[0] = child_nvl;
+	fnvlist_add_nvlist_array(root_nvl, ZPOOL_CONFIG_CHILDREN,
+	    (const nvlist_t * const *)children, 1);
+	fnvlist_free(child_nvl);
+	return (root_nvl);
+}
+
+/*
  * py_zfs_do_create_pool() — core implementation called from the ZFS.create_pool()
  * wrapper in py_zfs.c.
  *
@@ -1328,6 +1411,8 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 
 	/* Topology validation (skip when force=True) */
 	if (!cpa->force) {
+		if (!validate_storage_widths(storage_seq))
+			goto fail;
 		if (!validate_pool_topology(storage_seq, cache_seq, log_seq,
 		    special_seq, dedup_seq, spare_seq))
 			goto fail;
@@ -1830,6 +1915,11 @@ py_zfs_do_add_vdevs(py_zfs_pool_t *pool, py_zfs_add_vdevs_args_t *ava)
 		goto fail;
 
 	if (!ava->force) {
+		/* Width policy check */
+		if (storage_seq != NULL &&
+		    !validate_storage_widths(storage_seq))
+			goto fail;
+
 		/* Pool-match checks: read existing geometry then validate */
 		Py_BEGIN_ALLOW_THREADS
 		PY_ZFS_LOCK(pool->pylibzfsp);
