@@ -420,8 +420,9 @@ py_name_is_valid(PyObject *self, PyObject *args, PyObject *kwargs)
 		return NULL;
 
 	valid = zfs_name_valid(name, (zfs_type_t)ztype);
-	if (valid)
+	if (valid && (name[strlen(name) - 1] != ' ')) {
 		Py_RETURN_TRUE;
+	}
 
 	Py_RETURN_FALSE;
 }
