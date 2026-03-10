@@ -124,17 +124,17 @@ PyDoc_STRVAR(py_pool_status_files__doc__,
 );
 
 PyDoc_STRVAR(py_pool_status_storage__doc__,
-"Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects that comprise the topology\n"
+"Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev objects that comprise the topology\n"
 "of the storage pool. Each tuple member represents a top-level vdev.\n"
 );
 
 PyDoc_STRVAR(py_pool_status_support__doc__,
-PYLIBZFS_MODULE_NAME ".struct_support_vdev object containing information about\n"
+PYLIBZFS_TYPES_MODULE_NAME ".struct_support_vdev object containing information about\n"
 "the support vdevs in-use by the pool.\n"
 );
 
 PyDoc_STRVAR(py_pool_status_spares__doc__,
-"Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects for hot spare vdevs,\n"
+"Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev objects for hot spare vdevs,\n"
 "or an empty tuple if no spares are configured.\n"
 );
 
@@ -166,26 +166,26 @@ PyStructSequence_Field struct_pool_status_prop [] = {
 #define POOL_GUID_IDX     9
 
 PyStructSequence_Desc struct_pool_status_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_status",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_status",
 	.fields = struct_pool_status_prop,
 	.doc = "Python ZFS pool status structure",
 	.n_in_sequence = 10
 };
 
 PyStructSequence_Field struct_pool_support_vdev [] = {
-	{"cache", "Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects "
+	{"cache", "Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev objects "
 	          "for L2ARC (read cache) vdevs, or None if not present."},
-	{"log", "Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects "
+	{"log", "Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev objects "
 	        "for ZFS Intent Log (SLOG) vdevs, or None if not present."},
-	{"special", "Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects "
+	{"special", "Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev objects "
 	            "for special (metadata) vdevs, or None if not present."},
-	{"dedup", "Tuple of " PYLIBZFS_MODULE_NAME ".struct_vdev objects "
+	{"dedup", "Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev objects "
 	          "for dedup table vdevs, or None if not present."},
 	{0},
 };
 
 PyStructSequence_Desc struct_pool_support_vdev_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_support_vdev",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_support_vdev",
 	.fields = struct_pool_support_vdev,
 	.doc = "Python ZFS pool support vdev structure",
 	.n_in_sequence = 4
@@ -226,7 +226,7 @@ PyStructSequence_Field struct_vdev_stats [] = {
 };
 
 PyStructSequence_Desc struct_vdev_stats_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_stats",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev_stats",
 	.fields = struct_vdev_stats,
 	.doc = "Python ZFS vdev stats structure",
 	.n_in_sequence = 26
@@ -282,7 +282,7 @@ PyStructSequence_Field struct_vdev_status_prop [] = {
 #define TOP_GUID_IDX 6
 
 PyStructSequence_Desc struct_vdev_status_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_vdev",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev",
 	.fields = struct_vdev_status_prop,
 	.doc = "Python pool vdev status structure",
 	.n_in_sequence = 7

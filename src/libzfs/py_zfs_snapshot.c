@@ -1,21 +1,8 @@
 #include "../truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
 
-#define ZFS_SNAP_STR "<" PYLIBZFS_MODULE_NAME \
+#define ZFS_SNAP_STR "<" PYLIBZFS_TYPES_MODULE_NAME \
     ".ZFSSnapshot(name=%U, pool=%U, type=%U)>"
-
-static
-PyObject *py_zfs_snapshot_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_snapshot_t *self = NULL;
-	self = (py_zfs_snapshot_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
-}
-
-static
-int py_zfs_snapshot_init(PyObject *type, PyObject *args, PyObject *kwds) {
-	return (0);
-}
 
 static
 void py_zfs_snapshot_dealloc(py_zfs_snapshot_t *self) {
@@ -259,12 +246,11 @@ PyMethodDef zfs_snapshot_methods[] = {
 };
 
 PyTypeObject ZFSSnapshot = {
-	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSSnapshot",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSSnapshot",
 	.tp_basicsize = sizeof (py_zfs_snapshot_t),
 	.tp_methods = zfs_snapshot_methods,
 	.tp_getset = zfs_snapshot_getsetters,
-	.tp_new = py_zfs_snapshot_new,
-	.tp_init = py_zfs_snapshot_init,
+	.tp_new = py_no_new_impl,
 	.tp_doc = "ZFSSnapshot",
 	.tp_dealloc = (destructor)py_zfs_snapshot_dealloc,
 	.tp_repr = py_repr_zfs_snapshot,
@@ -282,10 +268,9 @@ py_zfs_snapshot_t *init_zfs_snapshot(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_
 	uint64_t guid, createtxg;
 	boolean_t is_encrypted = B_FALSE;
 
-	out = (py_zfs_snapshot_t *)PyObject_CallFunction((PyObject *)&ZFSSnapshot, NULL);
-	if (out == NULL) {
+	out = (py_zfs_snapshot_t *)ZFSSnapshot.tp_alloc(&ZFSSnapshot, 0);
+	if (out == NULL)
 		return NULL;
-	}
 	out->rsrc.is_simple = simple;
 	obj = RSRC_TO_ZFS(out);
 	obj->pylibzfsp = lzp;

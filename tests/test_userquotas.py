@@ -25,7 +25,7 @@ def pool(make_pool):
 def dataset(pool):
     lz, _, root = pool
     ds_name = f'{POOL_NAME}/quotads'
-    lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
     ds = lz.open_resource(name=ds_name)
     ds.mount()
     try:
@@ -58,7 +58,7 @@ def _collect_userspace(ds, quota_type):
 
 def test_iter_userspace_empty_by_default(dataset):
     lz, ds = dataset
-    entries = _collect_userspace(ds, truenas_pylibzfs.ZFSUserQuota.USER_QUOTA)
+    entries = _collect_userspace(ds, truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA)
     assert entries == []
 
 
@@ -69,7 +69,7 @@ def test_iter_userspace_keyword_only(dataset):
         return True
 
     with pytest.raises(TypeError):
-        ds.iter_userspace(cb, None, truenas_pylibzfs.ZFSUserQuota.USER_QUOTA)
+        ds.iter_userspace(cb, None, truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA)
 
 
 def test_iter_userspace_missing_quotatype_raises(dataset):
@@ -91,12 +91,12 @@ def test_set_user_quota_basic(dataset):
     quota_size = 100 * 1024 * 1024  # 100 MiB
 
     ds.set_userquotas(quotas=[{
-        'quota_type': truenas_pylibzfs.ZFSUserQuota.USER_QUOTA,
+        'quota_type': truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA,
         'xid': 0,
         'value': quota_size,
     }])
 
-    entries = _collect_userspace(ds, truenas_pylibzfs.ZFSUserQuota.USER_QUOTA)
+    entries = _collect_userspace(ds, truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA)
     uid0 = [e for e in entries if e['xid'] == 0]
     assert len(uid0) == 1
     assert uid0[0]['value'] == quota_size
@@ -107,18 +107,18 @@ def test_set_user_quota_zero_removes(dataset):
     quota_size = 50 * 1024 * 1024  # 50 MiB
 
     ds.set_userquotas(quotas=[{
-        'quota_type': truenas_pylibzfs.ZFSUserQuota.USER_QUOTA,
+        'quota_type': truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA,
         'xid': 0,
         'value': quota_size,
     }])
 
     ds.set_userquotas(quotas=[{
-        'quota_type': truenas_pylibzfs.ZFSUserQuota.USER_QUOTA,
+        'quota_type': truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA,
         'xid': 0,
         'value': 0,
     }])
 
-    entries = _collect_userspace(ds, truenas_pylibzfs.ZFSUserQuota.USER_QUOTA)
+    entries = _collect_userspace(ds, truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA)
     assert [e for e in entries if e['xid'] == 0] == []
 
 
@@ -127,12 +127,12 @@ def test_set_group_quota(dataset):
     quota_size = 200 * 1024 * 1024  # 200 MiB
 
     ds.set_userquotas(quotas=[{
-        'quota_type': truenas_pylibzfs.ZFSUserQuota.GROUP_QUOTA,
+        'quota_type': truenas_pylibzfs.libzfs_types.ZFSUserQuota.GROUP_QUOTA,
         'xid': 0,
         'value': quota_size,
     }])
 
-    entries = _collect_userspace(ds, truenas_pylibzfs.ZFSUserQuota.GROUP_QUOTA)
+    entries = _collect_userspace(ds, truenas_pylibzfs.libzfs_types.ZFSUserQuota.GROUP_QUOTA)
     gid0 = [e for e in entries if e['xid'] == 0]
     assert len(gid0) == 1
     assert gid0[0]['value'] == quota_size
@@ -148,7 +148,7 @@ def test_set_userquotas_keyword_only(dataset):
     lz, ds = dataset
     with pytest.raises(TypeError):
         ds.set_userquotas([{
-            'quota_type': truenas_pylibzfs.ZFSUserQuota.USER_QUOTA,
+            'quota_type': truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_QUOTA,
             'xid': 0,
             'value': 1024,
         }])
@@ -169,7 +169,7 @@ def test_set_userquotas_used_type_raises(dataset):
     lz, ds = dataset
     with pytest.raises((TypeError, ValueError)):
         ds.set_userquotas(quotas=[{
-            'quota_type': truenas_pylibzfs.ZFSUserQuota.USER_USED,
+            'quota_type': truenas_pylibzfs.libzfs_types.ZFSUserQuota.USER_USED,
             'xid': 0,
             'value': 1024,
         }])

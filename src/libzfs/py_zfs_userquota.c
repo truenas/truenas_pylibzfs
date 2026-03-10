@@ -13,7 +13,7 @@ PyStructSequence_Field struct_zfs_userquota [] = {
 };
 
 PyStructSequence_Desc struct_zfs_userquota_type_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_zfs_userquota",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_userquota",
 	.fields = struct_zfs_userquota,
 	.doc = "Python ZFS user quota structure.",
 	.n_in_sequence = 3

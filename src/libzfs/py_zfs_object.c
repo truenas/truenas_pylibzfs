@@ -1,20 +1,7 @@
 #include "../truenas_pylibzfs.h"
 
-#define ZFS_OBJECT_STR "<" PYLIBZFS_MODULE_NAME \
+#define ZFS_OBJECT_STR "<" PYLIBZFS_TYPES_MODULE_NAME \
     ".ZFSObject(name=%U, pool=%U, type=%U)>"
-
-static
-PyObject *py_zfs_obj_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_obj_t *self = NULL;
-	self = (py_zfs_obj_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
-}
-
-static
-int py_zfs_obj_init(PyObject *type, PyObject *args, PyObject *kwds) {
-	return (0);
-}
 
 /*
  * This needs to be public so that zfs dataset, volume, etc
@@ -324,12 +311,11 @@ PyMethodDef zfs_obj_methods[] = {
 };
 
 PyTypeObject ZFSObject = {
-	.tp_name = "ZFSObject",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSObject",
 	.tp_basicsize = sizeof (py_zfs_obj_t),
 	.tp_methods = zfs_obj_methods,
 	.tp_getset = zfs_obj_getsetters,
-	.tp_new = py_zfs_obj_new,
-	.tp_init = py_zfs_obj_init,
+	.tp_new = py_no_new_impl,
 	.tp_doc = "ZFSObject",
 	.tp_dealloc = (destructor)py_zfs_obj_dealloc,
 	.tp_repr = py_repr_zfs_object,

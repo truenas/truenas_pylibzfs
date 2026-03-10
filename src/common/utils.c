@@ -49,6 +49,15 @@ PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt)
 	);
 }
 
+PyObject *
+py_no_new_impl(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+	PyErr_Format(PyExc_TypeError,
+	    "%.100s cannot be instantiated directly",
+	    type->tp_name);
+	return NULL;
+}
+
 int py_log_history_impl(libzfs_handle_t *hdl_in,
 			const char *prefix,
 			const char *fmt, ...)

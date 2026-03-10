@@ -20,7 +20,7 @@ ScanState = enums.ScanState
 VDevType = truenas_pylibzfs.VDevType
 
 POOL_NAME = 'testpool_expand'
-ZPOOLProperty = truenas_pylibzfs.ZPOOLProperty
+ZPOOLProperty = truenas_pylibzfs.libzfs_types.ZPOOLProperty
 
 
 # ---------------------------------------------------------------------------

@@ -3,13 +3,13 @@ import time
 import truenas_pylibzfs
 
 init_props = {
-   truenas_pylibzfs.ZFSProperty.VOLSIZE: "1073741824",
-   truenas_pylibzfs.ZFSProperty.READONLY: "on",
+   truenas_pylibzfs.libzfs_types.ZFSProperty.VOLSIZE: "1073741824",
+   truenas_pylibzfs.libzfs_types.ZFSProperty.READONLY: "on",
 }
 
 update_props = {
-   truenas_pylibzfs.ZFSProperty.VOLSIZE: "1073741824",
-   truenas_pylibzfs.ZFSProperty.READONLY: "off",
+   truenas_pylibzfs.libzfs_types.ZFSProperty.VOLSIZE: "1073741824",
+   truenas_pylibzfs.libzfs_types.ZFSProperty.READONLY: "off",
 }
 
 @pytest.fixture(scope='function')
@@ -19,7 +19,7 @@ def ro_zvol(root_dataset):
     rsrc_name = f'{root.name}/rozvol'
     lz.create_resource(
         name=rsrc_name,
-        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_VOLUME,
+        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_VOLUME,
         properties=init_props
     )
 

@@ -217,6 +217,59 @@ int init_py_zfs_state(PyObject *module)
 	return 0;
 }
 
+/*
+ * Register all struct sequence types in the libzfs_types submodule.
+ * Must be called after init_py_zfs_state() since that is where the
+ * types are created.
+ */
+int
+py_register_struct_types(PyObject *module)
+{
+	pylibzfs_state_t *state = NULL;
+	PyObject *lzt = NULL;
+	int err = -1;
+
+	state = (pylibzfs_state_t *)PyModule_GetState(module);
+	PYZFS_ASSERT(state, "Failed to get module state.");
+
+	lzt = PyObject_GetAttrString(module, "libzfs_types");
+	if (lzt == NULL)
+		return -1;
+
+#define ADD_STRUCT(name, typeptr) do { \
+	if ((typeptr) != NULL) { \
+		if (PyModule_AddObjectRef(lzt, (name), \
+		    (PyObject *)(typeptr)) < 0) \
+			goto out; \
+	} \
+} while (0)
+
+	/* names must match the short suffix of the PyStructSequence_Desc .name */
+	ADD_STRUCT("struct_zfs_property_data",   state->struct_zfs_prop_type);
+	ADD_STRUCT("struct_zfs_property_source", state->struct_zfs_prop_src_type);
+	ADD_STRUCT("struct_zfs_property",        state->struct_zfs_props_type);
+	ADD_STRUCT("struct_zfs_userquota",       state->struct_zfs_userquota_type);
+	ADD_STRUCT("struct_zfs_crypto_info",     state->struct_zfs_crypto_info_type);
+	ADD_STRUCT("struct_zfs_crypto_config",   state->struct_zfs_crypto_change_type);
+	ADD_STRUCT("struct_zpool_status",        state->struct_zpool_status_type);
+	ADD_STRUCT("struct_vdev",                state->struct_vdev_status_type);
+	ADD_STRUCT("struct_vdev_stats",          state->struct_vdev_stats_type);
+	ADD_STRUCT("struct_support_vdev",        state->struct_support_vdev_type);
+	ADD_STRUCT("struct_zpool_feature",       state->struct_zpool_feature_type);
+	ADD_STRUCT("struct_vdev_create_spec",    state->struct_vdev_create_spec_type);
+	ADD_STRUCT("struct_zpool_scrub",         state->struct_zpool_scrub_type);
+	ADD_STRUCT("struct_zpool_expand",        state->struct_zpool_expand_type);
+	ADD_STRUCT("struct_zpool_property_data", state->struct_zpool_prop_type);
+	ADD_STRUCT("struct_zpool_property",      state->struct_zpool_props_type);
+
+#undef ADD_STRUCT
+
+	err = 0;
+out:
+	Py_DECREF(lzt);
+	return err;
+}
+
 PyObject *py_get_zfs_type(py_zfs_t *zfs, zfs_type_t type, PyObject **name_out)
 {
 	PyObject *out = NULL, *name = NULL;

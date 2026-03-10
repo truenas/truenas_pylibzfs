@@ -14,10 +14,10 @@ import shutil
 import tempfile
 import truenas_pylibzfs
 
-ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
+ZPOOLStatus = truenas_pylibzfs.libzfs_types.ZPOOLStatus
 VDevType = truenas_pylibzfs.VDevType
-ZPOOLProperty = truenas_pylibzfs.enums.ZPOOLProperty
-ZFSProperty = truenas_pylibzfs.ZFSProperty
+ZPOOLProperty = truenas_pylibzfs.libzfs_types.ZPOOLProperty
+ZFSProperty = truenas_pylibzfs.libzfs_types.ZFSProperty
 
 POOL_NAME = "test_create_pool_pylibzfs"
 DISK_SZ = 128 * 1024 * 1024  # 128 MiB

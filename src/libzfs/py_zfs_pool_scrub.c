@@ -111,7 +111,7 @@ static PyStructSequence_Field struct_zpool_scrub_fields[] = {
 };
 
 static PyStructSequence_Desc struct_zpool_scrub_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_scrub",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_scrub",
 	.fields = struct_zpool_scrub_fields,
 	.doc = "ZFS pool scan/scrub statistics",
 	.n_in_sequence = 23,

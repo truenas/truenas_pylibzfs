@@ -20,7 +20,7 @@ def pool(make_pool):
 def test_mounted_dataset_returns_str(pool):
     lz, _, root = pool
     ds_name = f'{POOL_NAME}/mnt_ds'
-    lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
     try:
         ds = lz.open_resource(name=ds_name)
         ds.mount()
@@ -37,7 +37,7 @@ def test_mounted_dataset_returns_str(pool):
 def test_unmounted_dataset_returns_none(pool):
     lz, _, root = pool
     ds_name = f'{POOL_NAME}/mnt_unmounted'
-    lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
     try:
         ds = lz.open_resource(name=ds_name)
         ds.mount()
@@ -55,8 +55,8 @@ def test_legacy_mountpoint_returns_none(pool):
     ds_name = f'{POOL_NAME}/mnt_legacy'
     lz.create_resource(
         name=ds_name,
-        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
-        properties={truenas_pylibzfs.ZFSProperty.MOUNTPOINT: 'legacy'},
+        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        properties={truenas_pylibzfs.libzfs_types.ZFSProperty.MOUNTPOINT: 'legacy'},
     )
     try:
         assert lz.open_resource(name=ds_name).get_mountpoint() is None
@@ -70,7 +70,7 @@ def test_legacy_mountpoint_returns_none(pool):
 def test_remount_after_unmount(pool):
     lz, _, root = pool
     ds_name = f'{POOL_NAME}/mnt_remount'
-    lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
     try:
         ds = lz.open_resource(name=ds_name)
         ds.mount()

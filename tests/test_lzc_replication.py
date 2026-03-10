@@ -111,7 +111,7 @@ def _get_resume_token(recv_fs: str) -> str:
     we also try the hidden dataset directly.  Returns "-" when no token is set.
     """
     lz  = truenas_pylibzfs.open_handle()
-    prop = truenas_pylibzfs.ZFSProperty.RECEIVE_RESUME_TOKEN
+    prop = truenas_pylibzfs.libzfs_types.ZFSProperty.RECEIVE_RESUME_TOKEN
 
     for name in (recv_fs, recv_fs + "%recv"):
         try:
@@ -142,7 +142,7 @@ def pool_fixture():
     src = f"{POOL}/src"
     lz.create_resource(
         name=src,
-        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
     )
     lz.open_resource(name=src).mount()
     try:
@@ -608,7 +608,7 @@ class TestSendResume:
         # Pre-create dest filesystem so ZFS has somewhere to record the
         # partial state (matching the pyzfs test convention).
         lz.create_resource(
-            name=recv_fs, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM
+            name=recv_fs, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM
         )
 
         self._partial_receive(snap, recv_snap, 65536)
@@ -633,7 +633,7 @@ class TestSendResume:
         recv_snap = f"{recv_fs}@bigsnap"
 
         lz.create_resource(
-            name=recv_fs, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM
+            name=recv_fs, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM
         )
         self._partial_receive(snap, recv_snap, 65536)
 

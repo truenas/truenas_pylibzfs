@@ -13,10 +13,10 @@ def test_create_dataset_with_multibyte_name(root_dataset):
     with pytest.raises(truenas_pylibzfs.ZFSException, match=ERRDESC) as exc:
         lz.create_resource(
             name=rsrc_name,
-            type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+            type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
         )
 
-    assert exc.value.code == truenas_pylibzfs.ZFSError.EZFS_INVALIDNAME
+    assert exc.value.code == truenas_pylibzfs.libzfs_types.ZFSError.EZFS_INVALIDNAME
 
 
 def test_open_dataset_with_multibyte_name(root_dataset):
@@ -26,4 +26,4 @@ def test_open_dataset_with_multibyte_name(root_dataset):
     with pytest.raises(truenas_pylibzfs.ZFSException, match=ERRDESC) as exc:
         lz.open_resource(name=rsrc_name)
 
-    assert exc.value.code == truenas_pylibzfs.ZFSError.EZFS_INVALIDNAME
+    assert exc.value.code == truenas_pylibzfs.libzfs_types.ZFSError.EZFS_INVALIDNAME
