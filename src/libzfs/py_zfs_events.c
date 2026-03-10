@@ -121,9 +121,7 @@ py_zfs_event_iter_next(PyObject *self_obj)
 	int error;
 	PyObject *event_dict = NULL;
 	PyObject *result = NULL;
-	PyObject *nvl_json = NULL;
 	PyObject *dropped_obj = NULL;
-	pylibzfs_state_t *state = NULL;
 	py_zfs_error_t zfs_err;
 
 	if (self->zevent_fd <= 0) {
@@ -131,8 +129,6 @@ py_zfs_event_iter_next(PyObject *self_obj)
 		    "Event file descriptor is not open");
 		return NULL;
 	}
-
-	state = py_get_module_state(self->pylibzfsp);
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(self->pylibzfsp);
@@ -165,24 +161,14 @@ py_zfs_event_iter_next(PyObject *self_obj)
 		return NULL;
 	}
 
-	// Convert nvlist to JSON string, then parse to dict
-	nvl_json = py_dump_nvlist(nvl, B_TRUE);
+	event_dict = py_nvlist_to_dict(nvl);
 
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(nvl);
 	Py_END_ALLOW_THREADS
 
-	if (nvl_json == NULL) {
+	if (event_dict == NULL)
 		return NULL;
-	}
-
-	// Parse JSON string into Python dict
-	event_dict = PyObject_CallFunction(state->loads_fn, "O", nvl_json);
-	Py_DECREF(nvl_json);
-
-	if (event_dict == NULL) {
-		return NULL;
-	}
 
 	// Create result dictionary with 'event' and 'dropped' keys
 	result = PyDict_New();

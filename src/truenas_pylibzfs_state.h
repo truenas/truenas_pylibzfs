@@ -69,12 +69,6 @@ typedef struct {
 	PyObject *zfs_type_enum;
 	PyObject *zfs_uquota_enum;
 
-	/*
-	 * References to json module dumps, loads fuctions
-	 */
-	PyObject *dumps_fn;
-	PyObject *loads_fn;
-
 	/* Reference to zpool-related enums */
 	PyObject *zpool_status_enum;
 	PyObject *zpool_property_enum;
