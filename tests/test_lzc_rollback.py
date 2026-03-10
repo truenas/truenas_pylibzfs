@@ -24,7 +24,7 @@ def dataset_with_snap(pool):
     lz, _, root = pool
     ds_name = f'{POOL_NAME}/rb_ds'
     snap_name = f'{ds_name}@rb_snap1'
-    lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
     lzc.create_snapshots(snapshot_names=[snap_name])
     try:
         yield lz, ds_name, snap_name
@@ -45,7 +45,7 @@ def dataset_with_two_snaps(pool):
     ds_name = f'{POOL_NAME}/rb_ds2'
     snap1 = f'{ds_name}@rb_snap_a'
     snap2 = f'{ds_name}@rb_snap_b'
-    lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
     lzc.create_snapshots(snapshot_names=[snap1])
     lzc.create_snapshots(snapshot_names=[snap2])
     try:

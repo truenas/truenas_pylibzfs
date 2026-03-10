@@ -1,7 +1,7 @@
 import pytest
 import truenas_pylibzfs
 
-ZFSType = truenas_pylibzfs.libzfs_types.ZFSType
+ZFSType = truenas_pylibzfs.ZFSType
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ def enc_dataset(data_pool1):
     crypto = lz.resource_cryptography_config(keyformat='passphrase', key=PASSPHRASE)
     lz.create_resource(
         name=rsrc_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
         crypto=crypto
     )
     rsrc = lz.open_resource(name=rsrc_name)
@@ -50,7 +50,7 @@ def test_create_encrypted_filesystem(root_dataset):
     crypto = lz.resource_cryptography_config(keyformat='passphrase', key=PASSPHRASE)
     lz.create_resource(
         name=rsrc_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
         crypto=crypto
     )
     try:
@@ -73,7 +73,7 @@ def test_crypto_info(enc_dataset):
 def test_asdict_crypto(enc_dataset):
     lz, rsrc = enc_dataset
     result = rsrc.asdict(
-        properties={truenas_pylibzfs.libzfs_types.ZFSProperty.ACLMODE},
+        properties={truenas_pylibzfs.ZFSProperty.ACLMODE},
         get_crypto=True
     )
     crypto_dict = result['crypto']
@@ -85,7 +85,7 @@ def test_asdict_crypto(enc_dataset):
     # Unencrypted dataset reports crypto=None
     pool_root = lz.open_resource(name=rsrc.name.split('/')[0])
     plain_result = pool_root.asdict(
-        properties={truenas_pylibzfs.libzfs_types.ZFSProperty.ACLMODE},
+        properties={truenas_pylibzfs.ZFSProperty.ACLMODE},
         get_crypto=True
     )
     assert plain_result['crypto'] is None
@@ -138,14 +138,14 @@ def test_inherit_key(data_pool1):
     parent_crypto = lz.resource_cryptography_config(keyformat='passphrase', key=PASSPHRASE)
     lz.create_resource(
         name=parent_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
         crypto=parent_crypto
     )
     try:
         child_crypto = lz.resource_cryptography_config(keyformat='passphrase', key=PASSPHRASE2)
         lz.create_resource(
             name=child_name,
-            type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+            type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
             crypto=child_crypto
         )
         try:

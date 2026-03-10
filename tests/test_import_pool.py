@@ -5,8 +5,8 @@ import shutil
 import tempfile
 import truenas_pylibzfs
 
-ZPOOLStatus = truenas_pylibzfs.libzfs_types.ZPOOLStatus
-ZPOOLProperty = truenas_pylibzfs.libzfs_types.ZPOOLProperty
+ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
+ZPOOLProperty = truenas_pylibzfs.ZPOOLProperty
 
 POOL_NAME = 'testpool_import'
 DISK_SZ = 1024 * 1048576
@@ -322,7 +322,7 @@ class TestImportPoolPropertiesEnum:
 
     def test_zpool_property_in_libzfs_types(self):
         assert hasattr(truenas_pylibzfs.libzfs_types, 'ZPOOLProperty')
-        assert truenas_pylibzfs.libzfs_types.ZPOOLProperty is ZPOOLProperty
+        assert truenas_pylibzfs.ZPOOLProperty is ZPOOLProperty
 
     def test_string_key_accepted(self, exported_pool):
         lz, disk_dir, guid = exported_pool

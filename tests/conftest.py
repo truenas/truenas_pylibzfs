@@ -134,7 +134,7 @@ def dataset(root_dataset):
     libzfs handle, the root dataset handle, and this temporary dataset handle """
     lz, root = root_dataset
     rsrc_name = f'{root.name}/test1'
-    lz.create_resource(name=rsrc_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=rsrc_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
     rsrc = lz.open_resource(name=rsrc_name)
 
     try:

@@ -33,8 +33,8 @@ def pool_with_children(pool):
     lz, p, root = pool
     child1 = f'{POOL_NAME}/child1'
     child2 = f'{POOL_NAME}/child2'
-    lz.create_resource(name=child1, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
-    lz.create_resource(name=child2, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=child1, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+    lz.create_resource(name=child2, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
     try:
         yield lz, p, root
     finally:

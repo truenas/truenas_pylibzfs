@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import truenas_pylibzfs
 
-ZPOOLStatus = truenas_pylibzfs.libzfs_types.ZPOOLStatus
+ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
 VDevState = truenas_pylibzfs.libzfs_types.VDevState
 VDevType = truenas_pylibzfs.VDevType
 

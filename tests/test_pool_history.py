@@ -166,7 +166,7 @@ def test_set_properties_history_entry(pool_a):
     """set_properties() must write 'zpool set (properties) <pool_name>'."""
     _, p = pool_a
     p.set_properties(
-        properties={truenas_pylibzfs.libzfs_types.ZPOOLProperty.AUTOREPLACE: "on"}
+        properties={truenas_pylibzfs.ZPOOLProperty.AUTOREPLACE: "on"}
     )
     cmds = _commands(p)
     expected = f"zpool set (properties) {POOL_A}"
@@ -231,7 +231,7 @@ def test_create_resource_history_entry(pool_a):
     ds_name = f"{POOL_A}/testds"
     lz.create_resource(
         name=ds_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
     )
     try:
         cmds = _commands(p)
@@ -249,8 +249,8 @@ def test_create_resource_with_properties_history_entry(pool_a):
     ds_name = f"{POOL_A}/testds_props"
     lz.create_resource(
         name=ds_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
-        properties={truenas_pylibzfs.libzfs_types.ZFSProperty.ATIME: "off"},
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+        properties={truenas_pylibzfs.ZFSProperty.ATIME: "off"},
     )
     try:
         cmds = _commands(p)
@@ -270,12 +270,12 @@ def test_dataset_set_properties_history_entry(pool_a):
     ds_name = f"{POOL_A}/testds_setprop"
     lz.create_resource(
         name=ds_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
     )
     try:
         ds = lz.open_resource(name=ds_name)
         ds.set_properties(
-            properties={truenas_pylibzfs.libzfs_types.ZFSProperty.ATIME: "off"}
+            properties={truenas_pylibzfs.ZFSProperty.ATIME: "off"}
         )
         cmds = _commands(p)
         assert any(f"zfs update {ds_name}" in cmd for cmd in cmds), (
@@ -292,7 +292,7 @@ def test_dataset_set_user_properties_history_entry(pool_a):
     ds_name = f"{POOL_A}/testds_userprop"
     lz.create_resource(
         name=ds_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
     )
     try:
         ds = lz.open_resource(name=ds_name)
@@ -318,12 +318,12 @@ def test_dataset_inherit_property_history_entry(pool_a):
     # Create with atime=off so we can inherit it back
     lz.create_resource(
         name=ds_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
-        properties={truenas_pylibzfs.libzfs_types.ZFSProperty.ATIME: "off"},
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+        properties={truenas_pylibzfs.ZFSProperty.ATIME: "off"},
     )
     try:
         ds = lz.open_resource(name=ds_name)
-        ds.inherit_property(property=truenas_pylibzfs.libzfs_types.ZFSProperty.ATIME)
+        ds.inherit_property(property=truenas_pylibzfs.ZFSProperty.ATIME)
         cmds = _commands(p)
         assert any(
             "zfs inherit" in cmd and ds_name in cmd for cmd in cmds
@@ -340,7 +340,7 @@ def test_destroy_resource_history_entry(pool_a):
     ds_name = f"{POOL_A}/testds_destroy"
     lz.create_resource(
         name=ds_name,
-        type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
     )
     lz.destroy_resource(name=ds_name)
     cmds = _commands(p)
@@ -472,10 +472,10 @@ def test_iter_history_multiple_pools(pool_a, pool_b):
     ds_a = f"{POOL_A}/ds_a"
     ds_b = f"{POOL_B}/ds_b"
     lz_a.create_resource(
-        name=ds_a, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM
+        name=ds_a, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM
     )
     lz_b.create_resource(
-        name=ds_b, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM
+        name=ds_b, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM
     )
 
     cmds_a = _commands(pa)

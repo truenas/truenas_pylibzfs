@@ -247,7 +247,7 @@ class TestPromote:
     def test_promote_non_clone_raises(self, pool):
         lz, _, root = pool
         ds_name = f'{POOL_NAME}/notaclone'
-        lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+        lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
         try:
             with pytest.raises(truenas_pylibzfs.ZFSException):
                 lz.open_resource(name=ds_name).promote()

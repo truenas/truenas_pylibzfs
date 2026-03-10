@@ -26,7 +26,7 @@ class TestRenameDataset:
         lz, _, root = pool
         old_name = f'{POOL_NAME}/ds_old'
         new_name = f'{POOL_NAME}/ds_new'
-        lz.create_resource(name=old_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+        lz.create_resource(name=old_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
         try:
             lz.open_resource(name=old_name).rename(new_name=new_name)
             assert lz.open_resource(name=new_name).name == new_name
@@ -40,7 +40,7 @@ class TestRenameDataset:
     def test_keyword_only(self, pool):
         lz, _, root = pool
         ds_name = f'{POOL_NAME}/ds_kwonly'
-        lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+        lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
         try:
             with pytest.raises(TypeError):
                 lz.open_resource(name=ds_name).rename(f'{POOL_NAME}/ds_kwonly_new')
@@ -53,7 +53,7 @@ class TestRenameDataset:
     def test_cross_pool_raises(self, pool):
         lz, _, root = pool
         ds_name = f'{POOL_NAME}/ds_crosspool'
-        lz.create_resource(name=ds_name, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+        lz.create_resource(name=ds_name, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
         try:
             with pytest.raises((ValueError, truenas_pylibzfs.ZFSException)):
                 lz.open_resource(name=ds_name).rename(new_name='otherpool/ds_crosspool')
@@ -88,8 +88,8 @@ class TestRenameSnapshot:
         lz, _, root = pool
         parent = f'{POOL_NAME}/recparen'
         child = f'{POOL_NAME}/recparen/recchild'
-        lz.create_resource(name=parent, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
-        lz.create_resource(name=child, type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_FILESYSTEM)
+        lz.create_resource(name=parent, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
+        lz.create_resource(name=child, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM)
         try:
             snap_parent = f'{parent}@recsnap'
             snap_child = f'{child}@recsnap'
@@ -135,8 +135,8 @@ class TestRenameVolume:
         vol_new = f'{POOL_NAME}/vol_new'
         lz.create_resource(
             name=vol_old,
-            type=truenas_pylibzfs.libzfs_types.ZFSType.ZFS_TYPE_VOLUME,
-            properties={truenas_pylibzfs.libzfs_types.ZFSProperty.VOLSIZE: 64 * 1024 * 1024},
+            type=truenas_pylibzfs.ZFSType.ZFS_TYPE_VOLUME,
+            properties={truenas_pylibzfs.ZFSProperty.VOLSIZE: 64 * 1024 * 1024},
         )
         try:
             lz.open_resource(name=vol_old).rename(new_name=vol_new)
