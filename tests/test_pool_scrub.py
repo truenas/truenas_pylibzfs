@@ -20,11 +20,10 @@ import time
 
 import pytest
 import truenas_pylibzfs
-from truenas_pylibzfs import enums
 
-ScanFunction = enums.ScanFunction
-ScanState = enums.ScanState
-ScanScrubCmd = enums.ScanScrubCmd
+ScanFunction = truenas_pylibzfs.libzfs_types.ScanFunction
+ScanState = truenas_pylibzfs.libzfs_types.ScanState
+ScanScrubCmd = truenas_pylibzfs.libzfs_types.ScanScrubCmd
 VDevType = truenas_pylibzfs.VDevType
 
 POOL_NAME = 'testpool_scrub'

@@ -10,13 +10,7 @@ from . import property_sets
 # Types and structs are in libzfs_types only but imported here for convenience.
 from .libzfs_types import (
     PropertySource,
-    ScanFunction,
-    ScanScrubCmd,
-    ScanState,
-    VDevAuxState,
-    VDevState,
     VDevType,
-    ZFSDOSFlag,
     ZFSError,
     ZFSProperty,
     ZFSType,

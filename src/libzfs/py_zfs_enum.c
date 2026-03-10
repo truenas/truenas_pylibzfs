@@ -653,7 +653,7 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 	if (err)
 		goto out;
 
-	err = add_enum(emod, module, intflag_enum, "ZFSDOSFlag",
+	err = add_enum(emod, NULL, intflag_enum, "ZFSDOSFlag",
 		       zfs_dosflag_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
@@ -676,7 +676,7 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 	if (err)
 		goto out;
 
-	err = add_enum(emod, module, int_enum, "VDevAuxState",
+	err = add_enum(emod, NULL, int_enum, "VDevAuxState",
 			zfs_vdev_aux_table_to_dict, kwargs, NULL);
 	if (err)
 		goto out;
@@ -687,7 +687,7 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 	if (err)
 		goto out;
 
-	err = add_enum(emod, module, int_enum, "VDevState",
+	err = add_enum(emod, NULL, int_enum, "VDevState",
 		       vdev_state_table_to_dict, kwargs,
 		       &state->vdev_state_enum);
 	if (err)
@@ -697,19 +697,19 @@ py_add_zfs_enums(PyObject *module, PyObject *emod)
 		       vdev_type_table_to_dict, kwargs,
 		       &state->vdev_type_enum);
 
-	err = add_enum(emod, module, int_enum, "ScanFunction",
+	err = add_enum(emod, NULL, int_enum, "ScanFunction",
 		       scan_func_table_to_dict, kwargs,
 		       &state->scan_function_enum);
 	if (err)
 		goto out;
 
-	err = add_enum(emod, module, int_enum, "ScanState",
+	err = add_enum(emod, NULL, int_enum, "ScanState",
 		       scan_state_table_to_dict, kwargs,
 		       &state->scan_state_enum);
 	if (err)
 		goto out;
 
-	err = add_enum(emod, module, int_enum, "ScanScrubCmd",
+	err = add_enum(emod, NULL, int_enum, "ScanScrubCmd",
 		       scan_scrub_cmd_table_to_dict, kwargs, NULL);
 
 	if (err)
