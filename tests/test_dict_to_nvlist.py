@@ -43,7 +43,7 @@ def _run(pool, script, args=None):
     """Run a ZCP script with optional args dict; return the 'return' subtable."""
     kwargs = {}
     if args is not None:
-        kwargs["args"] = args
+        kwargs["script_arguments"] = args
     out = lzc.run_channel_program(pool_name=POOL_NAME, script=script, **kwargs)
     return out.get("return", {})
 
@@ -168,7 +168,7 @@ class TestErrorCases:
             lzc.run_channel_program(
                 pool_name=POOL_NAME,
                 script='return {}',
-                args={"k": []}
+                script_arguments={"k": []}
             )
 
     def test_mixed_type_list_raises_value_error(self, pool):
@@ -177,7 +177,7 @@ class TestErrorCases:
             lzc.run_channel_program(
                 pool_name=POOL_NAME,
                 script='return {}',
-                args={"k": [1, "two"]}
+                script_arguments={"k": [1, "two"]}
             )
 
     def test_non_string_key_raises_type_error(self, pool):
@@ -186,5 +186,5 @@ class TestErrorCases:
             lzc.run_channel_program(
                 pool_name=POOL_NAME,
                 script='return {}',
-                args={42: "value"}
+                script_arguments={42: "value"}
             )
