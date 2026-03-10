@@ -601,7 +601,7 @@ PyObject *py_zfs_resource_inherit_property(PyObject *self,
 					   PyObject *kwargs)
 {
 	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
-	PyObject *pyprop;
+	PyObject *pyprop = NULL;
 	const char *cprop;
 	zfs_prop_t zprop;
 	boolean_t received = B_FALSE;

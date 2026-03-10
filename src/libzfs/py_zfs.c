@@ -51,6 +51,12 @@ int py_zfs_init(PyObject *type, PyObject *args, PyObject *kwds) {
 	zfs->lzh = libzfs_init();
 	Py_END_ALLOW_THREADS
 
+	if (zfs->lzh == NULL) {
+		PyErr_SetString(PyExc_RuntimeError,
+				"Failed to initialize libzfs handle.");
+		return (-1);
+	}
+
 	return (0);
 }
 
