@@ -137,24 +137,34 @@ class TestListRoundTrip:
         assert ret.get("v0") == -1
 
     def test_list_of_bool(self, pool):
-        """list[bool] → DATA_TYPE_BOOLEAN_ARRAY — ZCP returns first element."""
-        ret = _run(pool,
-                   'args = ...; '
-                   'local t = args["lst"]; '
-                   'return {["n"] = #t, ["v0"] = t[1]}',
-                   args={"lst": [True, False, True]})
-        assert ret.get("n") == 3
-        assert ret.get("v0") is True
+        """list[bool] → DATA_TYPE_BOOLEAN_ARRAY.
+
+        ZCP's Lua bridge does not support DATA_TYPE_BOOLEAN_ARRAY (type 24),
+        so a full round-trip is impossible.  We verify instead that the Python
+        conversion succeeds (no TypeError/ValueError) and that the error
+        originates inside ZCP, not in our dict-to-nvlist code.
+        """
+        with pytest.raises(lzc.ZFSCoreException, match="Unhandled nvpair type"):
+            _run(pool,
+                 'args = ...; '
+                 'local t = args["lst"]; '
+                 'return {["n"] = #t, ["v0"] = t[1]}',
+                 args={"lst": [True, False, True]})
 
     def test_list_of_dict(self, pool):
-        """list[dict] → DATA_TYPE_NVLIST_ARRAY — ZCP returns first sub-element."""
-        ret = _run(pool,
-                   'args = ...; '
-                   'local t = args["lst"]; '
-                   'return {["n"] = #t, ["v0x"] = t[1]["x"]}',
-                   args={"lst": [{"x": 5}, {"x": 6}]})
-        assert ret.get("n") == 2
-        assert ret.get("v0x") == 5
+        """list[dict] → DATA_TYPE_NVLIST_ARRAY.
+
+        ZCP's Lua bridge does not support DATA_TYPE_NVLIST_ARRAY (type 20),
+        so a full round-trip is impossible.  We verify instead that the Python
+        conversion succeeds (no TypeError/ValueError) and that the error
+        originates inside ZCP, not in our dict-to-nvlist code.
+        """
+        with pytest.raises(lzc.ZFSCoreException, match="Unhandled nvpair type"):
+            _run(pool,
+                 'args = ...; '
+                 'local t = args["lst"]; '
+                 'return {["n"] = #t, ["v0x"] = t[1]["x"]}',
+                 args={"lst": [{"x": 5}, {"x": 6}]})
 
 
 # ---------------------------------------------------------------------------
