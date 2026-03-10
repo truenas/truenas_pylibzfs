@@ -1956,6 +1956,10 @@ PyObject *py_get_pool_status_dict(py_zfs_pool_t *pypool, boolean_t get_stats,
 			if (!py_support_vdevs_dict(val, name, out))
 				goto fail;
 			break;
+		case VDEVS_SPARES_IDX:
+			if (!py_vdevs_dict(val, name, out))
+				goto fail;
+			break;
 		default:
 			err = PyDict_SetItemString(out, name, val);
 			if (err)
