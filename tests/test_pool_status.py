@@ -755,3 +755,34 @@ def test_draid1_with_spare_topology(pool_draid1_with_spare):
     # top_guid must link back to the originating draid vdev
     assert isinstance(spare.top_guid, int)
     assert spare.top_guid == vdev.guid
+
+
+def test_draid1_with_spare_asdict(pool_draid1_with_spare):
+    """asdict=True must convert spares to dicts, not leave them as tuples."""
+    lz, pool = pool_draid1_with_spare
+    d = pool.status(asdict=True)
+    assert isinstance(d['spares'], tuple)
+    assert len(d['spares']) == 1
+    spare = d['spares'][0]
+    assert isinstance(spare, dict), \
+        f'expected spare to be dict, got {type(spare)}'
+    for key in ('name', 'vdev_type', 'guid', 'state', 'stats',
+                'children', 'top_guid'):
+        assert key in spare, f'spare missing key: {key}'
+    assert spare['vdev_type'] == 'dspare'
+    assert isinstance(spare['state'], VDevState)
+    assert isinstance(spare['top_guid'], int)
+
+
+def test_spares_asdict_with_hot_spare(pool_with_spare):
+    """asdict=True must convert hot spares to dicts."""
+    lz, pool = pool_with_spare
+    d = pool.status(asdict=True)
+    assert isinstance(d['spares'], tuple)
+    assert len(d['spares']) == 1
+    spare = d['spares'][0]
+    assert isinstance(spare, dict), \
+        f'expected spare to be dict, got {type(spare)}'
+    for key in ('name', 'vdev_type', 'guid', 'state', 'stats',
+                'children', 'top_guid'):
+        assert key in spare, f'spare missing key: {key}'
