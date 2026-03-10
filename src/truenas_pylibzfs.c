@@ -274,8 +274,7 @@ static PyObject *py_read_label(PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	int fd = -1, ret = 0, num_labels = 0;
 	nvlist_t *config = NULL;
-	PyObject *nvldump = NULL, *dict_out = NULL;
-	pylibzfs_state_t *state = NULL;
+	PyObject *dict_out = NULL;
 	char *kwnames[] = {"fd", NULL};
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$i", kwnames, &fd))
@@ -303,16 +302,8 @@ static PyObject *py_read_label(PyObject *self, PyObject *args, PyObject *kwargs)
 		Py_RETURN_NONE;
 	}
 
-	state = (pylibzfs_state_t *)PyModule_GetState(self);
-	PYZFS_ASSERT(state, "Failed to get module state");
-
-	nvldump = py_dump_nvlist(config, B_TRUE);
+	dict_out = py_nvlist_to_dict(config);
 	fnvlist_free(config);
-	if (nvldump == NULL)
-		return NULL;
-
-	dict_out = PyObject_CallFunction(state->loads_fn, "O", nvldump);
-	Py_DECREF(nvldump);
 	return dict_out;
 }
 

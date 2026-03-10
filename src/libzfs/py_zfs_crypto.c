@@ -1406,18 +1406,13 @@ static boolean_t pyzfs_zfs_create_crypto_history(py_zfs_t *self,
 						 const char *name,
 						 nvlist_t *props)
 {
-	const char *json_str = NULL;
-	PyObject *params = NULL;
+	char *json_str = nvlist_to_json_str(props);
 	int err;
-
-	params = py_dump_nvlist(props, B_TRUE);
-	if (params != NULL) {
-		json_str = PyUnicode_AsUTF8(params);
-	}
 
 	err = py_log_history_fmt(self, "zfs create %s with properties: %s",
 				 name, json_str ? json_str : "UNKNOWN");
 
+	PyMem_RawFree(json_str);
 	return err ? B_FALSE : B_TRUE;
 }
 
