@@ -431,36 +431,28 @@ PyDoc_STRVAR(py_zfs_pool_config__doc__,
 "dict\n\n"
 "Raises:\n"
 "-------\n"
-"This method instructs libzfs to dump the nvlist contents of the pool config as a\n"
-"JSON and then uses the default JSON library in python to load the JSON, and so\n"
-"the primary case where error may happen is if there's a memory allocation error or if\n"
-"a bug in the libzfs nvlist utilities generats invalid JSON. This, in theory, should not\n"
-"happen.\n\n"
+"The primary case where an error may occur is a memory allocation failure\n"
+"during nvlist-to-dict conversion, which should not happen in practice.\n\n"
 );
 static
 PyObject *py_zfs_pool_config(PyObject *self, PyObject *args)
 {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
-	pylibzfs_state_t *state = py_get_module_state(p->pylibzfsp);
-	PyObject *nvldump = NULL, *dict_out = NULL;
+	PyObject *dict_out = NULL;
 	nvlist_t *config, *zpool_config = NULL;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
 	// We need to take a lock here because in MT case you can have
 	// one thread refresh pool stats and free the config while
-	// this thread dumps the nvlist to JSON.
+	// this thread is reading it.
 	config = zpool_get_config(p->zhp, NULL);
 	PYZFS_ASSERT((config != NULL), "Unexpected NULL zpool config");
 	zpool_config = fnvlist_dup(config);
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	// convert nvlist to JSON string
-	nvldump = py_dump_nvlist(zpool_config, B_TRUE);
-	dict_out = PyObject_CallFunction(state->loads_fn, "O", nvldump);
-	Py_CLEAR(nvldump);
-
+	dict_out = py_nvlist_to_dict(zpool_config);
 	fnvlist_free(zpool_config);
 
 	return dict_out;

@@ -450,7 +450,7 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 	nvlist_t *nvl = NULL;
 	const char *cval = NULL;
 	PyObject *propsdict = NULL;
-	PyObject *conv_str = NULL;
+	char *json_str = NULL;
 	pylibzfs_state_t *state = NULL;
 	boolean_t remount = B_TRUE;
 	py_zfs_error_t zfs_err;
@@ -538,25 +538,23 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 	}
 
 	/* Update operation succeeded. Write history */
-	conv_str = py_dump_nvlist(nvl, B_TRUE);
+	json_str = nvlist_to_json_str(nvl);
 
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(nvl);
 	Py_END_ALLOW_THREADS
 
-	if (conv_str) {
-		const char *json = PyUnicode_AsUTF8(conv_str);
+	if (json_str) {
 		err = py_log_history_fmt(res->obj.pylibzfsp,
 					 "zfs update %s with properties: %s",
 					 zfs_get_name(res->obj.zhp),
-					 json ? json : "UNKNOWN");
+					 json_str);
+		PyMem_RawFree(json_str);
 	} else {
 		err = py_log_history_fmt(res->obj.pylibzfsp,
 					 "zfs update %s",
 					 zfs_get_name(res->obj.zhp));
 	}
-
-	Py_XDECREF(conv_str);
 
 	// We may have encountered an error generating history message
 	if (err)
@@ -740,7 +738,7 @@ PyObject *py_zfs_resource_set_user_properties(PyObject *self,
 	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
 	py_zfs_error_t zfs_err;
 	PyObject *props_dict = NULL;
-	PyObject *conv_str = NULL;
+	char *json_str = NULL;
 	nvlist_t *nvl;
 	int err;
 
@@ -794,25 +792,23 @@ PyObject *py_zfs_resource_set_user_properties(PyObject *self,
 	}
 
 	/* Update operation succeeded. Write history */
-	conv_str = py_dump_nvlist(nvl, B_TRUE);
+	json_str = nvlist_to_json_str(nvl);
 
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(nvl);
 	Py_END_ALLOW_THREADS
 
-	if (conv_str) {
-		const char *json = PyUnicode_AsUTF8(conv_str);
+	if (json_str) {
 		err = py_log_history_fmt(res->obj.pylibzfsp,
 					 "zfs update %s with user properties: %s",
 					 zfs_get_name(res->obj.zhp),
-					 json ? json : "UNKNOWN");
+					 json_str);
+		PyMem_RawFree(json_str);
 	} else {
 		err = py_log_history_fmt(res->obj.pylibzfsp,
 					 "zfs update %s",
 					 zfs_get_name(res->obj.zhp));
 	}
-
-	Py_XDECREF(conv_str);
 
 	// We may have encountered an error generating history message
 	if (err)

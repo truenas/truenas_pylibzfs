@@ -168,14 +168,10 @@ boolean_t py_zfs_create(py_zfs_t *self,
 	}
 
 	if (props) {
-		const char *json_str = NULL;
-		PyObject *dump = py_dump_nvlist(props, B_TRUE);
-		if (dump != NULL) {
-			json_str = PyUnicode_AsUTF8(dump);
-		}
+		char *json_str = nvlist_to_json_str(props);
 		err = py_log_history_fmt(self, "zfs create %s with properties: %s",
-					 name, json_str ? json_str: "UNKNOWN");
-		Py_XDECREF(dump);
+					 name, json_str ? json_str : "UNKNOWN");
+		PyMem_RawFree(json_str);
 		if (err) {
 			fnvlist_free(props);
 			return B_FALSE;

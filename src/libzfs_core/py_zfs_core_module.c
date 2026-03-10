@@ -21,19 +21,12 @@ pylibzfs_core_state_t *get_lzc_mod_state(PyObject *module)
 	return state;
 }
 
-static
-pylibzfs_state_t *get_pyzfs_state(PyObject *lzc_module)
-{
-	pylibzfs_core_state_t *lzc_state = get_lzc_mod_state(lzc_module);
-	return (pylibzfs_state_t *)PyModule_GetState(lzc_state->parent_module);
-}
-
 
 static
 PyObject *py_snap_history_msg(const char *op,
 			      const char *target,
 			      PyObject *snaps,
-			      PyObject *user_props)
+			      const char *user_props)
 {
 	PyObject *out = NULL;
 	Py_ssize_t sz = PyObject_Length(snaps);
@@ -44,7 +37,7 @@ PyObject *py_snap_history_msg(const char *op,
 	if (user_props) {
 		out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
 					   "of datasets within pool \"%s\" "
-					   "with user properties: %U",
+					   "with user properties: %s",
 					   op, sz, target, user_props);
 	} else {
 		out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
@@ -59,7 +52,7 @@ static
 boolean_t py_zfs_core_log_snap_history(const char *op,
 				       const char *target,
 				       PyObject *snaplist,
-				       PyObject *user_props)
+				       const char *user_props)
 {
 	libzfs_handle_t *lz = NULL;
 	PyObject *logmsg;
@@ -672,9 +665,16 @@ PyObject *zcp_nvlist_errs_to_err_tuple(nvlist_t *errors, int error)
 	// Have tuple steal the reference
 	PyTuple_SET_ITEM(errtup, 0, errmsg);
 
-	// convert the errors nvlist to JSON string as well to provide
-	// more info to caller. Insert into tuple.
-	errmsg = py_dump_nvlist(errors, B_TRUE);
+	// convert the errors nvlist to a dict for more info to caller.
+	if (errors != NULL) {
+		errmsg = py_nvlist_to_dict(errors);
+		if (errmsg == NULL) {
+			Py_DECREF(errtup);
+			return NULL;
+		}
+	} else {
+		errmsg = NULL;
+	}
 	if (errmsg == NULL) {
 		PyTuple_SET_ITEM(errtup, 1, Py_None);
 		Py_INCREF(Py_None);
@@ -965,7 +965,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	PyObject *py_snaps = NULL;
 	PyObject *py_errors;
 	PyObject *py_props_dict = NULL;
-	PyObject *user_props_json = NULL;
+	char *user_props_json = NULL;
 	nvlist_t *snaps = NULL;
 	nvlist_t *errors = NULL;
 	nvlist_t *user_props = NULL;
@@ -1041,7 +1041,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	}
 
 	if (user_props)
-		user_props_json = py_dump_nvlist(user_props, B_TRUE);
+		user_props_json = nvlist_to_json_str(user_props);
 
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(errors);
@@ -1051,7 +1051,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	rv = py_zfs_core_log_snap_history("lzc_snapshot()",
 					  pool, py_snaps,
 					  user_props_json);
-	Py_XDECREF(user_props_json);
+	PyMem_RawFree(user_props_json);
 
 	if (rv != B_TRUE)
 		return NULL;
@@ -1241,11 +1241,9 @@ PyObject *lzc_program_impl(PyObject *self,
 			   nvlist_t *args,
 			   boolean_t ro)
 {
-	PyObject *py_err = NULL, *msg = NULL, *out_dict = NULL;
+	PyObject *py_err = NULL, *out_dict = NULL;
 	int err;
 	nvlist_t *outnvl = NULL;
-	// Pull in parent module state to get access to json loads callable
-	pylibzfs_state_t *zstate = get_pyzfs_state(self);
 
 	Py_BEGIN_ALLOW_THREADS
 	if (ro) {
@@ -1274,14 +1272,11 @@ PyObject *lzc_program_impl(PyObject *self,
 		return NULL;
 	}
 
-	// convert the output nvlist into a JSON string
-	msg = py_dump_nvlist(outnvl, B_TRUE);
+	out_dict = py_nvlist_to_dict(outnvl);
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(outnvl);
 	Py_END_ALLOW_THREADS
 
-	out_dict = PyObject_CallFunction(zstate->loads_fn, "O", msg);
-	Py_CLEAR(msg);
 	return out_dict;
 }
 

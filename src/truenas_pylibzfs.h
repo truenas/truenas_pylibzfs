@@ -562,7 +562,8 @@ extern PyObject *py_zfs_promote(py_zfs_obj_t *obj);
 /* Set up propset module with frozensets */
 extern PyObject *py_setup_propset_module(PyObject *parent);
 
-/* Provided by nvlist_utils.c */
+/* Provided by nvlist_utils.c, nvlist_utils_nvl_to_dict.c,
+ * and nvlist_utils_dict_to_nvl.c */
 extern PyObject *user_props_nvlist_to_py_dict(nvlist_t *userprops);
 extern nvlist_t *py_userprops_dict_to_nvlist(PyObject *pyprops);
 extern PyObject *py_nvlist_names_tuple(nvlist_t *nvl);
@@ -573,7 +574,9 @@ extern nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
 extern nvlist_t *py_zpool_props_dict_to_nvlist(PyObject *zpool_prop_enum,
 					       PyObject *pyprops);
 extern PyObject *py_dump_nvlist(nvlist_t *nvl, boolean_t json);
+extern PyObject *py_nvlist_to_dict(nvlist_t *nvl);
 extern nvlist_t *py_dict_to_nvlist(PyObject *dict_in);
+extern char *nvlist_to_json_str(nvlist_t *nvl);
 
 /* Provided by py_zfs_crypto.c */
 extern PyObject *py_zfs_crypto_info_dict(py_zfs_obj_t *obj);
