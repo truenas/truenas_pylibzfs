@@ -151,7 +151,7 @@ PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs
 	char *kwnames [] = {"name", "properties", NULL};
 	nvlist_t *nvl = NULL;
 	PyObject *pyprops = NULL;
-	PyObject *conv_str = NULL;
+	char *json_str = NULL;
 	const char *cname = NULL;
 	pylibzfs_state_t *state = NULL;
 
@@ -203,28 +203,24 @@ PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs
 	}
 
 	/* clone operation succeeded. Write history (including properties) */
-	if (nvl) {
-		conv_str = py_dump_nvlist(nvl, B_TRUE);
-	}
+	if (nvl)
+		json_str = nvlist_to_json_str(nvl);
 
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_free(nvl);
 	Py_END_ALLOW_THREADS
 
-
-	if (conv_str) {
-		const char *json = PyUnicode_AsUTF8(conv_str);
+	if (json_str) {
 		err = py_log_history_fmt(ds->rsrc.obj.pylibzfsp,
 					 "zfs clone %s -> %s with properties: %s",
 					 zfs_get_name(ds->rsrc.obj.zhp),
-					 cname, json ? json : "UNKNOWN");
+					 cname, json_str);
+		PyMem_RawFree(json_str);
 	} else {
 		err = py_log_history_fmt(ds->rsrc.obj.pylibzfsp,
 					 "zfs clone %s -> %s",
 					 zfs_get_name(ds->rsrc.obj.zhp), cname);
 	}
-
-	Py_XDECREF(conv_str);
 
 	// We may have encountered an error generating history message
 	if (err)

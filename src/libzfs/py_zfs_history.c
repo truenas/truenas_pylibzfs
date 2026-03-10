@@ -8,7 +8,7 @@
  * drains it record-by-record before fetching the next batch.
  *
  * Timestamp filtering (since / until) is applied directly against the
- * ZPOOL_HIST_TIME nvpair on the raw nvlist — before the JSON roundtrip —
+ * ZPOOL_HIST_TIME nvpair on the raw nvlist — before dict conversion —
  * so that discarded records never produce Python objects.
  *
  * History record dicts use raw nvlist key names, e.g.:
@@ -57,11 +57,8 @@ static PyObject *
 py_zfs_history_iter_next(PyObject *self_obj)
 {
 	py_zfs_history_iter_t *self = (py_zfs_history_iter_t *)self_obj;
-	pylibzfs_state_t *state;
 	py_zfs_error_t zfs_err;
 	int err;
-
-	state = py_get_module_state(self->pool->pylibzfsp);
 
 	while (1) {
 		/* Drain the current batch */
@@ -93,16 +90,7 @@ py_zfs_history_iter_next(PyObject *self_obj)
 				continue;
 			}
 
-			/* Convert record nvlist to JSON string, then to dict */
-			PyObject *nvl_json = py_dump_nvlist(rec, B_TRUE);
-			if (nvl_json == NULL)
-				return (NULL);
-
-			PyObject *rec_dict = PyObject_CallFunction(
-			    state->loads_fn, "O", nvl_json);
-			Py_DECREF(nvl_json);
-
-			return (rec_dict);
+			return py_nvlist_to_dict(rec);
 		}
 
 		/* Batch exhausted */

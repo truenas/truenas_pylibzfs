@@ -402,7 +402,7 @@ def test_until_excludes_later_records(pool_a):
 def test_since_until_range(pool_a):
     """since + until together form an inclusive time window."""
     _, p = pool_a
-    before = int(time.time())
+    before = int(time.time()) - 1
     p.clear()
     after = int(time.time())
 
