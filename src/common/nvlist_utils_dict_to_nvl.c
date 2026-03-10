@@ -289,7 +289,7 @@ boolean_t nvlist_add_py_nvlist_array(nvlist_t *nvl, const char *key,
 			return B_FALSE;
 		}
 	}
-	fnvlist_add_nvlist_array(nvl, key, arr, n);
+	fnvlist_add_nvlist_array(nvl, key, (const nvlist_t * const *)arr, n);
 	for (i = 0; i < n; i++)
 		fnvlist_free(arr[i]);
 	PyMem_RawFree(arr);
