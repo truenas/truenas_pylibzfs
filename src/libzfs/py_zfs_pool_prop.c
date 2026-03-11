@@ -26,7 +26,7 @@ static PyStructSequence_Field zpool_prop_fields[] = {
 };
 
 static PyStructSequence_Desc zpool_prop_type_desc = {
-	.name          = PYLIBZFS_MODULE_NAME ".struct_zpool_prop_type",
+	.name          = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_property_data",
 	.doc           = "Per-property data for a zpool property.",
 	.fields        = zpool_prop_fields,
 	.n_in_sequence = 4,
@@ -93,7 +93,7 @@ void init_py_struct_zpool_prop_state(pylibzfs_state_t *state)
 	    (PyStructSequence_Field){0};
 
 	state->struct_zpool_prop_desc = (PyStructSequence_Desc){
-		.name         = PYLIBZFS_MODULE_NAME ".struct_zpool_property",
+		.name         = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_property",
 		.fields       = state->struct_zpool_prop_fields,
 		.n_in_sequence = ZPOOL_NUM_PROPS,
 	};

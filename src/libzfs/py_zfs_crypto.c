@@ -1,6 +1,6 @@
 #include "../truenas_pylibzfs.h"
 
-#define ZFS_ENC_STR "<" PYLIBZFS_MODULE_NAME \
+#define ZFS_ENC_STR "<" PYLIBZFS_TYPES_MODULE_NAME \
     ".ZFSCrypto(name=%U, pool=%U, type=%U)>"
 
 #define PBKDF2_MIN_ITERS 1300000  // Based on owasp guidelines
@@ -48,7 +48,7 @@ PyStructSequence_Field struct_zfs_crypto_info [] = {
 };
 
 PyStructSequence_Desc struct_zfs_crypto_info_desc = {
-        .name = PYLIBZFS_MODULE_NAME ".struct_zfs_crypto_info",
+        .name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_crypto_info",
         .fields = struct_zfs_crypto_info,
         .doc = "Python ZFS cryptography information.",
         .n_in_sequence = 4
@@ -107,7 +107,7 @@ PyStructSequence_Field struct_zfs_crypto_change [] = {
 };
 
 PyStructSequence_Desc struct_zfs_crypto_change_desc = {
-        .name = PYLIBZFS_MODULE_NAME ".struct_zfs_crypto_config",
+        .name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_crypto_config",
         .fields = struct_zfs_crypto_change,
         .doc = py_zfs_crypto_change__doc__,
         .n_in_sequence = 4
@@ -373,19 +373,6 @@ boolean_t py_validate_crypto_change(pylibzfs_state_t *state,
 	}
 
 	return B_TRUE;
-}
-
-static
-PyObject *py_zfs_enc_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_enc_t *self = NULL;
-	self = (py_zfs_enc_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
-}
-
-static
-int py_zfs_enc_init(PyObject *type, PyObject *args, PyObject *kwds) {
-	return (0);
 }
 
 static
@@ -1354,12 +1341,11 @@ PyDoc_STRVAR(py_zfs_crypto__doc__,
 "zfs-unload-key(8).\n" 
 );
 PyTypeObject ZFSCrypto = {
-	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSCrypto",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSCrypto",
 	.tp_basicsize = sizeof (py_zfs_enc_t),
 	.tp_methods = zfs_enc_methods,
 	.tp_getset = zfs_enc_getsetters,
-	.tp_new = py_zfs_enc_new,
-	.tp_init = py_zfs_enc_init,
+	.tp_new = py_no_new_impl,
 	.tp_doc = py_zfs_crypto__doc__,
 	.tp_dealloc = (destructor)py_zfs_enc_dealloc,
 	.tp_repr = py_repr_zfs_enc,
@@ -1372,10 +1358,9 @@ PyObject *init_zfs_crypto(zfs_type_t type, PyObject *rsrc)
 	py_zfs_enc_t *out = NULL;
 	PYZFS_ASSERT(rsrc, "volume or dataset is missing");
 
-	out = (py_zfs_enc_t *)PyObject_CallFunction((PyObject *)&ZFSCrypto, NULL);
-	if (out == NULL) {
+	out = (py_zfs_enc_t *)ZFSCrypto.tp_alloc(&ZFSCrypto, 0);
+	if (out == NULL)
 		return NULL;
-	}
 
 	switch(type) {
 	case ZFS_TYPE_FILESYSTEM:

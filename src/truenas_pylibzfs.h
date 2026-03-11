@@ -14,6 +14,7 @@
 #define NULL_OR_NONE(x) ((x) == NULL || (x) == Py_None)
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
+#define PYLIBZFS_TYPES_MODULE_NAME PYLIBZFS_MODULE_NAME ".libzfs_types"
 #define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
 	ZFS_TYPE_SNAPSHOT
 #define MAX_HISTORY_PREFIX_LEN 25
@@ -343,6 +344,7 @@ extern nvlist_t *py_zfs_build_single_vdev_nvroot(PyObject *spec);
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
 extern PyObject *py_repr_zfs_obj_impl(py_zfs_obj_t *obj, const char *fmt);
+extern PyObject *py_no_new_impl(PyTypeObject *, PyObject *, PyObject *);
 
 /*
  * internal implementation of py_log_history that can open a
@@ -383,6 +385,12 @@ extern int py_log_history_impl(libzfs_handle_t *hdl_in,
 	    fmt,\
 	    __VA_ARGS__) : 0;\
 	})
+
+/* Provided by py_zfs.c */
+extern int py_zfs_init(PyObject *, PyObject *, PyObject *);
+
+/* Provided by py_libzfs_types_module.c */
+extern PyObject *py_setup_libzfs_types_module(PyObject *parent);
 
 /* Provided by py_zfs_enum.c */
 extern int add_enum(PyObject *module,

@@ -55,7 +55,7 @@ static PyStructSequence_Field struct_zpool_expand_fields[] = {
 };
 
 static PyStructSequence_Desc struct_zpool_expand_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_expand",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_expand",
 	.fields = struct_zpool_expand_fields,
 	.doc = "ZFS pool RAIDZ expansion statistics",
 	.n_in_sequence = 7,

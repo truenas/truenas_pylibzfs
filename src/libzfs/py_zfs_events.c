@@ -6,47 +6,22 @@
 #define ZEVENT_SEEK_END UINT64_MAX
 
 
-/*
- * Create a new ZFSEventIterator object
- */
-static PyObject *
-py_zfs_event_iter_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+PyObject *
+py_zfs_event_iter_create(py_zfs_t *pyzfs, boolean_t blocking,
+    boolean_t seek_end)
 {
-	py_zfs_event_iter_t *self;
-	self = (py_zfs_event_iter_t *)type->tp_alloc(type, 0);
-	if (self != NULL) {
-		self->zevent_fd = -1;
-		self->blocking = B_FALSE;
-		self->pylibzfsp = NULL;
-	}
-	return (PyObject *)self;
-}
-
-/*
- * Initialize the ZFSEventIterator
- * Opens the ZFS event device file descriptor
- */
-static int
-py_zfs_event_iter_init(PyObject *self_obj, PyObject *args, PyObject *kwds)
-{
-	py_zfs_event_iter_t *self = (py_zfs_event_iter_t *)self_obj;
-	py_zfs_t *pyzfs = NULL;
+	py_zfs_event_iter_t *self = NULL;
 	py_zfs_error_t zfs_err;
-	boolean_t blocking = B_FALSE;
-	boolean_t seek_end = B_FALSE;
 	int fd = -1, error;
-	char *kwlist[] = {"zfs_handle", "blocking", "skip_existing_events", NULL};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|pp", kwlist,
-	    &pyzfs, &blocking, &seek_end)) {
-		return -1;
-	}
+	self = (py_zfs_event_iter_t *)ZFSEventIterator.tp_alloc(
+	    &ZFSEventIterator, 0);
+	if (self == NULL)
+		return NULL;
 
-	if (!PyObject_TypeCheck(pyzfs, &ZFS)) {
-		PyErr_SetString(PyExc_TypeError,
-		    "First argument must be a ZFS handle object");
-		return -1;
-	}
+	self->zevent_fd = -1;
+	self->blocking = B_FALSE;
+	self->pylibzfsp = NULL;
 
 	Py_BEGIN_ALLOW_THREADS
 	fd = open(ZFS_DEV, O_RDWR);
@@ -55,30 +30,31 @@ py_zfs_event_iter_init(PyObject *self_obj, PyObject *args, PyObject *kwds)
 	if (fd < 0) {
 		PyErr_Format(PyExc_OSError,
 		    "Failed to open %s: %s", ZFS_DEV, strerror(errno));
-		return -1;
+		Py_DECREF(self);
+		return NULL;
 	}
 
 	if (seek_end) {
 		Py_BEGIN_ALLOW_THREADS
 		PY_ZFS_LOCK(pyzfs);
 		error = zpool_events_seek(pyzfs->lzh, ZEVENT_SEEK_END, fd);
-		if (error) {
+		if (error)
 			py_get_zfs_error(pyzfs->lzh, &zfs_err);
-		}
 		PY_ZFS_UNLOCK(pyzfs);
 		Py_END_ALLOW_THREADS
+
 		if (error) {
 			set_exc_from_libzfs(&zfs_err, "zpool_events_seek() failed");
 			close(fd);
-			return -1;
+			Py_DECREF(self);
+			return NULL;
 		}
 	}
 
 	self->zevent_fd = fd;
 	self->blocking = blocking;
 	self->pylibzfsp = (py_zfs_t *)Py_NewRef(pyzfs);
-
-	return 0;
+	return (PyObject *)self;
 }
 
 /*
@@ -237,7 +213,7 @@ PyDoc_STRVAR(py_zfs_event_iter__doc__,
 );
 
 PyTypeObject ZFSEventIterator = {
-	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSEventIterator",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSEventIterator",
 	.tp_basicsize = sizeof(py_zfs_event_iter_t),
 	.tp_itemsize = 0,
 	.tp_dealloc = (destructor)py_zfs_event_iter_dealloc,
@@ -245,6 +221,5 @@ PyTypeObject ZFSEventIterator = {
 	.tp_doc = py_zfs_event_iter__doc__,
 	.tp_iter = py_zfs_event_iter_iter,
 	.tp_iternext = py_zfs_event_iter_next,
-	.tp_init = py_zfs_event_iter_init,
-	.tp_new = py_zfs_event_iter_new,
+	.tp_new = py_no_new_impl,
 };

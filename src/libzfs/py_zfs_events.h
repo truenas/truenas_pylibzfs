@@ -17,5 +17,7 @@ typedef struct {
 } py_zfs_event_iter_t;
 
 extern PyTypeObject ZFSEventIterator;
+extern PyObject *py_zfs_event_iter_create(py_zfs_t *pyzfs, boolean_t blocking,
+    boolean_t seek_end);
 
 #endif  /* _PY_ZFS_EVENTS_H */
