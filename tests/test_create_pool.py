@@ -16,7 +16,7 @@ import truenas_pylibzfs
 
 ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
 VDevType = truenas_pylibzfs.VDevType
-ZPOOLProperty = truenas_pylibzfs.enums.ZPOOLProperty
+ZPOOLProperty = truenas_pylibzfs.ZPOOLProperty
 ZFSProperty = truenas_pylibzfs.ZFSProperty
 
 POOL_NAME = "test_create_pool_pylibzfs"

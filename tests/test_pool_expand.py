@@ -12,11 +12,10 @@ import time
 
 import pytest
 import truenas_pylibzfs
-from truenas_pylibzfs import enums
 
 from conftest import make_vdev_spec
 
-ScanState = enums.ScanState
+ScanState = truenas_pylibzfs.libzfs_types.ScanState
 VDevType = truenas_pylibzfs.VDevType
 
 POOL_NAME = 'testpool_expand'

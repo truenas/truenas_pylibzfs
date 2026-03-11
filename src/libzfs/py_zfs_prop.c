@@ -46,7 +46,7 @@ PyStructSequence_Field struct_zfs_prop [] = {
 };
 
 PyStructSequence_Desc struct_zfs_prop_type_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_zfs_property_data",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_property_data",
 	.fields = struct_zfs_prop,
 	.doc = "Python ZFS property structure.",
 	.n_in_sequence = 3
@@ -59,7 +59,7 @@ PyStructSequence_Field struct_zfs_prop_src [] = {
 };
 
 PyStructSequence_Desc struct_zfs_prop_src_type_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_zfs_property_source",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_property_source",
 	.fields = struct_zfs_prop_src,
 	.doc = "Python ZFS property source structure.",
 	.n_in_sequence = 2
@@ -160,7 +160,7 @@ void init_py_struct_prop_state(pylibzfs_state_t *state)
 	}
 
 	state->struct_zfs_prop_desc = (PyStructSequence_Desc) {
-		.name = PYLIBZFS_MODULE_NAME ".struct_zfs_property",
+		.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_property",
 		.fields = state->struct_prop_fields,
 		.n_in_sequence = ARRAY_SIZE(zfs_prop_table)
 	};

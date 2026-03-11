@@ -77,6 +77,7 @@ src/
     py_zfs_userquota.c      — user/group quota
     py_zfs_enum.c           — enum construction helpers
     py_zfs_common.c         — shared methods (promote, etc.)
+    py_libzfs_types_module.c — libzfs_types submodule (exposes types + enums)
   libzfs_core/
     py_zfs_core_module.c    — lzc module entry + docstrings (PyDoc_STRVAR here)
     libzfs_core_replication.h/c — send/receive wrapper functions (no docstrings)
@@ -157,6 +158,16 @@ PySys_Audit("truenas_pylibzfs.<method>", "...", ...);
 | `py_zfs_pool_t` | Wraps `zpool_handle_t` |
 
 Macro `RSRC_TO_ZFS(x)` gets `py_zfs_obj_t *` from a resource pointer.
+
+### Type instantiation
+
+All C extension types (`ZFSPool`, `ZFSDataset`, etc.) set `.tp_new = py_no_new_impl`
+(defined in `common/utils.c`), which blocks direct Python-level construction and raises
+`TypeError`. Internal C factories allocate instances via `Type.tp_alloc(&Type, 0)`
+directly, bypassing `tp_new`.
+
+When adding a new type, follow the same pattern: no `py_xxx_new` / `py_xxx_init`
+boilerplate — set `.tp_new = py_no_new_impl` and write a named C factory function.
 
 ### Module state
 

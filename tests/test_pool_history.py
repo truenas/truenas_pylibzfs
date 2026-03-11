@@ -166,7 +166,7 @@ def test_set_properties_history_entry(pool_a):
     """set_properties() must write 'zpool set (properties) <pool_name>'."""
     _, p = pool_a
     p.set_properties(
-        properties={truenas_pylibzfs.enums.ZPOOLProperty.AUTOREPLACE: "on"}
+        properties={truenas_pylibzfs.ZPOOLProperty.AUTOREPLACE: "on"}
     )
     cmds = _commands(p)
     expected = f"zpool set (properties) {POOL_A}"
@@ -202,7 +202,7 @@ def test_upgrade_history_entry(pool_a):
 def test_scan_history_entry(pool_a):
     """scan(POOL_SCAN_SCRUB) must write 'zpool scrub <pool_name>'."""
     _, p = pool_a
-    p.scan(func=truenas_pylibzfs.enums.ScanFunction.SCRUB)
+    p.scan(func=truenas_pylibzfs.libzfs_types.ScanFunction.SCRUB)
     cmds = _commands(p)
     expected = f"zpool scrub {POOL_A}"
     assert any(expected in cmd for cmd in cmds), (

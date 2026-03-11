@@ -1,9 +1,10 @@
 # truenas_pylibzfs
 
-Python C extension providing bindings to libzfs and libzfs_core for TrueNAS. Exposes two modules:
+Python C extension providing bindings to libzfs and libzfs_core for TrueNAS. Exposes three modules:
 
 - **`truenas_pylibzfs`** — high-level libzfs wrapper (pools, datasets, volumes, snapshots, encryption, properties, events)
 - **`truenas_pylibzfs.lzc`** — low-level libzfs_core wrapper (atomic send/receive, snapshot batching, holds, rollback, channel programs, pool wait)
+- **`truenas_pylibzfs.libzfs_types`** — all C extension types (`ZFSPool`, `ZFSDataset`, etc.) and enums (`ZFSType`, `ZPOOLProperty`, etc.); use for `isinstance` checks and enum access
 
 This README covers a minimal set of usage examples. Where it conflicts with the inline docstrings or type stubs, treat those as authoritative. Docstrings are accessible at runtime via `help()`:
 
@@ -16,7 +17,8 @@ rsrc = lz.open_resource(name="tank/data")
 help(truenas_pylibzfs)              # module overview
 help(lz)                            # ZFS handle methods
 help(rsrc)                          # resource methods (dataset/volume/snapshot)
-help(truenas_pylibzfs.ZFSPool)      # pool methods
+help(truenas_pylibzfs.libzfs_types.ZFSPool)   # pool methods
+help(truenas_pylibzfs.libzfs_types)          # all types and enums
 help(truenas_pylibzfs.lzc)          # lzc submodule
 help(truenas_pylibzfs.lzc.send)     # individual lzc method
 ```
@@ -630,13 +632,14 @@ src/
     py_zfs_enum.c             # Python enum registration
     py_zfs_object.c           # ZFSObject base
     py_zfs_common.c
+    py_libzfs_types_module.c  # libzfs_types submodule (types + enums)
   libzfs_core/
     py_zfs_core_module.c      # lzc submodule init, docstrings, method table
     libzfs_core_replication.c # send/receive/send_space/send_progress wrappers
 stubs/
   __init__.pyi                # type stubs for truenas_pylibzfs
   lzc.pyi                     # type stubs for truenas_pylibzfs.lzc
-  enums.pyi                   # enum definitions
+  libzfs_types.pyi            # type stubs for truenas_pylibzfs.libzfs_types (types + enums)
   property_sets.pyi           # convenience frozensets of related properties
 tests/                        # pytest test suite
 examples/                     # runnable usage examples

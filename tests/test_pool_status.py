@@ -5,7 +5,7 @@ import tempfile
 import truenas_pylibzfs
 
 ZPOOLStatus = truenas_pylibzfs.ZPOOLStatus
-VDevState = truenas_pylibzfs.enums.VDevState
+VDevState = truenas_pylibzfs.libzfs_types.VDevState
 VDevType = truenas_pylibzfs.VDevType
 
 POOL_NAME = 'testpool_status'

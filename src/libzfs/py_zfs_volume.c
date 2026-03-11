@@ -1,21 +1,8 @@
 #include "../truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
 
-#define ZFS_VOLUME_STR "<" PYLIBZFS_MODULE_NAME \
+#define ZFS_VOLUME_STR "<" PYLIBZFS_TYPES_MODULE_NAME \
     ".ZFSVolume(name=%U, pool=%U, type=%U)>"
-
-static
-PyObject *py_zfs_volume_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_volume_t *self = NULL;
-	self = (py_zfs_volume_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
-}
-
-static
-int py_zfs_volume_init(PyObject *type, PyObject *args, PyObject *kwds) {
-	return (0);
-}
 
 static
 void py_zfs_volume_dealloc(py_zfs_volume_t *self) {
@@ -99,12 +86,11 @@ PyMethodDef zfs_volume_methods[] = {
 };
 
 PyTypeObject ZFSVolume = {
-	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSVolume",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSVolume",
 	.tp_basicsize = sizeof (py_zfs_volume_t),
 	.tp_methods = zfs_volume_methods,
 	.tp_getset = zfs_volume_getsetters,
-	.tp_new = py_zfs_volume_new,
-	.tp_init = py_zfs_volume_init,
+	.tp_new = py_no_new_impl,
 	.tp_doc = "ZFSVolume",
 	.tp_dealloc = (destructor)py_zfs_volume_dealloc,
 	.tp_repr = py_repr_zfs_volume,
@@ -122,10 +108,9 @@ py_zfs_volume_t *init_zfs_volume(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_t si
 	uint64_t guid, createtxg;
 	boolean_t is_encrypted = B_FALSE;
 
-	out = (py_zfs_volume_t *)PyObject_CallFunction((PyObject *)&ZFSVolume, NULL);
-	if (out == NULL) {
+	out = (py_zfs_volume_t *)ZFSVolume.tp_alloc(&ZFSVolume, 0);
+	if (out == NULL)
 		return NULL;
-	}
 	out->rsrc.is_simple = simple;
 	obj = RSRC_TO_ZFS(out);
 	obj->pylibzfsp = lzp;

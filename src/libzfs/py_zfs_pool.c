@@ -1,7 +1,7 @@
 #include "../truenas_pylibzfs.h"
 #include <libzutil.h>
 
-#define ZFS_POOL_STR "<" PYLIBZFS_MODULE_NAME ".ZFSPool(name=%U)>"
+#define ZFS_POOL_STR "<" PYLIBZFS_TYPES_MODULE_NAME ".ZFSPool(name=%U)>"
 
 
 static
@@ -9,19 +9,6 @@ PyObject *py_repr_zfs_pool(PyObject *self) {
 	py_zfs_pool_t *pool = (py_zfs_pool_t *) self;
 
 	return PyUnicode_FromFormat(ZFS_POOL_STR, pool->name);
-}
-
-static
-PyObject *py_zfs_pool_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_pool_t *self = NULL;
-	self = (py_zfs_pool_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
-}
-
-static
-int py_zfs_pool_init(PyObject *type, PyObject *args, PyObject *kwds) {
-	return (0);
 }
 
 static
@@ -592,7 +579,7 @@ PyStructSequence_Field struct_zpool_feature_prop[] = {
 };
 
 PyStructSequence_Desc struct_zpool_feature_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_zpool_feature",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_feature",
 	.fields = struct_zpool_feature_prop,
 	.doc = "ZFS pool feature with guid, description, and state",
 	.n_in_sequence = 3
@@ -2033,12 +2020,11 @@ PyMethodDef zfs_pool_methods[] = {
 };
 
 PyTypeObject ZFSPool = {
-	.tp_name = "ZFSPool",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSPool",
 	.tp_basicsize = sizeof (py_zfs_pool_t),
 	.tp_methods = zfs_pool_methods,
 	.tp_getset = zfs_pool_getsetters,
-	.tp_new = py_zfs_pool_new,
-	.tp_init = py_zfs_pool_init,
+	.tp_new = py_no_new_impl,
 	.tp_doc = "ZFSPool",
 	.tp_dealloc = (destructor)py_zfs_pool_dealloc,
 	.tp_repr = py_repr_zfs_pool,
@@ -2050,10 +2036,9 @@ py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp)
 	py_zfs_pool_t *out = NULL;
 	const char *name;
 
-	out = (py_zfs_pool_t *)PyObject_CallFunction((PyObject *)&ZFSPool, NULL);
-	if (out == NULL) {
+	out = (py_zfs_pool_t *)ZFSPool.tp_alloc(&ZFSPool, 0);
+	if (out == NULL)
 		return (NULL);
-	}
 
 	out->pylibzfsp = lzp;
 	Py_INCREF(lzp);
