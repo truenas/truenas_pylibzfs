@@ -1,25 +1,12 @@
 #include "../truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
 
-#define ZFS_RESOURCE_STR "<" PYLIBZFS_MODULE_NAME \
+#define ZFS_RESOURCE_STR "<" PYLIBZFS_TYPES_MODULE_NAME \
     ".ZFSResource(name=%U, pool=%U, type=%U)>"
 
 
 static PyObject *py_zfs_resoucre_iter(PyObject *self, PyObject *args) {
 	Py_RETURN_NONE;
-}
-
-static
-PyObject *py_zfs_resource_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_resource_t *self = NULL;
-	self = (py_zfs_resource_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
-}
-
-static
-int py_zfs_resource_init(PyObject *type, PyObject *args, PyObject *kwds) {
-	return (0);
 }
 
 static
@@ -1244,11 +1231,10 @@ PyMethodDef zfs_resource_methods[] = {
 };
 
 PyTypeObject ZFSResource = {
-	.tp_name = "ZFSResource",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSResource",
 	.tp_basicsize = sizeof (py_zfs_resource_t),
 	.tp_methods = zfs_resource_methods,
-	.tp_new = py_zfs_resource_new,
-	.tp_init = py_zfs_resource_init,
+	.tp_new = py_no_new_impl,
 	.tp_doc = "ZFSResource",
 	.tp_dealloc = (destructor)py_zfs_resource_dealloc,
 	.tp_repr = py_repr_zfs_resource,

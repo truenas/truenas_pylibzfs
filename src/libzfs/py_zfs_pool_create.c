@@ -51,7 +51,7 @@ static PyStructSequence_Field vdev_create_spec_fields[] = {
 };
 
 static PyStructSequence_Desc vdev_create_spec_desc = {
-	.name = PYLIBZFS_MODULE_NAME ".struct_vdev_create_spec",
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev_create_spec",
 	.doc = "Vdev creation specification for use with ZFS.create_pool().",
 	.fields = vdev_create_spec_fields,
 	.n_in_sequence = 3

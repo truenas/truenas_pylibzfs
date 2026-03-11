@@ -1,21 +1,8 @@
 #include "../truenas_pylibzfs.h"
 #include "py_zfs_iter.h"
 
-#define ZFS_DATASET_STR "<" PYLIBZFS_MODULE_NAME \
+#define ZFS_DATASET_STR "<" PYLIBZFS_TYPES_MODULE_NAME \
     ".ZFSDataset(name=%U, pool=%U, type=%U)>"
-
-static
-PyObject *py_zfs_dataset_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_dataset_t *self = NULL;
-	self = (py_zfs_dataset_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
-}
-
-static
-int py_zfs_dataset_init(PyObject *type, PyObject *args, PyObject *kwds) {
-	return (0);
-}
 
 static
 void py_zfs_dataset_dealloc(py_zfs_dataset_t *self) {
@@ -323,12 +310,11 @@ PyMethodDef zfs_dataset_methods[] = {
 };
 
 PyTypeObject ZFSDataset = {
-	.tp_name = PYLIBZFS_MODULE_NAME ".ZFSDataset",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFSDataset",
 	.tp_basicsize = sizeof (py_zfs_dataset_t),
 	.tp_methods = zfs_dataset_methods,
 	.tp_getset = zfs_dataset_getsetters,
-	.tp_new = py_zfs_dataset_new,
-	.tp_init = py_zfs_dataset_init,
+	.tp_new = py_no_new_impl,
 	.tp_doc = "ZFSDataset",
 	.tp_dealloc = (destructor)py_zfs_dataset_dealloc,
 	.tp_repr = py_repr_zfs_dataset,
@@ -346,10 +332,9 @@ py_zfs_dataset_t *init_zfs_dataset(py_zfs_t *lzp, zfs_handle_t *zfsp, boolean_t 
 	uint64_t guid, createtxg;
 	boolean_t is_encrypted = B_FALSE;
 
-	out = (py_zfs_dataset_t *)PyObject_CallFunction((PyObject *)&ZFSDataset, NULL);
-	if (out == NULL) {
+	out = (py_zfs_dataset_t *)ZFSDataset.tp_alloc(&ZFSDataset, 0);
+	if (out == NULL)
 		return NULL;
-	}
 	out->rsrc.is_simple = simple;
 	obj = RSRC_TO_ZFS(out);
 	obj->pylibzfsp = lzp;

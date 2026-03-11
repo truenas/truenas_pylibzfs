@@ -3,17 +3,10 @@
 #include "py_zfs_events.h"
 #include "libzutil.h"
 
-#define	ZFS_STR	"<" PYLIBZFS_MODULE_NAME ".ZFS>"
+#define	ZFS_STR	"<" PYLIBZFS_TYPES_MODULE_NAME ".ZFS>"
 
 PyObject *py_zfs_str(PyObject *self) {
 	return (PyUnicode_FromFormat(ZFS_STR));
-}
-
-PyObject *py_zfs_new(PyTypeObject *type, PyObject *args,
-    PyObject *kwds) {
-	py_zfs_t *self = NULL;
-	self = (py_zfs_t *)type->tp_alloc(type, 0);
-	return ((PyObject *)self);
 }
 
 int py_zfs_init(PyObject *type, PyObject *args, PyObject *kwds) {
@@ -219,7 +212,7 @@ PyDoc_STRVAR(py_zfs_create__doc__,
 "    The ZFS resource type to create. The value must be either "
      PYLIBZFS_MODULE_NAME ".ZFSType.ZFS_TYPE_FILESYSTEM\n"
 "    or " PYLIBZFS_MODULE_NAME ".ZFSType.ZFS_TYPE_VOLUME\n\n"
-"properties: dict | " PYLIBZFS_MODULE_NAME "struct_zfs_property, optional\n"
+"properties: dict | " PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_property, optional\n"
 "    Optional ZFS dataset property configuration.\n"
 "    This can be:\n"
 "    - A dictionary with keys from "  PYLIBZFS_MODULE_NAME ".ZFSProperty\n"
@@ -230,7 +223,7 @@ PyDoc_STRVAR(py_zfs_create__doc__,
 "    - simplified: \"on\"\n"
 "    - as dictionary like returned by asdict(): {\"value\": \"on\"}\n"
 "    WARNING: not all ZFSProperty properties are valid for a given ZFSType.\n\n"
-"crypto: " PYLIBZFS_MODULE_NAME ".struct_zfs_crypto_config, optional\n"
+"crypto: " PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_crypto_config, optional\n"
 "    Optional encryption configuration to establish the volume as a new\n"
 "    encryption root. If omitted, then the new resource will inherit\n"
 "    the encryption configuration of its parent dataset. A crypto config\n"
@@ -945,9 +938,6 @@ PyObject *py_zfs_iter_events(PyObject *self,
 			      PyObject *args_unused,
 			      PyObject *kwargs)
 {
-	PyObject *iter_kwargs = NULL;
-	PyObject *result = NULL;
-	PyObject *args = NULL;
 	char *kwnames[] = {"blocking", "skip_existing_events", NULL};
 	boolean_t blocking = B_FALSE;
 	boolean_t skip_existing = B_FALSE;
@@ -960,29 +950,8 @@ PyObject *py_zfs_iter_events(PyObject *self,
 		return NULL;
 	}
 
-	// Create kwargs dict with zfs_handle and blocking parameters
-	iter_kwargs = Py_BuildValue("{sOsOsO}",
-				    "zfs_handle", self,
-				    "blocking", blocking ? Py_True : Py_False,
-				    "skip_existing_events",
-				    skip_existing ? Py_True : Py_False);
-	if (iter_kwargs == NULL) {
-		return NULL;
-	}
-
-	args = PyTuple_New(0);
-	if (args == NULL) {
-		return NULL;
-	}
-
-	// Create the ZFSEventIterator instance
-	result = PyObject_Call((PyObject *)&ZFSEventIterator,
-			       args, iter_kwargs);
-
-	Py_DECREF(iter_kwargs);
-	Py_DECREF(args);
-
-	return result;
+	return py_zfs_event_iter_create((py_zfs_t *)self, blocking,
+	    skip_existing);
 }
 
 PyDoc_STRVAR(py_zfs_create_pool__doc__,
@@ -1631,11 +1600,11 @@ PyMethodDef zfs_methods[] = {
 };
 
 PyTypeObject ZFS = {
-	.tp_name = "ZFS",
+	.tp_name = PYLIBZFS_TYPES_MODULE_NAME ".ZFS",
 	.tp_basicsize = sizeof (py_zfs_t),
 	.tp_methods = zfs_methods,
 	.tp_getset = zfs_getsetters,
-	.tp_new = py_zfs_new,
+	.tp_new = py_no_new_impl,
 	.tp_init = py_zfs_init,
 	.tp_doc = "ZFS",
 	.tp_dealloc = (destructor)py_zfs_dealloc,

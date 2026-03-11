@@ -388,7 +388,7 @@ nvlist_t *py_zfsprops_to_nvlist(pylibzfs_state_t *state,
 
 	PyErr_Format(PyExc_TypeError,
 		     "%V: unexpected properties type. Expected a dictionary or "
-		     "a " PYLIBZFS_MODULE_NAME ".struct_zfs_property instance.",
+		     "a " PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_property instance.",
 		     repr, "UNKNOWN TYPE");
 
 	Py_XDECREF(repr);

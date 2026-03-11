@@ -320,9 +320,9 @@ class TestImportPoolPropertiesEnum:
         assert hasattr(truenas_pylibzfs, 'ZPOOLProperty')
         assert truenas_pylibzfs.ZPOOLProperty is ZPOOLProperty
 
-    def test_zpool_property_in_enums_submodule(self):
-        assert hasattr(truenas_pylibzfs.enums, 'ZPOOLProperty')
-        assert truenas_pylibzfs.enums.ZPOOLProperty is ZPOOLProperty
+    def test_zpool_property_in_libzfs_types(self):
+        assert hasattr(truenas_pylibzfs.libzfs_types, 'ZPOOLProperty')
+        assert truenas_pylibzfs.ZPOOLProperty is ZPOOLProperty
 
     def test_string_key_accepted(self, exported_pool):
         lz, disk_dir, guid = exported_pool

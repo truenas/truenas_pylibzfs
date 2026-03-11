@@ -122,6 +122,7 @@ typedef struct {
 } pylibzfs_state_t;
 
 extern int init_py_zfs_state(PyObject *module);
+extern int py_register_struct_types(PyObject *module);
 extern void init_py_struct_prop_state(pylibzfs_state_t *state);
 extern void init_py_struct_zpool_prop_state(pylibzfs_state_t *state);
 extern void free_py_zfs_state(PyObject *module);

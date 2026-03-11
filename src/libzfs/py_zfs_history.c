@@ -154,10 +154,11 @@ PyDoc_STRVAR(py_zfs_history_iter__doc__,
 );
 
 PyTypeObject ZFSHistoryIterator = {
-	.tp_name      = PYLIBZFS_MODULE_NAME ".ZFSHistoryIterator",
+	.tp_name      = PYLIBZFS_TYPES_MODULE_NAME ".ZFSHistoryIterator",
 	.tp_basicsize = sizeof (py_zfs_history_iter_t),
 	.tp_itemsize  = 0,
 	.tp_dealloc   = (destructor)py_zfs_history_iter_dealloc,
+	.tp_new       = py_no_new_impl,
 	.tp_flags     = Py_TPFLAGS_DEFAULT,
 	.tp_doc       = py_zfs_history_iter__doc__,
 	.tp_iter      = py_zfs_history_iter_iter,

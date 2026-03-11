@@ -10,6 +10,7 @@ static PyTypeObject *alltypes[] = {
 	&ZFSHistoryIterator,
 	&ZFSObject,
 	&ZFSPool,
+	&ZFSResource,
 	&ZFSSnapshot,
 	&ZFSVolume,
 	NULL
@@ -98,9 +99,14 @@ static PyObject *py_get_libzfs_handle(PyObject *self,
 {
 	py_zfs_t *out = NULL;
 
-	out = (py_zfs_t *)PyObject_Call((PyObject *)&ZFS, args, kwargs);
+	out = (py_zfs_t *)ZFS.tp_alloc(&ZFS, 0);
 	if (out == NULL)
 		return NULL;
+
+	if (py_zfs_init((PyObject *)out, args, kwargs) < 0) {
+		Py_DECREF(out);
+		return NULL;
+	}
 
 	out->module = self;
 	Py_INCREF(self);
@@ -206,7 +212,7 @@ PyDoc_STRVAR(py_create_vdev_spec__doc__,
 "    Must be None for leaf vdev types (disk, file).\n\n"
 "Returns\n"
 "-------\n"
-PYLIBZFS_MODULE_NAME ".struct_vdev_create_spec\n"
+PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev_create_spec\n"
 "    Immutable named-tuple-like record with fields:\n"
 "    (name, vdev_type, children).\n\n"
 "Raises\n"
@@ -491,12 +497,6 @@ static struct PyModuleDef truenas_pylibzfs_constants = {
 	.m_doc = PYLIBZFS_MODULE_NAME ".constants" " provides constants related to libzfs.",
 };
 
-/* Enums module */
-static struct PyModuleDef truenas_pylibzfs_enums = {
-	.m_base = PyModuleDef_HEAD_INIT,
-	.m_name = PYLIBZFS_MODULE_NAME ".enums",
-	.m_doc = PYLIBZFS_MODULE_NAME ".enums provides enums related to libzfs.",
-};
 
 static
 int py_init_libzfs(void)
@@ -525,7 +525,7 @@ PyInit_truenas_pylibzfs(void)
 {
 	PyObject *zfs_exc;
 	PyObject *constants = NULL;
-	PyObject *enums = NULL;
+	PyObject *libzfs_types = NULL;
 	PyObject *lzc = NULL;
 	PyObject *propsets = NULL;
 	int err;
@@ -571,23 +571,20 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
-	enums = PyModule_Create(&truenas_pylibzfs_enums);
-	if (enums != NULL) {
-		if (py_add_zfs_enums(mpylibzfs, enums)) {
-			Py_DECREF(enums);
-			Py_DECREF(mpylibzfs);
-			return NULL;
-		}
-	}
-
-	err = PyModule_AddObjectRef(mpylibzfs, "enums", enums);
-	Py_XDECREF(enums);
+	libzfs_types = py_setup_libzfs_types_module(mpylibzfs);
+	err = PyModule_AddObjectRef(mpylibzfs, "libzfs_types", libzfs_types);
+	Py_XDECREF(libzfs_types);
 	if (err) {
 		Py_DECREF(mpylibzfs);
 		return NULL;
 	}
 
 	if (init_py_zfs_state(mpylibzfs) < 0) {
+		Py_DECREF(mpylibzfs);
+		return NULL;
+	}
+
+	if (py_register_struct_types(mpylibzfs) < 0) {
 		Py_DECREF(mpylibzfs);
 		return NULL;
 	}
