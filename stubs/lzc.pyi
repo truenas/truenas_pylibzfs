@@ -1,20 +1,22 @@
 import enum
+from collections.abc import Sequence
+from typing import Any
 
 class SendFlags(enum.IntFlag):
-    EMBED_DATA: int
+    EMBED_DATA = ...
     """Include WRITE_EMBEDDED records for blocks that compress to a small
     fraction of the block size, reducing stream size for compressible data.
     Requires the embedded_data feature on the receiving pool."""
-    LARGE_BLOCK: int
+    LARGE_BLOCK = ...
     """Allow blocks larger than 128 KiB in the stream.
     Requires the large_blocks feature on the receiving pool."""
-    COMPRESS: int
+    COMPRESS = ...
     """Send compressed WRITE records, reducing wire size.
     Requires matching compression support on the receiving pool."""
-    RAW: int
+    RAW = ...
     """Send raw encrypted/authenticated records without decrypting.
     Required for sending encrypted datasets without the wrapping key."""
-    SAVED: int
+    SAVED = ...
     """Send a partially-received (saved) stream (zfs send -S).
     Used to rescue interrupted receives when the source snapshot is gone."""
 
@@ -38,15 +40,23 @@ class ChannelProgramEnum:
 class ZFSCoreException(BaseException):
     code: int
     name: str
-    errors: tuple
+    errors: tuple[Any, ...]
 
-def create_holds(*, holds, cleanup_fd=False) -> tuple: ...
-def create_snapshots(*, snapshot_names, user_properties=None) -> None: ...
-def destroy_snapshots(*, snapshot_names, defer_destroy=False) -> None: ...
-def release_holds(*, holds) -> tuple: ...
-def rollback(*, resource_name, snapshot_name=None) -> str: ...
-def run_channel_program(*, pool_name, script, script_arguments=None, script_arguments_dict=None,
-                        instruction_limit=10000000, memory_limit=10485760, readonly=False) -> dict: ...
+def create_holds(*, holds: dict[str, str], cleanup_fd: int | bool = False) -> tuple[Any, ...]: ...
+def create_snapshots(*, snapshot_names: Sequence[str], user_properties: dict[str, Any] | None = None) -> None: ...
+def destroy_snapshots(*, snapshot_names: Sequence[str], defer_destroy: bool = False) -> None: ...
+def release_holds(*, holds: dict[str, Sequence[str]]) -> tuple[Any, ...]: ...
+def rollback(*, resource_name: str, snapshot_name: str | None = None) -> str: ...
+def run_channel_program(
+    *,
+    pool_name: str,
+    script: str,
+    script_arguments: Any = None,
+    script_arguments_dict: dict[str, Any] | None = None,
+    instruction_limit: int = 10000000,
+    memory_limit: int = 10485760,
+    readonly: bool = False,
+) -> dict[str, Any]: ...
 def wait(*, pool_name: str, activity: ZpoolWaitActivity | int, tag: int | None = None) -> bool: ...
 def send(
     *,
@@ -68,7 +78,7 @@ def receive(
     snapname: str,
     fd: int,
     origin: str | None = None,
-    props: dict | None = None,
+    props: dict[str, Any] | None = None,
     force: bool = False,
     resumable: bool = False,
     raw: bool = False,
