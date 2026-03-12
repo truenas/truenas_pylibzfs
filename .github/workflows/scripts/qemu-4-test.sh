@@ -87,7 +87,7 @@ for name in ('lzc', 'libzfs_types', 'property_sets'):
     sys.modules['truenas_pylibzfs.' + name] = getattr(truenas_pylibzfs, name)
 from mypy.stubtest import main
 sys.argv = ['stubtest', 'truenas_pylibzfs']
-main()
+sys.exit(main())
 "
 STUBTEST_EXIT=$?
 

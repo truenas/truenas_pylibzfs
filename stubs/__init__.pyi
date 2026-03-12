@@ -18,26 +18,6 @@ from .libzfs_types import (
     ZPOOLStatus,
 )
 
-__all__ = [
-    "libzfs_types",
-    "lzc",
-    "property_sets",
-    "PropertySource",
-    "VDevType",
-    "ZFSError",
-    "ZFSProperty",
-    "ZFSType",
-    "ZFSUserQuota",
-    "ZPOOLProperty",
-    "ZPOOLStatus",
-    "ZFSException",
-    "create_vdev_spec",
-    "open_handle",
-    "read_label",
-    "clear_label",
-    "name_is_valid",
-]
-
 class ZFSException(RuntimeError):
     action: ClassVar[str] = ...
     code: ClassVar[int] = ...
@@ -65,3 +45,4 @@ def open_handle(history: Any = ..., history_prefix: Any = ..., mnttab_cache: Any
 def read_label(*, fd: int) -> dict[str, Any] | None: ...
 def clear_label(*, fd: int) -> None: ...
 def name_is_valid(*, name: str, type: ZFSType) -> bool: ...
+def fzfs_rewrite(fd: int, *, offset: int = ..., length: int = ..., physical: bool = ...) -> None: ...
