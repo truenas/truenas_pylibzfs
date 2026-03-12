@@ -73,9 +73,22 @@ echo "Running mypy on stubs..."
 python3 -m mypy stubs/
 MYPY_EXIT=$?
 
-# Check stubs match the installed runtime module
+# Check stubs match the installed runtime module.
+#
+# truenas_pylibzfs is a C extension (.so), not a Python package, so
+# `import truenas_pylibzfs.lzc` (dotted path) fails even though
+# `from truenas_pylibzfs import lzc` works fine.  stubtest uses
+# importlib.import_module() internally, so pre-registering the
+# submodules in sys.modules lets stubtest find and check them.
 echo "Running stubtest..."
-python3 -m mypy.stubtest truenas_pylibzfs
+python3 -c "
+import truenas_pylibzfs, sys
+for name in ('lzc', 'libzfs_types', 'property_sets'):
+    sys.modules['truenas_pylibzfs.' + name] = getattr(truenas_pylibzfs, name)
+from mypy.stubtest import main
+sys.argv = ['stubtest', 'truenas_pylibzfs']
+main()
+"
 STUBTEST_EXIT=$?
 
 if [ $MYPY_EXIT -ne 0 ] || [ $STUBTEST_EXIT -ne 0 ]; then
