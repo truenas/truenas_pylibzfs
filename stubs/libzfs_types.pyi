@@ -1,6 +1,6 @@
 from collections.abc import Iterable, Iterator, Sequence
 import enum
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal, Self, final
 
 
 # ---------------------------------------------------------------------------
@@ -467,12 +467,19 @@ class ZPOOLStatus(enum.IntEnum):
 # Struct sequence types
 # ---------------------------------------------------------------------------
 
+@final
 class struct_vdev_create_spec:
     """Vdev creation specification for use with ZFS.create_pool()."""
     name: str | None
     vdev_type: VDevType | str
     children: tuple[struct_vdev_create_spec, ...] | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 3
+    n_sequence_fields: ClassVar[int] # = 3
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_vdev_stats:
     timestamp: int
     allocated: int
@@ -500,7 +507,13 @@ class struct_vdev_stats:
     configured_ashift: int | None
     logical_ashift: int | None
     physical_ashift: int | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 26
+    n_sequence_fields: ClassVar[int] # = 26
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_vdev:
     name: str
     vdev_type: str
@@ -509,18 +522,36 @@ class struct_vdev:
     stats: struct_vdev_stats | None
     children: tuple[struct_vdev, ...] | None
     top_guid: int | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 7
+    n_sequence_fields: ClassVar[int] # = 7
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_support_vdev:
     cache: tuple[struct_vdev, ...]
     log: tuple[struct_vdev, ...]
     special: tuple[struct_vdev, ...]
     dedup: tuple[struct_vdev, ...]
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 4
+    n_sequence_fields: ClassVar[int] # = 4
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zpool_feature:
     guid: str
     description: str
     state: Literal["DISABLED", "ENABLED", "ACTIVE"]
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 3
+    n_sequence_fields: ClassVar[int] # = 3
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zpool_scrub:
     func: ScanFunction
     state: ScanState
@@ -545,7 +576,13 @@ class struct_zpool_scrub:
     error_scrub_to_be_examined: int | None
     pass_error_scrub_pause: int | None
     percentage: float | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 23
+    n_sequence_fields: ClassVar[int] # = 23
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zpool_expand:
     state: ScanState
     expanding_vdev: int
@@ -554,7 +591,13 @@ class struct_zpool_expand:
     to_reflow: int
     reflowed: int
     waiting_for_resilver: int
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 7
+    n_sequence_fields: ClassVar[int] # = 7
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zpool_status:
     status: ZPOOLStatus
     reason: str | None
@@ -566,25 +609,49 @@ class struct_zpool_status:
     spares: tuple[struct_vdev, ...]
     name: str
     guid: int
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 10
+    n_sequence_fields: ClassVar[int] # = 10
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zfs_property_source:
     """Source information for a ZFS or pool property."""
     type: PropertySource
     value: str | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 2
+    n_sequence_fields: ClassVar[int] # = 2
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zfs_property_data:
     """Individual property value and source information."""
     value: int | str | None
     raw: str
     source: struct_zfs_property_source | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 3
+    n_sequence_fields: ClassVar[int] # = 3
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zpool_property_data:
     """Per-property data returned by ZFSPool.get_properties()."""
     prop: ZPOOLProperty
     value: int | str | None
     raw: str
     source: PropertySource | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 4
+    n_sequence_fields: ClassVar[int] # = 4
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zpool_property:
     """Pool property bundle returned by ZFSPool.get_properties().
 
@@ -696,7 +763,13 @@ class struct_zpool_property:
     class_special_elog_used:          struct_zpool_property_data | None
     class_special_elog_expandsize:    struct_zpool_property_data | None
     class_special_elog_fragmentation: struct_zpool_property_data | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 99
+    n_sequence_fields: ClassVar[int] # = 99
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
 
+@final
 class struct_zfs_crypto_info:
     """Encryption status information for a ZFS dataset or volume."""
     is_root: bool
@@ -707,11 +780,246 @@ class struct_zfs_crypto_info:
     """The keylocation property value (e.g. 'prompt', 'file://...')."""
     key_is_loaded: bool
     """Whether the wrapping key is currently loaded."""
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 4
+    n_sequence_fields: ClassVar[int] # = 4
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
+
+@final
+class struct_zfs_crypto_config:
+    """Crypto configuration spec for ZFS.resource_cryptography_config()."""
+    keyformat: str | None
+    keylocation: str | None
+    key: str | bytes | None
+    pbkdf2iters: int | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 4
+    n_sequence_fields: ClassVar[int] # = 4
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
+
+@final
+class struct_zfs_userquota:
+    """User/group quota entry returned by ZFSDataset.iter_userspace()."""
+    quota_type: ZFSUserQuota
+    xid: int
+    value: int
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 3
+    n_sequence_fields: ClassVar[int] # = 3
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
+
+@final
+class struct_zfs_property:
+    """ZFS dataset property bundle returned by ZFSResource.get_properties().
+
+    Each attribute corresponds to a visible ZFSProperty member, named using
+    the lowercase libzfs property name (e.g. ``atime``, ``compression``).
+    Requested properties contain a struct_zfs_property_data instance;
+    unrequested or non-applicable properties are None.
+    """
+    type: struct_zfs_property_data | None
+    creation: struct_zfs_property_data | None
+    used: struct_zfs_property_data | None
+    available: struct_zfs_property_data | None
+    referenced: struct_zfs_property_data | None
+    compressratio: struct_zfs_property_data | None
+    mounted: struct_zfs_property_data | None
+    origin: struct_zfs_property_data | None
+    quota: struct_zfs_property_data | None
+    reservation: struct_zfs_property_data | None
+    volsize: struct_zfs_property_data | None
+    volblocksize: struct_zfs_property_data | None
+    recordsize: struct_zfs_property_data | None
+    mountpoint: struct_zfs_property_data | None
+    sharenfs: struct_zfs_property_data | None
+    checksum: struct_zfs_property_data | None
+    compression: struct_zfs_property_data | None
+    atime: struct_zfs_property_data | None
+    devices: struct_zfs_property_data | None
+    exec: struct_zfs_property_data | None
+    setuid: struct_zfs_property_data | None
+    readonly: struct_zfs_property_data | None
+    zoned: struct_zfs_property_data | None
+    snapdir: struct_zfs_property_data | None
+    aclmode: struct_zfs_property_data | None
+    aclinherit: struct_zfs_property_data | None
+    createtxg: struct_zfs_property_data | None
+    canmount: struct_zfs_property_data | None
+    xattr: struct_zfs_property_data | None
+    copies: struct_zfs_property_data | None
+    version: struct_zfs_property_data | None
+    utf8only: struct_zfs_property_data | None
+    normalization: struct_zfs_property_data | None
+    casesensitivity: struct_zfs_property_data | None
+    vscan: struct_zfs_property_data | None
+    nbmand: struct_zfs_property_data | None
+    sharesmb: struct_zfs_property_data | None
+    refquota: struct_zfs_property_data | None
+    refreservation: struct_zfs_property_data | None
+    guid: struct_zfs_property_data | None
+    primarycache: struct_zfs_property_data | None
+    secondarycache: struct_zfs_property_data | None
+    usedbysnapshots: struct_zfs_property_data | None
+    usedbydataset: struct_zfs_property_data | None
+    usedbychildren: struct_zfs_property_data | None
+    usedbyrefreservation: struct_zfs_property_data | None
+    defer_destroy: struct_zfs_property_data | None
+    userrefs: struct_zfs_property_data | None
+    logbias: struct_zfs_property_data | None
+    objsetid: struct_zfs_property_data | None
+    dedup: struct_zfs_property_data | None
+    mlslabel: struct_zfs_property_data | None
+    sync: struct_zfs_property_data | None
+    dnodesize: struct_zfs_property_data | None
+    refcompressratio: struct_zfs_property_data | None
+    written: struct_zfs_property_data | None
+    clones: struct_zfs_property_data | None
+    logicalused: struct_zfs_property_data | None
+    logicalreferenced: struct_zfs_property_data | None
+    volmode: struct_zfs_property_data | None
+    filesystem_limit: struct_zfs_property_data | None
+    snapshot_limit: struct_zfs_property_data | None
+    filesystem_count: struct_zfs_property_data | None
+    snapshot_count: struct_zfs_property_data | None
+    snapdev: struct_zfs_property_data | None
+    acltype: struct_zfs_property_data | None
+    context: struct_zfs_property_data | None
+    fscontext: struct_zfs_property_data | None
+    defcontext: struct_zfs_property_data | None
+    rootcontext: struct_zfs_property_data | None
+    relatime: struct_zfs_property_data | None
+    redundant_metadata: struct_zfs_property_data | None
+    overlay: struct_zfs_property_data | None
+    receive_resume_token: struct_zfs_property_data | None
+    encryption: struct_zfs_property_data | None
+    keylocation: struct_zfs_property_data | None
+    keyformat: struct_zfs_property_data | None
+    pbkdf2iters: struct_zfs_property_data | None
+    encryptionroot: struct_zfs_property_data | None
+    keystatus: struct_zfs_property_data | None
+    special_small_blocks: struct_zfs_property_data | None
+    redact_snaps: struct_zfs_property_data | None
+    snapshots_changed: struct_zfs_property_data | None
+    prefetch: struct_zfs_property_data | None
+    volthreading: struct_zfs_property_data | None
+    direct: struct_zfs_property_data | None
+    longname: struct_zfs_property_data | None
+    defaultuserquota: struct_zfs_property_data | None
+    defaultgroupquota: struct_zfs_property_data | None
+    defaultprojectquota: struct_zfs_property_data | None
+    defaultuserobjquota: struct_zfs_property_data | None
+    defaultgroupobjquota: struct_zfs_property_data | None
+    defaultprojectobjquota: struct_zfs_property_data | None
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]
+    n_sequence_fields: ClassVar[int]
+    n_unnamed_fields: ClassVar[int]
+    def __replace__(self, **changes: Any) -> Self: ...
 
 
 # ---------------------------------------------------------------------------
 # C extension types (not directly instantiable; use factories)
 # ---------------------------------------------------------------------------
+
+class ZFSObject:
+    """Base ZFS resource object (datasets, volumes, snapshots, bookmarks)."""
+    @property
+    def name(self) -> str: ...
+    @property
+    def type(self) -> ZFSType: ...
+    @property
+    def guid(self) -> int: ...
+    @property
+    def createtxg(self) -> int: ...
+    @property
+    def pool_name(self) -> str: ...
+    @property
+    def encrypted(self) -> bool: ...
+    def rename(
+        self,
+        *,
+        new_name: str,
+        recursive: bool = ...,
+        no_unmount: bool = ...,
+        force_unmount: bool = ...,
+    ) -> None: ...
+
+class ZFSResource(ZFSObject):
+    """ZFS resource (filesystem or volume) with property and mount operations."""
+    def iter_filesystems(self, *, callback: Any, state: Any, fast: bool = ...) -> bool: ...
+    def iter_snapshots(
+        self,
+        *,
+        callback: Any,
+        state: Any,
+        fast: bool = ...,
+        min_transaction_group: int = ...,
+        max_transaction_group: int = ...,
+        order_by_transaction_group: bool = ...,
+    ) -> bool: ...
+    def get_properties(self, *, properties: Any, get_source: bool = ...) -> struct_zfs_property: ...
+    def set_properties(self, *, properties: dict[str, Any], remount: bool = ...) -> None: ...
+    def inherit_property(self, *, property: str, received: bool = ...) -> None: ...
+    def asdict(
+        self,
+        *,
+        properties: Any,
+        get_source: bool = ...,
+        get_user_properties: bool = ...,
+        get_crypto: bool = ...,
+    ) -> dict[str, Any]: ...
+    def mount(
+        self,
+        *,
+        mountpoint: str,
+        mount_options: str | None = ...,
+        force: bool = ...,
+        load_encryption_key: bool = ...,
+    ) -> None: ...
+    def unmount(
+        self,
+        *,
+        mountpoint: str,
+        force: bool = ...,
+        lazy: bool = ...,
+        unload_encryption_key: bool = ...,
+        follow_symlinks: bool = ...,
+        recursive: bool = ...,
+    ) -> None: ...
+    def get_user_properties(self) -> dict[str, str]: ...
+    def refresh_properties(self) -> None: ...
+    def get_mountpoint(self) -> str | None: ...
+    def set_user_properties(self, *, user_properties: dict[str, str]) -> None: ...
+
+@final
+class ZFSDataset(ZFSResource):
+    """ZFS filesystem dataset."""
+    def iter_userspace(self, *, callback: Any, state: Any, quota_type: Any) -> bool: ...
+    def set_userquotas(self, *, quotas: Any) -> None: ...
+    def crypto(self) -> ZFSCrypto | None: ...
+    def promote(self) -> None: ...
+
+@final
+class ZFSVolume(ZFSResource):
+    """ZFS volume (zvol) dataset."""
+    def crypto(self) -> ZFSCrypto | None: ...
+    def promote(self) -> None: ...
+
+@final
+class ZFSEventIterator(Iterator[dict[str, Any]]):
+    """Iterator over ZFS kernel events."""
+    def __iter__(self) -> ZFSEventIterator: ...
+    def __next__(self) -> dict[str, Any]: ...
+
+@final
+class ZFSHistoryIterator(Iterator[dict[str, Any]]):
+    """Iterator over ZFS pool command history."""
+    def __iter__(self) -> ZFSHistoryIterator: ...
+    def __next__(self) -> dict[str, Any]: ...
+
 
 class ZFSCrypto:
     """Encryption operations for a ZFS dataset or volume."""
@@ -739,6 +1047,7 @@ class ZFSCrypto:
     def inherit_key(self) -> None: ...
 
 
+@final
 class ZFSSnapshot:
     def get_holds(self) -> tuple[str, ...]: ...
     def get_clones(self) -> tuple[str, ...]: ...
@@ -824,9 +1133,19 @@ class ZFSPool:
         until: int = 0,
     ) -> Iterator[dict[str, Any]]: ...
 
+    def asdict(self) -> dict[str, Any]: ...
+    def clear(self) -> None: ...
+    def ddt_prune(self, *, days: int = ..., percentage: int = ...) -> None: ...
+    def dump_config(self) -> dict[str, Any]: ...
+    def refresh_stats(self) -> None: ...
+    def root_dataset(self) -> ZFSDataset: ...
+    def sync_pool(self) -> None: ...
+    def upgrade(self) -> None: ...
+
 
 class ZFS:
     """ZFS library handle. Obtain via truenas_pylibzfs.open_handle()."""
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def open_pool(self, *, name: str) -> ZFSPool: ...
     def open_resource(self, **kwargs: Any) -> Any: ...
     def create_resource(self, *, name: str, type: ZFSType, properties: dict[str, Any] | None = None, crypto: Any | None = None) -> None: ...

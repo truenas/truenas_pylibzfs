@@ -20,27 +20,28 @@ class SendFlags(enum.IntFlag):
     """Send a partially-received (saved) stream (zfs send -S).
     Used to rescue interrupted receives when the source snapshot is gone."""
 
-class ZpoolWaitActivity:
-    CKPT_DISCARD: int
-    FREE: int
-    INITIALIZE: int
-    REPLACE: int
-    REMOVE: int
-    RESILVER: int
-    SCRUB: int
-    TRIM: int
-    RAIDZ_EXPAND: int
+class ZpoolWaitActivity(enum.IntEnum):
+    CKPT_DISCARD = 0
+    FREE = 1
+    INITIALIZE = 2
+    REPLACE = 3
+    REMOVE = 4
+    RESILVER = 5
+    SCRUB = 6
+    TRIM = 7
+    RAIDZ_EXPAND = 8
 
-class ChannelProgramEnum:
-    DESTROY_RESOURCES = ""
-    DESTROY_SNAPSHOTS = ""
-    TAKE_SNAPSHOTS = ""
-    ROLLBACK_TO_TXG = ""
+class ChannelProgramEnum(enum.StrEnum):
+    DESTROY_RESOURCES = "DESTROY_RESOURCES"
+    DESTROY_SNAPSHOTS = "DESTROY_SNAPSHOTS"
+    TAKE_SNAPSHOTS = "TAKE_SNAPSHOTS"
+    ROLLBACK_TO_TXG = "ROLLBACK_TO_TXG"
 
 class ZFSCoreException(BaseException):
     code: int
+    msg: str
     name: str
-    errors: tuple[Any, ...]
+    errors: tuple[Any, ...] | None
 
 def create_holds(*, holds: dict[str, str], cleanup_fd: int | bool = False) -> tuple[Any, ...]: ...
 def create_snapshots(*, snapshot_names: Sequence[str], user_properties: dict[str, Any] | None = None) -> None: ...
