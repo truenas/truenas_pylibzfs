@@ -134,29 +134,42 @@ void init_py_struct_prop_state(pylibzfs_state_t *state)
 	PyTypeObject *obj;
 
 	for (i = 0; i < ARRAY_SIZE(zfs_prop_table); i++) {
-		/* Leave hidden properties unnamed in our property struct */
 		const char *doc = NULL;
-		const char *name = PyStructSequence_UnnamedField;
 		zfs_prop_t prop = zfs_prop_table[i].prop;
 
 		if (zfs_prop_visible(prop)) {
-			name = zfs_prop_to_name(prop);
+			const char *name = zfs_prop_to_name(prop);
 			doc = py_create_prop_doc(name, prop);
+
+			/*
+			 * WARNING: visible property names must be
+			 * heap-allocated; the repr method of struct sequences
+			 * was observed to fail at runtime when they are not.
+			 */
+			state->struct_prop_fields[i].name = pymem_strdup(name);
+
+			/*
+			 * If this malloc failed then we'll be unable to read
+			 * ZFS properties. It's better to just fail
+			 * spectacularly rather than be semi-broken.
+			 */
+			PYZFS_ASSERT(state->struct_prop_fields[i].name,
+				     "Malloc failure.");
+		} else {
+			/*
+			 * Assign the sentinel pointer directly so that
+			 * CPython's pointer-equality check in structseq.c
+			 * recognises these fields as unnamed and omits them
+			 * from member descriptors and __match_args__.
+			 * strdup'ing the sentinel produces a different pointer
+			 * that defeats the check, causing spurious "unnamed
+			 * field" member descriptors to appear on the type.
+			 */
+			state->struct_prop_fields[i].name =
+			    PyStructSequence_UnnamedField;
 		}
 
-		/*
-		 * WARNING: name field must be heap-allocated otherwise
-		 * repr method of sequence was seen to fail in runtime
-		 */
-		state->struct_prop_fields[i].name = pymem_strdup(name);
 		state->struct_prop_fields[i].doc = doc;
-
-		/*
-		 * If this malloc failed then we'll be unable to read ZFS
-		 * properties. It's better to just fail spectacularly rather
-		 * than be semi-broken.
-                 */
-		PYZFS_ASSERT(state->struct_prop_fields[i].name, "Malloc failure.");
 	}
 
 	state->struct_zfs_prop_desc = (PyStructSequence_Desc) {
