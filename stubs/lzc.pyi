@@ -3,20 +3,20 @@ from collections.abc import Sequence
 from typing import Any
 
 class SendFlags(enum.IntFlag):
-    EMBED_DATA: int
+    EMBED_DATA = 1
     """Include WRITE_EMBEDDED records for blocks that compress to a small
     fraction of the block size, reducing stream size for compressible data.
     Requires the embedded_data feature on the receiving pool."""
-    LARGE_BLOCK: int
+    LARGE_BLOCK = 2
     """Allow blocks larger than 128 KiB in the stream.
     Requires the large_blocks feature on the receiving pool."""
-    COMPRESS: int
+    COMPRESS = 4
     """Send compressed WRITE records, reducing wire size.
     Requires matching compression support on the receiving pool."""
-    RAW: int
+    RAW = 8
     """Send raw encrypted/authenticated records without decrypting.
     Required for sending encrypted datasets without the wrapping key."""
-    SAVED: int
+    SAVED = 16
     """Send a partially-received (saved) stream (zfs send -S).
     Used to rescue interrupted receives when the source snapshot is gone."""
 
