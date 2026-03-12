@@ -62,6 +62,28 @@ echo "=========================================="
 echo "Test run complete (exit code: $TEST_EXIT_CODE)"
 echo "=========================================="
 
+echo "=========================================="
+echo "Running stub checks"
+echo "=========================================="
+
+cd /home/debian/truenas_pylibzfs
+
+# Check stubs are internally self-consistent (catches phantom names in __all__, bad imports, etc.)
+echo "Running mypy on stubs..."
+python3 -m mypy stubs/
+MYPY_EXIT=$?
+
+# Check stubs match the installed runtime module
+echo "Running stubtest..."
+python3 -m mypy.stubtest truenas_pylibzfs
+STUBTEST_EXIT=$?
+
+if [ $MYPY_EXIT -ne 0 ] || [ $STUBTEST_EXIT -ne 0 ]; then
+    echo "ERROR: Stub checks failed"
+    exit 1
+fi
+echo "Stub checks passed"
+
 exit $TEST_EXIT_CODE
 REMOTE_SCRIPT
 
