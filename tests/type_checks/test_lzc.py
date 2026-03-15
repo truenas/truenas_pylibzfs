@@ -40,8 +40,7 @@ def check_create_holds_with_cleanup_fd_bool() -> None:
 # ---------------------------------------------------------------------------
 
 def check_release_holds_returns_none() -> None:
-    result: None = lzc.release_holds(holds=[("pool/fs@snap", "my-tag")])
-    _ = result
+    lzc.release_holds(holds=[("pool/fs@snap", "my-tag")])
 
 
 def check_release_holds_iterable() -> None:
