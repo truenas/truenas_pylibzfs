@@ -8,14 +8,14 @@ from . import property_sets
 # Enums that are dual-registered (truenas_pylibzfs.X and truenas_pylibzfs.libzfs_types.X).
 # Struct types live in libzfs_types only — access them as libzfs_types.struct_*.
 from .libzfs_types import (
-    PropertySource,
-    VDevType,
-    ZFSError,
-    ZFSProperty,
-    ZFSType,
-    ZFSUserQuota,
-    ZPOOLProperty,
-    ZPOOLStatus,
+    PropertySource as PropertySource,
+    VDevType as VDevType,
+    ZFSError as ZFSError,
+    ZFSProperty as ZFSProperty,
+    ZFSType as ZFSType,
+    ZFSUserQuota as ZFSUserQuota,
+    ZPOOLProperty as ZPOOLProperty,
+    ZPOOLStatus as ZPOOLStatus,
 )
 
 class ZFSException(RuntimeError):
