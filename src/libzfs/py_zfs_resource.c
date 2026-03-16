@@ -1079,6 +1079,63 @@ PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "ZFSError:\n"
 "- The ZFS unmount operation failed.\n\n"
 );
+PyDoc_STRVAR(py_zfs_resource_open_pool__doc__,
+"open_pool() -> ZFSPool\n"
+"----------------------\n\n"
+"Open the pool associated with this ZFS resource and return a ZFSPool\n"
+"object.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"ZFSPool:\n"
+"    A new ZFSPool handle for the pool containing this resource.\n\n"
+"Raises:\n"
+"-------\n"
+"ZFSError:\n"
+"    The pool could not be opened.\n"
+);
+static
+PyObject *py_zfs_resource_open_pool(PyObject *self, PyObject *args_unused)
+{
+	py_zfs_resource_t *res = (py_zfs_resource_t *)self;
+	py_zfs_t *plz = res->obj.pylibzfsp;
+	zpool_handle_t *zhp = NULL;
+	PyObject *out = NULL;
+	const char *pool_name = NULL;
+	py_zfs_error_t zfs_err;
+
+	pool_name = PyUnicode_AsUTF8(res->obj.pool_name);
+	if (pool_name == NULL)
+		return NULL;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSResource.open_pool",
+			"O", res->obj.pool_name) < 0) {
+		return NULL;
+	}
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	zhp = zpool_open(plz->lzh, pool_name);
+	if (zhp == NULL) {
+		py_get_zfs_error(plz->lzh, &zfs_err);
+	}
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	if (zhp == NULL) {
+		set_exc_from_libzfs(&zfs_err, "zpool_open() failed");
+		return NULL;
+	}
+
+	out = (PyObject *)init_zfs_pool(plz, zhp);
+	if (out == NULL)
+		zpool_close(zhp);
+
+	return out;
+}
+
 static
 PyObject *py_zfs_resource_unmount(PyObject *self,
 				  PyObject *args_unused,
@@ -1226,6 +1283,12 @@ PyMethodDef zfs_resource_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_resource_get_mount,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_resource_get_mount__doc__
+	},
+	{
+		.ml_name = "open_pool",
+		.ml_meth = (PyCFunction)py_zfs_resource_open_pool,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_resource_open_pool__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
