@@ -658,7 +658,7 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 					       child,
 					       children,
 					       depth +1,
-					       request_mask);
+					       request_mask | PY_VDEV_CLASS_ALL);
 		if (cl == NULL)
 			goto fail;
 
