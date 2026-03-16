@@ -31,7 +31,7 @@ class TestOpenPoolBasic:
     def test_pool_name_matches_resource_pool_attr(self, pool):
         lz, _, root = pool
         result = root.open_pool()
-        assert result.name == root.pool
+        assert result.name == root.pool_name
 
     def test_no_args_accepted(self, pool):
         lz, _, root = pool
