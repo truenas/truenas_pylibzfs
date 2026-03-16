@@ -211,6 +211,69 @@ def pool_multi_support(make_disks):
 
 
 @pytest.fixture
+def pool_with_mirror_log(make_disks):
+    """mirror data + mirror log (2 disks)"""
+    disks = make_disks(4)
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        log_vdevs=[_mirror(disks[2:4])],
+    )
+    try:
+        yield lz, pool
+    finally:
+        _destroy(lz)
+
+
+@pytest.fixture
+def pool_with_mirror_special(make_disks):
+    """mirror data + mirror special (2 disks)"""
+    disks = make_disks(4)
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        special_vdevs=[_mirror(disks[2:4])],
+    )
+    try:
+        yield lz, pool
+    finally:
+        _destroy(lz)
+
+
+@pytest.fixture
+def pool_with_mirror_dedup(make_disks):
+    """mirror data + mirror dedup (2 disks)"""
+    disks = make_disks(4)
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        dedup_vdevs=[_mirror(disks[2:4])],
+    )
+    try:
+        yield lz, pool
+    finally:
+        _destroy(lz)
+
+
+@pytest.fixture
+def pool_all_mirror_support(make_disks):
+    """mirror data + mirror log + mirror special + mirror dedup"""
+    disks = make_disks(10)
+    lz = truenas_pylibzfs.open_handle()
+    pool = _make_pool(lz,
+        storage_vdevs=[_mirror(disks[0:2])],
+        log_vdevs=[_mirror(disks[2:4])],
+        cache_vdevs=[_spec(disks[4]), _spec(disks[5])],
+        special_vdevs=[_mirror(disks[6:8])],
+        dedup_vdevs=[_mirror(disks[8:10])],
+    )
+    try:
+        yield lz, pool
+    finally:
+        _destroy(lz)
+
+
+@pytest.fixture
 def pool_with_spare(make_disks):
     disks = make_disks(3)
     lz = truenas_pylibzfs.open_handle()
@@ -531,6 +594,117 @@ def test_support_vdevs_all_types(pool_multi_support):
     assert len(sv.log) > 0
     assert len(sv.special) > 0
     assert sv.dedup == ()
+
+
+# ---------------------------------------------------------------------------
+# Mirrored support vdev children
+# ---------------------------------------------------------------------------
+
+def test_mirror_log_children(pool_with_mirror_log):
+    """Mirror log vdev must expose its child disks."""
+    lz, pool = pool_with_mirror_log
+    sv = pool.status().support_vdevs
+    assert len(sv.log) == 1
+    log_vdev = sv.log[0]
+    assert log_vdev.vdev_type == 'mirror'
+    assert log_vdev.children is not None
+    assert len(log_vdev.children) == 2
+    for child in log_vdev.children:
+        assert child.vdev_type == 'file'
+        assert child.children is None
+
+
+def test_mirror_special_children(pool_with_mirror_special):
+    """Mirror special vdev must expose its child disks."""
+    lz, pool = pool_with_mirror_special
+    sv = pool.status().support_vdevs
+    assert len(sv.special) == 1
+    special_vdev = sv.special[0]
+    assert special_vdev.vdev_type == 'mirror'
+    assert special_vdev.children is not None
+    assert len(special_vdev.children) == 2
+    for child in special_vdev.children:
+        assert child.vdev_type == 'file'
+        assert child.children is None
+
+
+def test_mirror_dedup_children(pool_with_mirror_dedup):
+    """Mirror dedup vdev must expose its child disks."""
+    lz, pool = pool_with_mirror_dedup
+    sv = pool.status().support_vdevs
+    assert len(sv.dedup) == 1
+    dedup_vdev = sv.dedup[0]
+    assert dedup_vdev.vdev_type == 'mirror'
+    assert dedup_vdev.children is not None
+    assert len(dedup_vdev.children) == 2
+    for child in dedup_vdev.children:
+        assert child.vdev_type == 'file'
+        assert child.children is None
+
+
+def test_all_mirror_support_children(pool_all_mirror_support):
+    """Pool with all mirror support types must expose children for each."""
+    lz, pool = pool_all_mirror_support
+    sv = pool.status().support_vdevs
+
+    # mirror log
+    assert len(sv.log) == 1
+    assert sv.log[0].vdev_type == 'mirror'
+    assert len(sv.log[0].children) == 2
+
+    # cache (individual disks, not mirrored)
+    assert len(sv.cache) == 2
+    for c in sv.cache:
+        assert c.vdev_type == 'file'
+        assert c.children is None
+
+    # mirror special
+    assert len(sv.special) == 1
+    assert sv.special[0].vdev_type == 'mirror'
+    assert len(sv.special[0].children) == 2
+
+    # mirror dedup
+    assert len(sv.dedup) == 1
+    assert sv.dedup[0].vdev_type == 'mirror'
+    assert len(sv.dedup[0].children) == 2
+
+
+def test_mirror_log_children_have_stats(pool_with_mirror_log):
+    """Children of mirrored log vdev must have stats when get_stats=True."""
+    lz, pool = pool_with_mirror_log
+    sv = pool.status(get_stats=True).support_vdevs
+    log_vdev = sv.log[0]
+    assert log_vdev.stats is not None
+    for child in log_vdev.children:
+        assert child.stats is not None
+        assert isinstance(child.stats.read_errors, int)
+        assert isinstance(child.stats.write_errors, int)
+
+
+def test_mirror_log_children_no_stats(pool_with_mirror_log):
+    """Children of mirrored log vdev must have stats=None when get_stats=False."""
+    lz, pool = pool_with_mirror_log
+    sv = pool.status(get_stats=False).support_vdevs
+    log_vdev = sv.log[0]
+    assert log_vdev.stats is None
+    for child in log_vdev.children:
+        assert child.stats is None
+
+
+def test_mirror_log_asdict_children(pool_with_mirror_log):
+    """asdict=True must include children for mirrored log vdevs."""
+    lz, pool = pool_with_mirror_log
+    d = pool.status(asdict=True)
+    sv = d['support_vdevs']
+    assert len(sv['log']) == 1
+    log_vdev = sv['log'][0]
+    assert isinstance(log_vdev, dict)
+    assert log_vdev['vdev_type'] == 'mirror'
+    assert isinstance(log_vdev['children'], tuple)
+    assert len(log_vdev['children']) == 2
+    for child in log_vdev['children']:
+        assert isinstance(child, dict)
+        assert child['vdev_type'] == 'file'
 
 
 # ---------------------------------------------------------------------------
