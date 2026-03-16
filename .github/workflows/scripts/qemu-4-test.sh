@@ -73,6 +73,12 @@ echo "Running mypy on stubs..."
 python3 -m mypy stubs/
 MYPY_EXIT=$?
 
+# Check that typed callers use the stubs correctly (catches signature mismatches
+# that stubtest cannot detect, e.g. wrong container type for holds arguments).
+echo "Running mypy on type_checks..."
+python3 -m mypy tests/type_checks/
+MYPY_TYPE_CHECKS_EXIT=$?
+
 # Check stubs match the installed runtime module.
 #
 # truenas_pylibzfs is a C extension (.so), not a Python package, so
@@ -91,7 +97,7 @@ sys.exit(main())
 "
 STUBTEST_EXIT=$?
 
-if [ $MYPY_EXIT -ne 0 ] || [ $STUBTEST_EXIT -ne 0 ]; then
+if [ $MYPY_EXIT -ne 0 ] || [ $STUBTEST_EXIT -ne 0 ] || [ $MYPY_TYPE_CHECKS_EXIT -ne 0 ]; then
     echo "ERROR: Stub checks failed"
     exit 1
 fi
