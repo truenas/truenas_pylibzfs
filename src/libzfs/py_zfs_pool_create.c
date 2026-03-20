@@ -1278,6 +1278,81 @@ build_default_pool_props(void)
 }
 
 /*
+ * Apply feature_properties overrides to the props nvlist.
+ *
+ * feat_dict is a Python dict {str: bool} where keys are feature names
+ * (e.g. "bookmark_v2") and values are True (enabled) or False (disabled).
+ *
+ * For disabled features the corresponding "feature@<name>" entry is removed
+ * from the nvlist.  For enabled features the entry is (re-)added — this is
+ * a no-op when the default props already include it.
+ *
+ * Returns 0 on success, -1 with a Python exception set on error.
+ * Must be called with the GIL held.
+ */
+static int
+apply_feature_properties(nvlist_t *props, PyObject *feat_dict)
+{
+	PyObject *key = NULL;
+	PyObject *value = NULL;
+	Py_ssize_t pos = 0;
+	char propname[MAXPATHLEN];
+
+	if (!PyDict_Check(feat_dict)) {
+		PyErr_SetString(PyExc_TypeError,
+		    "feature_properties must be a dict");
+		return (-1);
+	}
+
+	while (PyDict_Next(feat_dict, &pos, &key, &value)) {
+		const char *fname = NULL;
+		boolean_t found = B_FALSE;
+
+		if (!PyUnicode_Check(key)) {
+			PyErr_SetString(PyExc_TypeError,
+			    "feature_properties keys must be strings");
+			return (-1);
+		}
+
+		fname = PyUnicode_AsUTF8(key);
+		if (fname == NULL)
+			return (-1);
+
+		for (spa_feature_t i = 0; i < SPA_FEATURES; i++) {
+			if (strcmp(spa_feature_table[i].fi_uname, fname) == 0) {
+				found = B_TRUE;
+				break;
+			}
+		}
+
+		if (!found) {
+			PyErr_Format(PyExc_ValueError,
+			    "\"%s\": not a valid ZFS feature name", fname);
+			return (-1);
+		}
+
+		if (!PyBool_Check(value)) {
+			PyErr_Format(PyExc_TypeError,
+			    "feature_properties[\"%s\"]: value must be a "
+			    "boolean", fname);
+			return (-1);
+		}
+
+		(void) snprintf(propname, sizeof (propname),
+		    "feature@%s", fname);
+
+		if (value == Py_True) {
+			fnvlist_add_string(props, propname,
+			    ZFS_FEATURE_ENABLED);
+		} else {
+			(void) nvlist_remove_all(props, propname);
+		}
+	}
+
+	return (0);
+}
+
+/*
  * py_zfs_do_create_pool() — core implementation called from the ZFS.create_pool()
  * wrapper in py_zfs.c.
  *
@@ -1355,6 +1430,13 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 		/* Merge caller props on top of defaults; caller wins on collision */
 		fnvlist_merge(props_nvl, user_props);
 		fnvlist_free(user_props);
+	}
+
+	if (cpa->feature_properties != NULL &&
+	    cpa->feature_properties != Py_None) {
+		if (apply_feature_properties(props_nvl,
+		    cpa->feature_properties) != 0)
+			goto fail;
 	}
 
 	if (cpa->filesystem_properties != NULL &&
