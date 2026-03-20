@@ -297,6 +297,7 @@ typedef struct {
 	PyObject	*spare_vdevs;
 	PyObject	*properties;
 	PyObject	*filesystem_properties;
+	PyObject	*feature_properties;
 	boolean_t	 force;
 } py_zfs_create_pool_args_t;
 

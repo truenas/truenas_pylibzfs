@@ -1020,6 +1020,11 @@ PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "    Properties to set on the pool's root filesystem at creation time.\n"
 "    Keys must be " PYLIBZFS_MODULE_NAME ".ZFSProperty members or their\n"
 "    string equivalents.\n\n"
+"feature_properties: dict[str, bool] | None, optional\n"
+"    Per-feature overrides.  Keys are feature names (e.g. 'bookmark_v2'),\n"
+"    values are booleans (True = enabled, False = disabled).  By default\n"
+"    all supported features are enabled; use this to selectively disable\n"
+"    specific features at pool creation time.\n\n"
 "force: bool, optional, default=False\n"
 "    Skip Python-level topology validation.  Equivalent to passing -f\n"
 "    to zpool(8).  Does not suppress kernel-level checks.\n\n"
@@ -1045,15 +1050,17 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 	char *kwnames[] = {
 		"name", "storage_vdevs", "cache_vdevs", "log_vdevs",
 		"special_vdevs", "dedup_vdevs", "spare_vdevs",
-		"properties", "filesystem_properties", "force",
+		"properties", "filesystem_properties",
+		"feature_properties", "force",
 		NULL
 	};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOp",
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOOp",
 	    kwnames,
 	    &cpa.name, &cpa.storage_vdevs, &cpa.cache_vdevs, &cpa.log_vdevs,
 	    &cpa.special_vdevs, &cpa.dedup_vdevs, &cpa.spare_vdevs,
-	    &cpa.properties, &cpa.filesystem_properties, &cpa.force))
+	    &cpa.properties, &cpa.filesystem_properties,
+	    &cpa.feature_properties, &cpa.force))
 		return NULL;
 
 	if (cpa.name == NULL) {
