@@ -1163,6 +1163,7 @@ class ZFS:
         spare_vdevs: Iterable[struct_vdev_create_spec] | None = None,
         properties: dict[ZPOOLProperty, str] | None = None,
         filesystem_properties: dict[ZFSProperty, str] | None = None,
+        feature_properties: dict[str, bool] | None = None,
         force: bool = False,
     ) -> None: ...
     def destroy_pool(self, *, name: str, force: bool = False) -> None: ...
