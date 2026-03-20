@@ -9,15 +9,65 @@ Tests for miscellaneous ZFSPool methods:
   - upgrade()
 """
 
+import os
+import shutil
+import tempfile
+
 import pytest
 import truenas_pylibzfs
 
 POOL_NAME = 'testpool_misc'
+DISK_SZ = 256 * 1048576  # 256 MiB
+
+VDevType = truenas_pylibzfs.VDevType
+
+
+# ---------------------------------------------------------------------------
+# Local fixtures (this branch's conftest lacks make_disks / make_pool)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def make_disks():
+    dirs = []
+
+    def _make(n):
+        d = tempfile.mkdtemp(prefix='pylibzfs_misc_')
+        dirs.append(d)
+        paths = []
+        for i in range(n):
+            p = os.path.join(d, f'd{i}.img')
+            with open(p, 'w') as f:
+                os.ftruncate(f.fileno(), DISK_SZ)
+            paths.append(p)
+        return paths
+
+    yield _make
+
+    for d in dirs:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 @pytest.fixture
-def pool(make_pool):
-    return make_pool(POOL_NAME)
+def pool(make_disks):
+    lz = truenas_pylibzfs.open_handle()
+    disks = make_disks(1)
+    lz.create_pool(
+        name=POOL_NAME,
+        storage_vdevs=[truenas_pylibzfs.create_vdev_spec(
+            vdev_type=VDevType.FILE, name=disks[0],
+        )],
+        force=True,
+    )
+    pool_hdl = lz.open_pool(name=POOL_NAME)
+    root = lz.open_resource(name=POOL_NAME)
+
+    try:
+        yield lz, pool_hdl, root
+    finally:
+        try:
+            lz.destroy_pool(name=POOL_NAME, force=True)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +194,7 @@ def degraded_pool(make_disks):
     lz.create_pool(
         name=UPGRADE_POOL_NAME,
         storage_vdevs=[truenas_pylibzfs.create_vdev_spec(
-            vdev_type=truenas_pylibzfs.VDevType.FILE, name=disks[0],
+            vdev_type=VDevType.FILE, name=disks[0],
         )],
         feature_properties=DISABLED_FEATURES,
         force=True,
