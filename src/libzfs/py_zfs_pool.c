@@ -221,33 +221,52 @@ PyObject *py_zfs_pool_upgrade(PyObject *self, PyObject *args) {
 	int ret = 0, error;
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_error_t err;
+	char propname[MAXPATHLEN];
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.upgrade", "O",
 	    p->name) < 0) {
 		return NULL;
 	}
 
-
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
+
 	ret = zpool_upgrade(p->zhp, SPA_VERSION);
-	if (ret)
+	if (ret) {
 		py_get_zfs_error(p->pylibzfsp->lzh, &err);
+		goto unlock;
+	}
+
+	for (int i = 0; i < SPA_FEATURES; i++) {
+		zfeature_info_t *feat = &spa_feature_table[i];
+
+		if (!feat->fi_zfs_mod_supported)
+			continue;
+
+		(void) snprintf(propname, sizeof (propname),
+		    "feature@%s", feat->fi_uname);
+
+		ret = zpool_set_prop(p->zhp, propname,
+		    ZFS_FEATURE_ENABLED);
+		if (ret) {
+			py_get_zfs_error(p->pylibzfsp->lzh, &err);
+			goto unlock;
+		}
+	}
+
+unlock:
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
 	if (ret) {
 		set_exc_from_libzfs(&err, "zpool_upgrade() failed");
 		return (NULL);
-	} else {
-		error = py_log_history_fmt(p->pylibzfsp,
-		    "zpool upgrade %s", zpool_get_name(p->zhp));
-		if (error) {
-			// An exception should be set since we failed to log
-			// history
-			return (NULL);
-		}
 	}
+
+	error = py_log_history_fmt(p->pylibzfsp,
+	    "zpool upgrade %s", zpool_get_name(p->zhp));
+	if (error)
+		return (NULL);
 
 	Py_RETURN_NONE;
 }
