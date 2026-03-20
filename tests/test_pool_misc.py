@@ -6,6 +6,7 @@ Tests for miscellaneous ZFSPool methods:
   - ddt_prune() argument validation
   - asdict() structure
   - sync_pool() and refresh_stats()
+  - upgrade()
 """
 
 import pytest
@@ -123,3 +124,69 @@ class TestSyncAndRefresh:
         _, p, _ = pool
         result = p.refresh_stats()
         assert result is None or isinstance(result, dict)
+
+
+# ---------------------------------------------------------------------------
+# upgrade
+# ---------------------------------------------------------------------------
+
+UPGRADE_POOL_NAME = 'testpool_upgrade'
+
+# Leaf features that have no dependents and can actually stay disabled.
+DISABLED_FEATURES = {'head_errlog': False, 'edonr': False}
+
+
+@pytest.fixture
+def degraded_pool(make_disks):
+    """Create a pool with selected features disabled via feature_properties."""
+    lz = truenas_pylibzfs.open_handle()
+    disks = make_disks(1)
+    lz.create_pool(
+        name=UPGRADE_POOL_NAME,
+        storage_vdevs=[truenas_pylibzfs.create_vdev_spec(
+            vdev_type=truenas_pylibzfs.VDevType.FILE, name=disks[0],
+        )],
+        feature_properties=DISABLED_FEATURES,
+        force=True,
+    )
+    pool_hdl = lz.open_pool(name=UPGRADE_POOL_NAME)
+
+    try:
+        yield lz, pool_hdl
+    finally:
+        try:
+            lz.destroy_pool(name=UPGRADE_POOL_NAME, force=True)
+        except Exception:
+            pass
+
+
+class TestUpgrade:
+    def test_upgrade_enables_features(self, degraded_pool):
+        lz, p = degraded_pool
+
+        features_before = p.get_features(asdict=True)
+        disabled_before = [
+            k for k, v in features_before.items()
+            if v['state'] == 'DISABLED'
+        ]
+        assert len(disabled_before) > 0, \
+            "Pool should have disabled features"
+
+        p.upgrade()
+
+        p2 = lz.open_pool(name=UPGRADE_POOL_NAME)
+        features_after = p2.get_features(asdict=True)
+        disabled_after = [
+            k for k, v in features_after.items()
+            if v['state'] == 'DISABLED'
+        ]
+        assert len(disabled_after) == 0, \
+            f"Features still disabled after upgrade: {disabled_after}"
+
+    def test_upgrade_returns_none(self, pool):
+        _, p, _ = pool
+        assert p.upgrade() is None
+
+    def test_upgrade_idempotent(self, pool):
+        _, p, _ = pool
+        p.upgrade()  # already fully upgraded — must not raise
