@@ -889,7 +889,23 @@ PyObject *py_zfs_pool_scan(PyObject *self, PyObject *args, PyObject *kwargs)
 		return NULL;
 	}
 
-	/* Log the operation to zpool history */
+	/*
+	 * Log the operation to zpool history (best-effort).
+	 *
+	 * zpool_scan() in libzfs masks certain ZFS kernel module errors as
+	 * success:
+	 *   - ENOENT  -> 0 when pausing with no scrub in progress
+	 *   - ECANCELED -> 0 when starting a scrub resumes a paused one
+	 *
+	 * When the ZFS kernel module returns a non-zero error it does NOT
+	 * set the zfs_allow_log_key TSD, so the subsequent
+	 * ZFS_IOC_LOG_HISTORY ioctl fails with EPERM (TSD NULL).  Raising
+	 * an exception in that case would incorrectly surface an error to
+	 * the caller even though the scan operation itself succeeded.  The
+	 * ZFS kernel module already records the event in its internal
+	 * history log when the ioctl truly succeeds, so user-visible
+	 * history logging here is best-effort.
+	 */
 	if (func_val == POOL_SCAN_NONE) {
 		error = py_log_history_fmt(p->pylibzfsp,
 		    "zpool scrub -s %s", zpool_get_name(p->zhp));
@@ -903,8 +919,12 @@ PyObject *py_zfs_pool_scan(PyObject *self, PyObject *args, PyObject *kwargs)
 		error = py_log_history_fmt(p->pylibzfsp,
 		    "zpool scrub %s", zpool_get_name(p->zhp));
 	}
-	if (error)
-		return NULL;
+	if (error) {
+		if (PyErr_ExceptionMatches(PyExc_RuntimeError))
+			PyErr_Clear();
+		else
+			return NULL;
+	}
 
 	Py_RETURN_NONE;
 }
