@@ -1134,6 +1134,17 @@ PyObject *pypool_error_log(py_zfs_pool_t *pypool)
 	Py_END_ALLOW_THREADS
 
 	if (err) {
+		/*
+		 * Pool I/O is suspended (EZFS_POOLUNAVAIL): the error log is
+		 * unavailable, but the pool handle is still valid and status()
+		 * should succeed.  Return an empty tuple rather than raising so
+		 * that the caller can still surface pool status information —
+		 * mirroring what `zpool status` does in this situation.
+		 */
+		if (zfs_err.code == EZFS_POOLUNAVAIL) {
+			out = PyTuple_New(0);
+			goto done;
+		}
 		set_exc_from_libzfs(&zfs_err, "Failed to get zpool error log");
 		goto done;
 	}
