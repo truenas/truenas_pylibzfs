@@ -1,7 +1,7 @@
 # src/libzfs
 
-Python bindings for the `libzfs` C library, forming the core of the
-`truenas_pylibzfs` namespace.
+Python bindings for the `libzfs` C library. This directory implements the
+bulk of the `truenas_pylibzfs` namespace.
 
 ## Overview
 
@@ -14,7 +14,7 @@ operation requires an open `libzfs_handle_t`. In this binding:
   calling into `libzfs`, and must drop the GIL first to avoid deadlocks (see
   *Locking* below).
 - **Prefer per-thread handles** - each thread should open its own `ZFS` handle
-  via `open_handle()` and operate only on objects created from that handle.
+  via `open_handle()` and operate only on objects obtained from that handle.
   This avoids lock contention entirely and is the recommended usage pattern.
 
 Sharing a single `ZFS` handle across threads is supported but serialises all
@@ -41,6 +41,11 @@ ZFS                        - libzfs handle; pool/dataset factory
         +-- ZFSVolume      - zvol
         +-- ZFSSnapshot    - snapshot
 ```
+
+`ZFSCrypto` is a helper object returned by the `crypto` property of
+`ZFSDataset` and `ZFSVolume`. It holds a reference to the underlying resource
+and is subject to the same handle locking requirements as any other `libzfs`
+object -- all operations on it must be performed with `PY_ZFS_LOCK` held.
 
 `ZFSEventIterator` and `ZFSHistoryIterator` are standalone iterator types
 that hold their own fds and do not inherit from `ZFSObject`.
