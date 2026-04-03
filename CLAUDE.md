@@ -94,6 +94,7 @@ examples/                   — usage examples
 - No column-alignment spacing for struct members or other constructs.
 - Header guards use `#ifndef _FOO_H` / `#define _FOO_H` / `#endif` — not `#pragma once`.
 - Docstrings belong in `py_zfs_core_module.c` as `PyDoc_STRVAR()`, not in implementation files.
+- Expand ZFS-specific acronyms on first use in a comment block, e.g. `TSD (Thread-Specific Data)`.
 
 ## Key Patterns
 

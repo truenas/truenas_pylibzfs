@@ -58,6 +58,38 @@ py_no_new_impl(PyTypeObject *type, PyObject *args, PyObject *kwds)
 	return NULL;
 }
 
+/*
+ * py_log_history_impl - write a user-visible entry to the ZFS pool history log
+ *
+ * This calls zpool_log_history(), which issues ZFS_IOC_LOG_HISTORY to the ZFS
+ * kernel module.  That ioctl is gated by a per-thread kernel TSD (Thread-Specific Data) key
+ * (zfs_allow_log_key).  The ZFS kernel module sets that TSD at the end of any
+ * ioctl registered with allow_log = B_TRUE, but ONLY when that ioctl returns
+ * 0 (true success).  ZFS_IOC_LOG_HISTORY then consumes and clears the TSD.
+ *
+ * Consequence for callers: history can be logged only when the preceding ZFS
+ * ioctl (a) supports allow_log and (b) truly returned 0 to the ZFS kernel
+ * module.  If libzfs masks a non-zero kernel return as apparent success (e.g.
+ * zpool_scan() masking ENOENT or ECANCELED), the TSD is never set and
+ * ZFS_IOC_LOG_HISTORY will fail with EPERM.
+ *
+ * Why we raise on failure:
+ *   An unexpected failure here almost always means a truenas_pylibzfs bug —
+ *   either a caller that does not actually follow an allow_log ioctl, or a
+ *   call sequence that leaves the TSD consumed before we get here.  Raising
+ *   RuntimeError makes such bugs immediately visible rather than silently
+ *   dropping history entries.  Callers that know their preceding operation can
+ *   legitimately mask kernel errors (and therefore cannot guarantee the TSD is
+ *   set) should handle the RuntimeError themselves — typically by matching
+ *   PyExc_RuntimeError and calling PyErr_Clear() — rather than disabling the
+ *   check globally.
+ *
+ * If you suspect a spurious EPERM here, check:
+ *   - module/zfs/zfs_ioctl.c  zfsdev_ioctl_common()  (TSD set at "out:" label)
+ *   - module/zfs/zfs_ioctl.c  zfs_secpolicy_log_history()  (EPERM when TSD NULL)
+ *   - module/zfs/zfs_ioctl.c  zfs_ioc_log_history()  (TSD consumed here)
+ *   - lib/libzfs/libzfs_pool.c  zpool_scan_range()    (known error masking)
+ */
 int py_log_history_impl(libzfs_handle_t *hdl_in,
 			const char *prefix,
 			const char *fmt, ...)
