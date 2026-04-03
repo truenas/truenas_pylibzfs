@@ -178,8 +178,7 @@ PyObject *py_zpool_get_one_prop(pylibzfs_state_t *state,
 			value = Py_NewRef(raw);
 		} else if (pend != (propbuf + strlen(propbuf))) {
 			/* Partial parse — use string */
-			Py_DECREF(value);
-			value = Py_NewRef(raw);
+			Py_SETREF(value, Py_NewRef(raw));
 		}
 	} else {
 		/* PROP_TYPE_STRING or PROP_TYPE_INDEX: use raw string */
