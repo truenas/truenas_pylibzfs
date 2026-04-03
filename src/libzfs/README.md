@@ -13,14 +13,19 @@ operation requires an open `libzfs_handle_t`. In this binding:
 - **The handle carries a mutex** - all callers must hold `PY_ZFS_LOCK` while
   calling into `libzfs`, and must drop the GIL first to avoid deadlocks (see
   *Locking* below).
-- **Not inherently thread-safe** - the mutex serialises access to the shared
-  `libzfs_handle_t`. Use one `ZFS` handle per application; do not share handles
-  across threads without the lock.
+- **Prefer per-thread handles** - each thread should open its own `ZFS` handle
+  via `open_handle()` and operate only on objects created from that handle.
+  This avoids lock contention entirely and is the recommended usage pattern.
 
-Many `libzfs` types (`zpool_handle_t`, `zfs_handle_t`, etc.) hold an internal
+Sharing a single `ZFS` handle across threads is supported but serialises all
+`libzfs` operations through the mutex, which is a **performance concern**, not
+a stability concern - the locking ensures correctness regardless. All new code
+must follow the existing locking standard using `PY_ZFS_LOCK` /
+`PY_ZFS_UNLOCK` as described in the *Locking* section below. Many
+`libzfs` types (`zpool_handle_t`, `zfs_handle_t`, etc.) hold an internal
 back-reference to the `libzfs_handle_t` that created them and use it for
-operations including error reporting. This means the mutex must be held for
-ALL `libzfs` operations on any object that originated from a given handle, not
+operations including error reporting, so the mutex must be held for ALL
+`libzfs` operations on any object that originated from a given handle, not
 just operations that touch the handle directly. `PY_ZFS_LOCK(plz)` /
 `PY_ZFS_UNLOCK(plz)` (defined in `truenas_pylibzfs.h`) are used consistently
 for this purpose throughout the module.
