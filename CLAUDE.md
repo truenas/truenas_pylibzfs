@@ -91,6 +91,9 @@ examples/                   — usage examples
 
 - Declare variables at the head of functions (C89 style).
 - NULL-initialize pointers at declaration: `nvlist_t *nvl = NULL;`
+- Use `Py_SETREF(op, newval)` instead of `Py_DECREF(op); op = newval;`.
+  Use `Py_XSETREF` when `op` may be NULL. Use `Py_CLEAR(op)` instead of
+  `Py_DECREF(op); op = NULL;`.
 - No column-alignment spacing for struct members or other constructs.
 - Header guards use `#ifndef _FOO_H` / `#define _FOO_H` / `#endif` — not `#pragma once`.
 - Docstrings belong in `py_zfs_core_module.c` as `PyDoc_STRVAR()`, not in implementation files.
