@@ -238,8 +238,7 @@ nvlist_t *py_zfsprops_dict_to_nvlist(pylibzfs_state_t *state,
 			pyval = PyDict_GetItem(value, pykey);
 			if (pyval == NULL) {
 				/* raw key wasn't present, try with "value" */
-				Py_DECREF(pykey);
-				pykey = PyUnicode_FromString("value");
+				Py_SETREF(pykey, PyUnicode_FromString("value"));
 				if (pykey == NULL) {
 					fnvlist_free(nvl);
 					return NULL;

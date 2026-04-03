@@ -703,8 +703,7 @@ PyObject *py_zfs_pool_get_features(PyObject *self,
 					Py_XDECREF(guid_str);
 					Py_XDECREF(desc_str);
 					Py_XDECREF(state_str);
-					Py_DECREF(entry);
-					entry = NULL;
+					Py_CLEAR(entry);
 				} else {
 					PyStructSequence_SetItem(entry,
 					    ZPOOL_FEAT_GUID_IDX, guid_str);
