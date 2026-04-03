@@ -89,6 +89,7 @@ examples/                   — usage examples
 
 ## C Code Style
 
+- Comments, docstrings, and README files must be ASCII only — no Unicode punctuation (em dashes, curly quotes, ellipsis, box-drawing characters, etc.).
 - Declare variables at the head of functions (C89 style).
 - NULL-initialize pointers at declaration: `nvlist_t *nvl = NULL;`
 - Use `Py_SETREF(op, newval)` instead of `Py_DECREF(op); op = newval;`.
@@ -177,6 +178,15 @@ boilerplate — set `.tp_new = py_no_new_impl` and write a named C factory funct
 
 `py_get_module_state(zfs)` returns `pylibzfs_state_t *` with cached enum refs and
 other per-instance state. Use this rather than calling into Python enum classes directly.
+
+## README files (`src/`)
+
+`src/libzfs/README.md` and `src/libzfs_core/README.md` document the purpose
+and contents of their respective directories.
+
+**When adding a new source file or making a functional change to an existing
+one, update the relevant README.md** - add the file to the source files table
+and note any new methods, types, or behavioural changes.
 
 ## Stubs (`stubs/`)
 
