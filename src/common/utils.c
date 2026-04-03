@@ -62,7 +62,7 @@ py_no_new_impl(PyTypeObject *type, PyObject *args, PyObject *kwds)
  * py_log_history_impl - write a user-visible entry to the ZFS pool history log
  *
  * This calls zpool_log_history(), which issues ZFS_IOC_LOG_HISTORY to the ZFS
- * kernel module.  That ioctl is gated by a per-thread kernel TSD key
+ * kernel module.  That ioctl is gated by a per-thread kernel TSD (Thread-Specific Data) key
  * (zfs_allow_log_key).  The ZFS kernel module sets that TSD at the end of any
  * ioctl registered with allow_log = B_TRUE, but ONLY when that ioctl returns
  * 0 (true success).  ZFS_IOC_LOG_HISTORY then consumes and clears the TSD.
