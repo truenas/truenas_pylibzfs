@@ -158,6 +158,7 @@ PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs
 	}
 
 	if (pyprops) {
+		state = py_get_module_state(ds->rsrc.obj.pylibzfsp);
 		nvl = py_zfsprops_to_nvlist(state,
 					    pyprops,
 					    ds->rsrc.obj.ctype,
