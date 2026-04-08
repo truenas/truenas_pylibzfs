@@ -1,6 +1,6 @@
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator
 import enum
-from typing import Any, ClassVar, Literal, Self, final
+from typing import Any, ClassVar, Literal, Self, final, overload
 
 
 # ---------------------------------------------------------------------------
@@ -1063,16 +1063,42 @@ class ZFSPool:
 
     def prefetch(self) -> None: ...
 
+    @overload
     def status(
         self,
         *,
-        asdict: bool = ...,
-        get_stats: bool = ...,
-        follow_links: bool = ...,
-        full_path: bool = ...,
+        asdict: Literal[True],
+        get_stats: bool = True,
+        follow_links: bool = True,
+        full_path: bool = True,
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def status(
+        self,
+        *,
+        asdict: Literal[False] = False,
+        get_stats: bool = True,
+        follow_links: bool = True,
+        full_path: bool = True,
+    ) -> struct_zpool_status: ...
+
+    def status(
+        self,
+        *,
+        asdict: bool = False,
+        get_stats: bool = True,
+        follow_links: bool = True,
+        full_path: bool = True,
     ) -> struct_zpool_status | dict[str, Any]: ...
 
-    def get_features(self, *, asdict: bool = ...) -> dict[str, struct_zpool_feature] | dict[str, dict[str, str]]: ...
+    @overload
+    def get_features(self, *, asdict: Literal[True]) -> dict[str, dict[str, str]]: ...
+
+    @overload
+    def get_features(self, *, asdict: Literal[False] = False) -> dict[str, struct_zpool_feature]: ...
+
+    def get_features(self, *, asdict: bool = False) -> dict[str, struct_zpool_feature] | dict[str, dict[str, str]]: ...
 
     def scrub_info(self) -> struct_zpool_scrub | None: ...
 
