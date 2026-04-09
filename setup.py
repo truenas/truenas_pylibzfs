@@ -35,6 +35,8 @@ truenas_pylibzfs = Extension(
         'src/libzfs/py_zfs_volume.c',
         'src/libzfs_core/py_zfs_core_module.c',
         'src/libzfs_core/libzfs_core_replication.c',
+        'src/pyzfs_kstat/pyzfs_kstat.c',
+        'src/pyzfs_kstat/arcstats.c',
     ],
     libraries = [
         'zfs',
@@ -52,5 +54,7 @@ setup(name='truenas_pylibzfs',
       ext_modules=[truenas_pylibzfs],
       packages=['truenas_pylibzfs'],
       package_dir={'truenas_pylibzfs': 'stubs'},
-      package_data={'truenas_pylibzfs': ['*.pyi', 'py.typed']})
+      package_data={
+          'truenas_pylibzfs': ['*.pyi', 'py.typed'],
+      })
 

@@ -527,6 +527,7 @@ PyInit_truenas_pylibzfs(void)
 	PyObject *constants = NULL;
 	PyObject *libzfs_types = NULL;
 	PyObject *lzc = NULL;
+	PyObject *kstat = NULL;
 	PyObject *propsets = NULL;
 	int err;
 
@@ -592,6 +593,14 @@ PyInit_truenas_pylibzfs(void)
 	propsets = py_setup_propset_module(mpylibzfs);
 	err = PyModule_AddObjectRef(mpylibzfs, "property_sets", propsets);
 	Py_XDECREF(propsets);
+	if (err) {
+		Py_DECREF(mpylibzfs);
+		return NULL;
+	}
+
+	kstat = py_setup_kstat_module(mpylibzfs);
+	err = PyModule_AddObjectRef(mpylibzfs, "kstat", kstat);
+	Py_XDECREF(kstat);
 	if (err) {
 		Py_DECREF(mpylibzfs);
 		return NULL;
