@@ -345,15 +345,7 @@ void free_py_zfs_state(PyObject *module)
 
 	/* doc and name were allocated using python memory interface */
 	for (idx = 0; idx < ARRAY_SIZE(state->struct_prop_fields); idx++) {
-		/*
-		 * Hidden properties use the PyStructSequence_UnnamedField
-		 * sentinel pointer directly (not a heap copy), so skip free
-		 * for those to avoid freeing a static string constant.
-		 */
-		if (state->struct_prop_fields[idx].name !=
-		    PyStructSequence_UnnamedField) {
-			PyMem_Free((void *)state->struct_prop_fields[idx].name);
-		}
+		PyMem_Free((void *)state->struct_prop_fields[idx].name);
 		state->struct_prop_fields[idx].name = NULL;
 
 		PyMem_Free((void *)state->struct_prop_fields[idx].doc);

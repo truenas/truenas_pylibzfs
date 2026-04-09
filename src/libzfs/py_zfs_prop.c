@@ -134,40 +134,25 @@ void init_py_struct_prop_state(pylibzfs_state_t *state)
 	PyTypeObject *obj;
 
 	for (i = 0; i < ARRAY_SIZE(zfs_prop_table); i++) {
+		const char *name = zfs_prop_to_name(zfs_prop_table[i].prop);
 		const char *doc = NULL;
 		zfs_prop_t prop = zfs_prop_table[i].prop;
 
-		if (zfs_prop_visible(prop)) {
-			const char *name = zfs_prop_to_name(prop);
-			doc = py_create_prop_doc(name, prop);
+		/*
+		 * zfs_prop_table must only contain visible properties.
+		 * Hidden properties (zprop_register_hidden) are commented
+		 * out in the table.  CPython 3.13 structseq_repr() and
+		 * __replace__() do not support PyStructSequence_UnnamedField
+		 * in the visible sequence range.
+		 */
+		PYZFS_ASSERT(zfs_prop_visible(prop),
+			     "Hidden property in zfs_prop_table.");
 
-			/*
-			 * WARNING: visible property names must be
-			 * heap-allocated; the repr method of struct sequences
-			 * was observed to fail at runtime when they are not.
-			 */
-			state->struct_prop_fields[i].name = pymem_strdup(name);
+		doc = py_create_prop_doc(name, prop);
 
-			/*
-			 * If this malloc failed then we'll be unable to read
-			 * ZFS properties. It's better to just fail
-			 * spectacularly rather than be semi-broken.
-			 */
-			PYZFS_ASSERT(state->struct_prop_fields[i].name,
-				     "Malloc failure.");
-		} else {
-			/*
-			 * Assign the sentinel pointer directly so that
-			 * CPython's pointer-equality check in structseq.c
-			 * recognises these fields as unnamed and omits them
-			 * from member descriptors and __match_args__.
-			 * strdup'ing the sentinel produces a different pointer
-			 * that defeats the check, causing spurious "unnamed
-			 * field" member descriptors to appear on the type.
-			 */
-			state->struct_prop_fields[i].name =
-			    PyStructSequence_UnnamedField;
-		}
+		state->struct_prop_fields[i].name = pymem_strdup(name);
+		PYZFS_ASSERT(state->struct_prop_fields[i].name,
+			     "Malloc failure.");
 
 		state->struct_prop_fields[i].doc = doc;
 	}
