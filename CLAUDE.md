@@ -197,6 +197,20 @@ public API of the C extension for IDEs and type checkers.
 updates are purely documentation of the existing C API — if the C API needs to
 change, that is a separate task and must be done explicitly.
 
+### Keeping docstrings in sync
+
+`PyDoc_STRVAR` definitions in C module files and attribute/method docstrings in
+`.pyi` stubs describe the same API from two angles. Keep them consistent:
+
+- When adding or changing a `PyDoc_STRVAR` for a method or field, update the
+  corresponding stub docstring to match (and vice versa).
+- The C docstring is the authoritative source of truth for runtime `help()`
+  output; the stub docstring is what IDE hover tooltips display. Both should
+  carry the same essential description.
+- Stub docstrings should be user-facing prose — avoid exposing internal
+  implementation details (C type names, source file paths, kstat type codes,
+  etc.) that are not meaningful to a Python caller.
+
 ## Testing
 
 Tests use pytest and require a running system with ZFS support. Fixtures in

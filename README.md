@@ -1,10 +1,11 @@
 # truenas_pylibzfs
 
-Python C extension providing bindings to libzfs and libzfs_core for TrueNAS. Exposes three modules:
+Python C extension providing bindings to libzfs and libzfs_core for TrueNAS, including a submodule for reading ZFS kernel statistics. Exposes four submodules:
 
 - **`truenas_pylibzfs`** — high-level libzfs wrapper (pools, datasets, volumes, snapshots, encryption, properties, events)
 - **`truenas_pylibzfs.lzc`** — low-level libzfs_core wrapper (atomic send/receive, snapshot batching, holds, rollback, channel programs, pool wait)
 - **`truenas_pylibzfs.libzfs_types`** — all C extension types (`ZFSPool`, `ZFSDataset`, etc.) and enums (`ZFSType`, `ZPOOLProperty`, etc.); use for `isinstance` checks and enum access
+- **`truenas_pylibzfs.kstat`** — reads ZFS kernel statistics from `/proc/spl/kstat/zfs/` without linking to libzfs; currently provides `get_arcstats()`; ZIL statistics to follow
 
 This README covers a minimal set of usage examples. Where it conflicts with the inline docstrings or type stubs, treat those as authoritative. Docstrings are accessible at runtime via `help()`:
 
@@ -21,6 +22,8 @@ help(truenas_pylibzfs.libzfs_types.ZFSPool)   # pool methods
 help(truenas_pylibzfs.libzfs_types)          # all types and enums
 help(truenas_pylibzfs.lzc)          # lzc submodule
 help(truenas_pylibzfs.lzc.send)     # individual lzc method
+help(truenas_pylibzfs.kstat)        # kstat submodule overview
+help(truenas_pylibzfs.kstat.ArcStats)  # ArcStats field documentation
 ```
 
 ## Compatibility
@@ -51,7 +54,9 @@ Build in-place for development:
 python setup.py build_ext --inplace
 ```
 
-Type stubs (`stubs/__init__.pyi`, `stubs/lzc.pyi`) are installed as part of the `truenas_pylibzfs` package for IDE support.
+Type stubs are installed as part of the package for IDE support:
+
+- `stubs/__init__.pyi`, `stubs/lzc.pyi`, `stubs/libzfs_types.pyi`, `stubs/kstat.pyi` — for `truenas_pylibzfs` and its submodules
 
 ## Module Overview
 
@@ -596,6 +601,36 @@ except truenas_pylibzfs.ZFSException as e:
 
 ---
 
+## ZFS Kernel Statistics (`truenas_pylibzfs.kstat`)
+
+`truenas_pylibzfs.kstat` is a submodule that does not use libzfs and has no dependency on a `ZFS` handle. It reads files under `/proc/spl/kstat/zfs/` directly via stdio.
+
+```python
+from truenas_pylibzfs import kstat
+
+stats = kstat.get_arcstats()
+
+# Access fields by name
+print(stats.hits)
+print(stats.misses)
+print(stats.memory_available_bytes)  # signed; may be negative under memory pressure
+
+# Iterate all fields
+for name, value in zip(type(stats)._fields, stats):
+    print(f"{name}: {value}")
+
+# Successive calls return independent snapshots
+a = kstat.get_arcstats()
+b = kstat.get_arcstats()
+assert a is not b
+```
+
+`get_arcstats()` returns an `ArcStats` named-tuple-like object (`PyStructSequence`) with 147 integer fields. Field names and order match the kstat initializer in the ZFS source tree for the TrueNAS OpenZFS version; they are hard-coded at compile time. The CI test `tests/test_kstat_arcstats.py` verifies that the compiled field list stays in sync with `/proc/spl/kstat/zfs/arcstats` on the build host.
+
+`get_arcstats()` raises `OSError` if `/proc/spl/kstat/zfs/arcstats` cannot be opened (ZFS kernel module not loaded), and `ValueError` if the file format does not match expectations.
+
+---
+
 ## Source Layout
 
 ```
@@ -636,10 +671,15 @@ src/
   libzfs_core/
     py_zfs_core_module.c      # lzc submodule init, docstrings, method table
     libzfs_core_replication.c # send/receive/send_space/send_progress wrappers
+  pyzfs_kstat/
+    pyzfs_kstat.h             # state struct, path/field-count constants, extern declarations
+    pyzfs_kstat.c             # submodule init, PyDoc_STRVAR field docs, ArcStats type registration
+    arcstats.c                # get_arcstats() implementation
 stubs/
   __init__.pyi                # type stubs for truenas_pylibzfs
   lzc.pyi                     # type stubs for truenas_pylibzfs.lzc
   libzfs_types.pyi            # type stubs for truenas_pylibzfs.libzfs_types (types + enums)
+  kstat.pyi                   # type stubs for truenas_pylibzfs.kstat (ArcStats + get_arcstats)
   property_sets.pyi           # convenience frozensets of related properties
 tests/                        # pytest test suite
 examples/                     # runnable usage examples
