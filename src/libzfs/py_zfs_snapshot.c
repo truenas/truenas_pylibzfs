@@ -94,8 +94,8 @@ PyObject *py_zfs_snapshot_get_holds(PyObject *self, PyObject *args_unused)
 }
 
 PyDoc_STRVAR(py_zfs_snapshot_clone__doc__,
-"clone(*, name, properties=None) -> None\n"
-"---------------------------------------\n"
+"clone(*, name, properties=None, user_properties=None) -> None\n"
+"-------------------------------------------------------------\n"
 "Clone snapshot of ZFS resource. See the Clones section of zfsconcepts(7) for details.\n\n"
 "Parameters:\n"
 "-----------\n"
@@ -104,7 +104,9 @@ PyDoc_STRVAR(py_zfs_snapshot_clone__doc__,
 "    located on the same ZFS pool.\n"
 "\n"
 "properties: dict | truenas_pylibzfs.struct_zfs_props, optional\n"
-"    Properties and values to set. This can be formatted as either\n\n"
+"    Properties and values to set on the clone. Properties are validated\n"
+"    against the type of the underlying resource (filesystem or volume),\n"
+"    not the snapshot type. This can be formatted as either\n\n"
 "    a dictionary with the form: \n"
 "    `{key: value}`\n"
 "    or the form: \n"
@@ -113,6 +115,10 @@ PyDoc_STRVAR(py_zfs_snapshot_clone__doc__,
 "\n"
 "    Alternatively the properties may also be provided in the form\n"
 "    of a struct_zfs_props instance as returned by get_properties()\n"
+"\n"
+"user_properties: dict, optional\n"
+"    User-defined properties to set on the clone. Keys must contain a\n"
+"    colon (e.g. \"org.example:tag\"). Values must be strings.\n"
 "\n"
 "Returns:\n"
 "--------\n"
@@ -135,19 +141,22 @@ PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs
 	py_zfs_snapshot_t *ds = (py_zfs_snapshot_t *)self;
 	py_zfs_error_t zfs_err;
 	int err;
-	char *kwnames [] = {"name", "properties", NULL};
+	char *kwnames [] = {"name", "properties", "user_properties", NULL};
 	nvlist_t *nvl = NULL;
+	nvlist_t *userprops = NULL;
 	PyObject *pyprops = NULL;
+	PyObject *pyuprops = NULL;
 	char *json_str = NULL;
 	const char *cname = NULL;
 	pylibzfs_state_t *state = NULL;
-
+	zfs_type_t clone_type;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs,
-					 "|$sO",
+					 "|$sOO",
 					 kwnames,
 					 &cname,
-					 &pyprops)) {
+					 &pyprops,
+					 &pyuprops)) {
 					 return NULL;
 	}
 
@@ -157,13 +166,36 @@ PyObject *py_zfs_snapshot_clone(PyObject *self,	PyObject *args, PyObject *kwargs
 		return NULL;
 	}
 
-	if (pyprops) {
+	/*
+	 * zfs_get_underlying_type() returns the head dataset type
+	 * (ZFS_TYPE_FILESYSTEM or ZFS_TYPE_VOLUME) for a snapshot handle.
+	 * The clone will be this type, so property validation must use it
+	 * rather than the snapshot's own ZFS_TYPE_SNAPSHOT.
+	 */
+	clone_type = zfs_get_underlying_type(ds->rsrc.obj.zhp);
+
+	if (!NULL_OR_NONE(pyprops)) {
+		state = py_get_module_state(ds->rsrc.obj.pylibzfsp);
 		nvl = py_zfsprops_to_nvlist(state,
 					    pyprops,
-					    ds->rsrc.obj.ctype,
+					    clone_type,
 					    B_FALSE);
-		if (nvl == NULL) {
+		if (nvl == NULL)
 			return NULL;
+	}
+
+	if (!NULL_OR_NONE(pyuprops)) {
+		userprops = py_userprops_dict_to_nvlist(pyuprops);
+		if (userprops == NULL) {
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
+		if (nvl == NULL) {
+			nvl = userprops;
+		} else {
+			fnvlist_merge(nvl, userprops);
+			fnvlist_free(userprops);
 		}
 	}
 

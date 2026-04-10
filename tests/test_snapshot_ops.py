@@ -219,6 +219,74 @@ class TestSnapshotClone:
         finally:
             lzc.destroy_snapshots(snapshot_names=[snap_name])
 
+    def test_clone_with_properties(self, pool):
+        lz, _, root = pool
+        snap_name = f'{POOL_NAME}@snap_props'
+        clone_name = f'{POOL_NAME}/clone_props'
+        lzc.create_snapshots(snapshot_names=[snap_name])
+        try:
+            snap = lz.open_resource(name=snap_name)
+            snap.clone(
+                name=clone_name,
+                properties={
+                    truenas_pylibzfs.ZFSProperty.READONLY: 'on',
+                    truenas_pylibzfs.ZFSProperty.MOUNTPOINT: '/mnt/clone_props',
+                },
+            )
+            clone_ds = lz.open_resource(name=clone_name)
+            assert clone_ds.name == clone_name
+
+            prop_set = {
+                truenas_pylibzfs.ZFSProperty.READONLY,
+                truenas_pylibzfs.ZFSProperty.MOUNTPOINT,
+            }
+            props = clone_ds.get_properties(properties=prop_set)
+            assert props.mountpoint.value == '/mnt/clone_props'
+            assert props.readonly.value == 'on'
+        finally:
+            try:
+                lz.destroy_resource(name=clone_name)
+            except Exception:
+                pass
+            lzc.destroy_snapshots(snapshot_names=[snap_name])
+
+    def test_clone_with_empty_properties(self, pool):
+        lz, _, root = pool
+        snap_name = f'{POOL_NAME}@snap_empty_props'
+        clone_name = f'{POOL_NAME}/clone_empty_props'
+        lzc.create_snapshots(snapshot_names=[snap_name])
+        try:
+            snap = lz.open_resource(name=snap_name)
+            snap.clone(name=clone_name, properties={})
+            assert lz.open_resource(name=clone_name).name == clone_name
+        finally:
+            try:
+                lz.destroy_resource(name=clone_name)
+            except Exception:
+                pass
+            lzc.destroy_snapshots(snapshot_names=[snap_name])
+
+    def test_clone_with_user_properties(self, pool):
+        lz, _, root = pool
+        snap_name = f'{POOL_NAME}@snap_uprops'
+        clone_name = f'{POOL_NAME}/clone_uprops'
+        lzc.create_snapshots(snapshot_names=[snap_name])
+        try:
+            snap = lz.open_resource(name=snap_name)
+            snap.clone(
+                name=clone_name,
+                user_properties={"org.truenas:test_key": "test_value"},
+            )
+            clone_ds = lz.open_resource(name=clone_name)
+            uprops = clone_ds.get_user_properties()
+            assert uprops["org.truenas:test_key"] == "test_value"
+        finally:
+            try:
+                lz.destroy_resource(name=clone_name)
+            except Exception:
+                pass
+            lzc.destroy_snapshots(snapshot_names=[snap_name])
+
 
 # ---------------------------------------------------------------------------
 # ZFSDataset.promote
