@@ -1,15 +1,18 @@
 #include "pyzfs_kstat.h"
 
 /*
- * truenas_pylibzfs.kstat -- ArcStats field docstrings and struct sequence
- * definition.
+ * truenas_pylibzfs.kstat -- ArcStats and ZilStats field docstrings and
+ * struct sequence definitions.
  *
- * All PyDoc_STRVAR definitions for ArcStats fields live here, not in
- * arcstats.c. arcstats.c contains only the file-parsing implementation.
+ * All PyDoc_STRVAR definitions for kstat fields live here, not in the
+ * per-kstat implementation files (arcstats.c, zilstats.c), which contain
+ * only file-parsing logic.
  *
  * Field names and documentation are derived from:
- *   module/zfs/arc.c       -- authoritative kstat name list
- *   include/sys/arc_impl.h -- per-field comments
+ *   module/zfs/arc.c       -- ARC kstat name list
+ *   include/sys/arc_impl.h -- ARC per-field comments
+ *   module/zfs/zil.c       -- ZIL kstat name list
+ *   include/sys/zil.h      -- ZIL per-field comments
  * in the ZFS source tree (github.com/truenas/zfs,
  * branch truenas/zfs-2.4-release).
  */
@@ -777,6 +780,163 @@ init_arcstats_type(PyObject *module)
 }
 
 /* -------------------------------------------------------------------------
+ * ZilStats field docstrings
+ *
+ * Field order must match the zil_stats initializer in module/zfs/zil.c
+ * (lines 101-123 in the ZFS source tree).
+ * ------------------------------------------------------------------------- */
+
+/* Commit counters */
+
+PyDoc_STRVAR(zilstat_commit_count__doc__,
+"Number of times a ZIL (ZFS Intent Log) commit (e.g. fsync) has been "
+"requested.");
+
+PyDoc_STRVAR(zilstat_commit_writer_count__doc__,
+"Number of times the ZIL has been flushed to stable storage. This is "
+"less than zil_commit_count when commits are merged.");
+
+PyDoc_STRVAR(zilstat_commit_error_count__doc__,
+"ZIL commits that failed due to an I/O error during write or flush, "
+"forcing a fallback to txg_wait_synced().");
+
+PyDoc_STRVAR(zilstat_commit_stall_count__doc__,
+"ZIL commits that stalled because LWB (Log Write Block) allocation "
+"failed and the ZIL chain was abandoned, forcing a fallback to "
+"txg_wait_synced().");
+
+PyDoc_STRVAR(zilstat_commit_suspend_count__doc__,
+"ZIL commits that failed because the ZIL was suspended, forcing a "
+"fallback to txg_wait_synced().");
+
+PyDoc_STRVAR(zilstat_commit_crash_count__doc__,
+"ZIL commits that failed because the ZIL crashed, forcing a fallback "
+"to txg_wait_synced().");
+
+/* Intent transaction (itx) counters */
+
+PyDoc_STRVAR(zilstat_itx_count__doc__,
+"Total number of intent transactions (reads, writes, renames, etc.) "
+"committed to the ZIL.");
+
+PyDoc_STRVAR(zilstat_itx_indirect_count__doc__,
+"Transactions written using indirect mode (WR_INDIRECT): data is written "
+"directly to the pool via dmu_sync() and a block pointer is stored in the "
+"log record instead of the data itself.");
+
+PyDoc_STRVAR(zilstat_itx_indirect_bytes__doc__,
+"Bytes of transaction data written using indirect mode. Accumulates the "
+"logical data length, not the log record size.");
+
+PyDoc_STRVAR(zilstat_itx_copied_count__doc__,
+"Transactions written using immediate-copy mode (WR_COPIED): data is "
+"copied directly into the log record at commit time because the "
+"transaction was synchronous (O_SYNC or O_DSYNC).");
+
+PyDoc_STRVAR(zilstat_itx_copied_bytes__doc__,
+"Bytes of transaction data written using immediate-copy mode.");
+
+PyDoc_STRVAR(zilstat_itx_needcopy_count__doc__,
+"Transactions written using deferred-copy mode (WR_NEED_COPY): data is "
+"retrieved from the DMU (Data Management Unit) and copied into the log "
+"record only if the write needs to be flushed.");
+
+PyDoc_STRVAR(zilstat_itx_needcopy_bytes__doc__,
+"Bytes of transaction data written using deferred-copy mode.");
+
+/* Normal pool metaslab */
+
+PyDoc_STRVAR(zilstat_itx_metaslab_normal_count__doc__,
+"Transactions allocated to the normal (non-slog) storage pool.");
+
+PyDoc_STRVAR(zilstat_itx_metaslab_normal_bytes__doc__,
+"Log record bytes allocated to the normal pool. Accumulates actual "
+"log record sizes, which exclude data for indirect writes. "
+"Invariant: bytes <= write <= alloc.");
+
+PyDoc_STRVAR(zilstat_itx_metaslab_normal_write__doc__,
+"Bytes written to the normal pool for ZIL log blocks.");
+
+PyDoc_STRVAR(zilstat_itx_metaslab_normal_alloc__doc__,
+"Bytes allocated from the normal pool for ZIL log blocks.");
+
+/* Slog (Separate Intent Log) metaslab */
+
+PyDoc_STRVAR(zilstat_itx_metaslab_slog_count__doc__,
+"Transactions allocated to the slog (Separate Intent Log) device. "
+"If no dedicated log device is configured, slog statistics remain "
+"zero and all activity is counted under the normal pool.");
+
+PyDoc_STRVAR(zilstat_itx_metaslab_slog_bytes__doc__,
+"Log record bytes allocated to the slog device. "
+"Invariant: bytes <= write <= alloc.");
+
+PyDoc_STRVAR(zilstat_itx_metaslab_slog_write__doc__,
+"Bytes written to the slog device for ZIL log blocks.");
+
+PyDoc_STRVAR(zilstat_itx_metaslab_slog_alloc__doc__,
+"Bytes allocated from the slog device for ZIL log blocks.");
+
+/* -------------------------------------------------------------------------
+ * ZilStats struct sequence definition
+ *
+ * Field order must match the zil_stats initializer in module/zfs/zil.c.
+ *
+ * The test tests/test_kstat_zilstats.py verifies this order against the
+ * live ZILSTATS_PATH file in CI.
+ * ------------------------------------------------------------------------- */
+
+static PyStructSequence_Field zilstats_fields[] = {
+    {"zil_commit_count", zilstat_commit_count__doc__},
+    {"zil_commit_writer_count", zilstat_commit_writer_count__doc__},
+    {"zil_commit_error_count", zilstat_commit_error_count__doc__},
+    {"zil_commit_stall_count", zilstat_commit_stall_count__doc__},
+    {"zil_commit_suspend_count", zilstat_commit_suspend_count__doc__},
+    {"zil_commit_crash_count", zilstat_commit_crash_count__doc__},
+    {"zil_itx_count", zilstat_itx_count__doc__},
+    {"zil_itx_indirect_count", zilstat_itx_indirect_count__doc__},
+    {"zil_itx_indirect_bytes", zilstat_itx_indirect_bytes__doc__},
+    {"zil_itx_copied_count", zilstat_itx_copied_count__doc__},
+    {"zil_itx_copied_bytes", zilstat_itx_copied_bytes__doc__},
+    {"zil_itx_needcopy_count", zilstat_itx_needcopy_count__doc__},
+    {"zil_itx_needcopy_bytes", zilstat_itx_needcopy_bytes__doc__},
+    {"zil_itx_metaslab_normal_count", zilstat_itx_metaslab_normal_count__doc__},
+    {"zil_itx_metaslab_normal_bytes", zilstat_itx_metaslab_normal_bytes__doc__},
+    {"zil_itx_metaslab_normal_write", zilstat_itx_metaslab_normal_write__doc__},
+    {"zil_itx_metaslab_normal_alloc", zilstat_itx_metaslab_normal_alloc__doc__},
+    {"zil_itx_metaslab_slog_count", zilstat_itx_metaslab_slog_count__doc__},
+    {"zil_itx_metaslab_slog_bytes", zilstat_itx_metaslab_slog_bytes__doc__},
+    {"zil_itx_metaslab_slog_write", zilstat_itx_metaslab_slog_write__doc__},
+    {"zil_itx_metaslab_slog_alloc", zilstat_itx_metaslab_slog_alloc__doc__},
+    {0},
+};
+
+static PyStructSequence_Desc zilstats_desc = {
+    .name = "truenas_pylibzfs.kstat.ZilStats",
+    .doc = "Snapshot of ZFS ZIL (ZFS Intent Log) statistics "
+           "read from " ZILSTATS_PATH ".",
+    .fields = zilstats_fields,
+    .n_in_sequence = ZILSTATS_N_FIELDS,
+};
+
+static int
+init_zilstats_type(PyObject *module)
+{
+    pyzfs_kstat_state_t *state = NULL;
+    PyTypeObject *tp = NULL;
+
+    state = (pyzfs_kstat_state_t *)PyModule_GetState(module);
+
+    tp = PyStructSequence_NewType(&zilstats_desc);
+    if (tp == NULL)
+        return -1;
+
+    state->zilstats_type = tp;
+
+    return PyModule_AddObjectRef(module, "ZilStats", (PyObject *)tp);
+}
+
+/* -------------------------------------------------------------------------
  * Module method docstrings and table
  * ------------------------------------------------------------------------- */
 
@@ -805,12 +965,42 @@ PyDoc_STRVAR(py_get_arcstats__doc__,
 "    " ARCSTATS_PATH " has an unexpected format or field count.\n"
 "    This indicates a ZFS version mismatch; update arcstats.c and stubs.\n");
 
+PyDoc_STRVAR(py_get_zilstats__doc__,
+"get_zilstats() -> ZilStats\n"
+"--------------------------\n\n"
+"Read and return a snapshot of ZFS ZIL (ZFS Intent Log) statistics\n"
+"from " ZILSTATS_PATH ".\n"
+"\n"
+"Each call opens and reads the file, so successive calls return\n"
+"independent snapshots reflecting the current kernel state.\n"
+"\n"
+"Returns\n"
+"-------\n"
+"ZilStats\n"
+"    Named struct sequence with one integer field per ZIL statistic.\n"
+"    Fields are accessible by name (stats.zil_commit_count) or by\n"
+"    index (stats[0]). All fields are unsigned.\n"
+"\n"
+"Raises\n"
+"------\n"
+"OSError\n"
+"    " ZILSTATS_PATH " could not be opened.\n"
+"ValueError\n"
+"    " ZILSTATS_PATH " has an unexpected format or field count.\n"
+"    This indicates a ZFS version mismatch; update zilstats.c and stubs.\n");
+
 static PyMethodDef pyzfs_kstat_methods[] = {
     {
         "get_arcstats",
         py_get_arcstats,
         METH_NOARGS,
         py_get_arcstats__doc__,
+    },
+    {
+        "get_zilstats",
+        py_get_zilstats,
+        METH_NOARGS,
+        py_get_zilstats__doc__,
     },
     {NULL, NULL, 0, NULL},
 };
@@ -843,6 +1033,11 @@ py_setup_kstat_module(PyObject *parent)
         return NULL;
 
     if (init_arcstats_type(m) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    if (init_zilstats_type(m) < 0) {
         Py_DECREF(m);
         return NULL;
     }

@@ -444,6 +444,88 @@ class ArcStats:
     def __replace__(self, **changes: Any) -> Self: ...
 
 
+@final
+class ZilStats:
+    """Snapshot of ZFS ZIL (ZFS Intent Log) statistics
+    read from /proc/spl/kstat/zfs/zil.
+    """
+
+    # Commit counters
+    zil_commit_count: int
+    """Number of times a ZIL commit (e.g. fsync) has been requested."""
+    zil_commit_writer_count: int
+    """Number of times the ZIL has been flushed to stable storage. This is
+    less than zil_commit_count when commits are merged."""
+    zil_commit_error_count: int
+    """ZIL commits that failed due to an I/O error during write or flush,
+    forcing a fallback to txg_wait_synced()."""
+    zil_commit_stall_count: int
+    """ZIL commits that stalled because LWB (Log Write Block) allocation
+    failed and the ZIL chain was abandoned, forcing a fallback to
+    txg_wait_synced()."""
+    zil_commit_suspend_count: int
+    """ZIL commits that failed because the ZIL was suspended, forcing a
+    fallback to txg_wait_synced()."""
+    zil_commit_crash_count: int
+    """ZIL commits that failed because the ZIL crashed, forcing a fallback
+    to txg_wait_synced()."""
+
+    # Intent transaction (itx) counters
+    zil_itx_count: int
+    """Total number of intent transactions (reads, writes, renames, etc.)
+    committed to the ZIL."""
+    zil_itx_indirect_count: int
+    """Transactions written using indirect mode (WR_INDIRECT): data is written
+    directly to the pool via dmu_sync() and a block pointer is stored in the
+    log record instead of the data itself."""
+    zil_itx_indirect_bytes: int
+    """Bytes of transaction data written using indirect mode. Accumulates the
+    logical data length, not the log record size."""
+    zil_itx_copied_count: int
+    """Transactions written using immediate-copy mode (WR_COPIED): data is
+    copied directly into the log record at commit time because the transaction
+    was synchronous (O_SYNC or O_DSYNC)."""
+    zil_itx_copied_bytes: int
+    """Bytes of transaction data written using immediate-copy mode."""
+    zil_itx_needcopy_count: int
+    """Transactions written using deferred-copy mode (WR_NEED_COPY): data is
+    retrieved from the DMU and copied into the log record only if the write
+    needs to be flushed."""
+    zil_itx_needcopy_bytes: int
+    """Bytes of transaction data written using deferred-copy mode."""
+
+    # Normal pool metaslab
+    zil_itx_metaslab_normal_count: int
+    """Transactions allocated to the normal (non-slog) storage pool."""
+    zil_itx_metaslab_normal_bytes: int
+    """Log record bytes allocated to the normal pool. Accumulates actual
+    log record sizes, which exclude data for indirect writes.
+    Invariant: bytes <= write <= alloc."""
+    zil_itx_metaslab_normal_write: int
+    """Bytes written to the normal pool for ZIL log blocks."""
+    zil_itx_metaslab_normal_alloc: int
+    """Bytes allocated from the normal pool for ZIL log blocks."""
+
+    # Slog (Separate Intent Log) metaslab
+    zil_itx_metaslab_slog_count: int
+    """Transactions allocated to the slog (Separate Intent Log) device.
+    If no dedicated log device is configured, slog statistics remain zero
+    and all activity is counted under the normal pool."""
+    zil_itx_metaslab_slog_bytes: int
+    """Log record bytes allocated to the slog device.
+    Invariant: bytes <= write <= alloc."""
+    zil_itx_metaslab_slog_write: int
+    """Bytes written to the slog device for ZIL log blocks."""
+    zil_itx_metaslab_slog_alloc: int
+    """Bytes allocated from the slog device for ZIL log blocks."""
+
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]           # = 21
+    n_sequence_fields: ClassVar[int]  # = 21
+    n_unnamed_fields: ClassVar[int]   # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
+
+
 def get_arcstats() -> ArcStats:
     """Read and return a snapshot of ZFS ARC statistics.
 
@@ -456,6 +538,23 @@ def get_arcstats() -> ArcStats:
         /proc/spl/kstat/zfs/arcstats could not be opened.
     ValueError
         /proc/spl/kstat/zfs/arcstats has an unexpected format or field
+        count, indicating a ZFS version mismatch.
+    """
+    ...
+
+
+def get_zilstats() -> ZilStats:
+    """Read and return a snapshot of ZFS ZIL (ZFS Intent Log) statistics.
+
+    Each call opens and reads /proc/spl/kstat/zfs/zil, so successive
+    calls return independent snapshots reflecting the current kernel state.
+
+    Raises
+    ------
+    OSError
+        /proc/spl/kstat/zfs/zil could not be opened.
+    ValueError
+        /proc/spl/kstat/zfs/zil has an unexpected format or field
         count, indicating a ZFS version mismatch.
     """
     ...
