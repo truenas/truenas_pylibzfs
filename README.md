@@ -40,6 +40,12 @@ This library is not designed to be backwards compatible with OpenZFS versions no
 - `libbsd-dev`
 - `libssl-dev`
 
+## Contributing
+
+Pull requests that do not include tests exercising new functionality or validating bug fixes will not be accepted. Where it is not practical to add tests, explain why in the PR description.
+
+Any new functionality (methods, objects, parameters) must be documented following the existing standards in the repository. Type stubs in `stubs/` must be kept in sync with the codebase and documentation.
+
 ## Build
 
 Build a Debian package:
