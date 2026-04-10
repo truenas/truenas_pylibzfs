@@ -10,28 +10,33 @@ dependency on libzfs or any ZFS userland library**. It reads kstat files
 exposed by the ZFS kernel module under `/proc/spl/kstat/zfs/` via standard
 C stdio, making it lightweight and usable without opening a `ZFS` handle.
 
-Currently provides ARC (Adaptive Replacement Cache) statistics via
-`get_arcstats()`. ZIL statistics will follow.
+Currently provides:
+
+- ARC (Adaptive Replacement Cache) statistics via `get_arcstats()` (`/proc/spl/kstat/zfs/arcstats`)
+- ZIL (ZFS Intent Log) statistics via `get_zilstats()` (`/proc/spl/kstat/zfs/zil`)
 
 ## Source files
 
 | File | Purpose |
 |---|---|
 | `pyzfs_kstat.h` | Module state struct, path/field-count constants, extern declarations |
-| `pyzfs_kstat.c` | Module init, `ArcStats` `PyStructSequence` type registration, `PyDoc_STRVAR` field docstrings, method table |
+| `pyzfs_kstat.c` | Module init, `ArcStats` and `ZilStats` `PyStructSequence` type registration, `PyDoc_STRVAR` field docstrings, method table |
 | `arcstats.c` | `get_arcstats()` implementation -- reads and parses `/proc/spl/kstat/zfs/arcstats` |
+| `zilstats.c` | `get_zilstats()` implementation -- reads and parses `/proc/spl/kstat/zfs/zil` |
 
 ## Exposed methods
 
 | Python name | Source | Description |
 |---|---|---|
 | `get_arcstats()` | `arcstats.c` | Returns an `ArcStats` struct sequence with 147 integer fields |
+| `get_zilstats()` | `zilstats.c` | Returns a `ZilStats` struct sequence with 21 integer fields |
 
 ## Exposed types
 
 | Python name | Kind | Description |
 |---|---|---|
 | `ArcStats` | `PyStructSequence` | Named tuple-like object with one field per ARC kstat counter |
+| `ZilStats` | `PyStructSequence` | Named tuple-like object with one field per ZIL kstat counter |
 
 ## Developer notes
 
