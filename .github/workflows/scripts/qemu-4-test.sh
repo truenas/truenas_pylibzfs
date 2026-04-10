@@ -69,13 +69,13 @@ echo "=========================================="
 cd /home/debian/truenas_pylibzfs
 
 # Check stubs are internally self-consistent (catches phantom names in __all__, bad imports, etc.)
-echo "Running mypy on stubs..."
+echo "Running mypy on stubs/..."
 python3 -m mypy stubs/
 MYPY_EXIT=$?
 
 # Check that typed callers use the stubs correctly (catches signature mismatches
 # that stubtest cannot detect, e.g. wrong container type for holds arguments).
-echo "Running mypy on type_checks..."
+echo "Running mypy on tests/type_checks/..."
 python3 -m mypy tests/type_checks/
 MYPY_TYPE_CHECKS_EXIT=$?
 
@@ -86,10 +86,10 @@ MYPY_TYPE_CHECKS_EXIT=$?
 # `from truenas_pylibzfs import lzc` works fine.  stubtest uses
 # importlib.import_module() internally, so pre-registering the
 # submodules in sys.modules lets stubtest find and check them.
-echo "Running stubtest..."
+echo "Running stubtest for truenas_pylibzfs..."
 python3 -c "
 import truenas_pylibzfs, sys
-for name in ('lzc', 'libzfs_types', 'property_sets'):
+for name in ('lzc', 'libzfs_types', 'property_sets', 'kstat'):
     sys.modules['truenas_pylibzfs.' + name] = getattr(truenas_pylibzfs, name)
 from mypy.stubtest import main
 sys.argv = ['stubtest', 'truenas_pylibzfs']
@@ -97,7 +97,7 @@ sys.exit(main())
 "
 STUBTEST_EXIT=$?
 
-if [ $MYPY_EXIT -ne 0 ] || [ $STUBTEST_EXIT -ne 0 ] || [ $MYPY_TYPE_CHECKS_EXIT -ne 0 ]; then
+if [ $MYPY_EXIT -ne 0 ] || [ $MYPY_TYPE_CHECKS_EXIT -ne 0 ] || [ $STUBTEST_EXIT -ne 0 ]; then
     echo "ERROR: Stub checks failed"
     exit 1
 fi

@@ -571,6 +571,9 @@ extern PyObject *py_zfs_promote(py_zfs_obj_t *obj);
 /* Set up propset module with frozensets */
 extern PyObject *py_setup_propset_module(PyObject *parent);
 
+/* Set up kstat submodule (provided by pyzfs_kstat/pyzfs_kstat.c) */
+extern PyObject *py_setup_kstat_module(PyObject *parent);
+
 /* Provided by nvlist_utils.c, nvlist_utils_nvl_to_dict.c,
  * and nvlist_utils_dict_to_nvl.c */
 extern PyObject *user_props_nvlist_to_py_dict(nvlist_t *userprops);
