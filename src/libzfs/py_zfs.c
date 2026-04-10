@@ -189,8 +189,8 @@ boolean_t py_zfs_create(py_zfs_t *self,
 }
 
 PyDoc_STRVAR(py_zfs_create__doc__,
-"create_resource(*, name, type, properties=None, crypto=None) -> None\n"
-"--------------------------------------------------------------------\n\n"
+"create_resource(*, name, type, properties=None, user_properties=None, crypto=None) -> None\n"
+"--------------------------------------------------------------------------------------------\n\n"
 "Create a new ZFS FILESYSTEM or VOLUME with the given properties and\n"
 "encryption settings.\n"
 "\n"
@@ -223,6 +223,9 @@ PyDoc_STRVAR(py_zfs_create__doc__,
 "    - simplified: \"on\"\n"
 "    - as dictionary like returned by asdict(): {\"value\": \"on\"}\n"
 "    WARNING: not all ZFSProperty properties are valid for a given ZFSType.\n\n"
+"user_properties: dict, optional\n"
+"    User-defined properties to set on the new resource. Keys must contain a\n"
+"    colon (e.g. \"org.example:tag\"). Values must be strings.\n\n"
 "crypto: " PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_crypto_config, optional\n"
 "    Optional encryption configuration to establish the volume as a new\n"
 "    encryption root. If omitted, then the new resource will inherit\n"
