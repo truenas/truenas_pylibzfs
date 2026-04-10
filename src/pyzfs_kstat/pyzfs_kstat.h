@@ -22,10 +22,29 @@
  */
 #define ARCSTATS_N_FIELDS 147
 
+/*
+ * Path to the ZIL (ZFS Intent Log) kstat file exposed by the ZFS
+ * kernel module.
+ */
+#define ZILSTATS_PATH "/proc/spl/kstat/zfs/zil"
+
+/*
+ * Number of data fields in ZILSTATS_PATH.
+ *
+ * Derived from zil_kstat_values_t in include/sys/zil.h in the ZFS source
+ * tree.
+ *
+ * This constant must stay in sync with ZILSTATS_PATH. The test
+ * tests/test_kstat_zilstats.py enforces that invariant in CI.
+ */
+#define ZILSTATS_N_FIELDS 21
+
 typedef struct {
     PyTypeObject *arcstats_type;
+    PyTypeObject *zilstats_type;
 } pyzfs_kstat_state_t;
 
 extern PyObject *py_get_arcstats(PyObject *module, PyObject *args);
+extern PyObject *py_get_zilstats(PyObject *module, PyObject *args);
 
 #endif /* _PYZFS_KSTAT_H */
