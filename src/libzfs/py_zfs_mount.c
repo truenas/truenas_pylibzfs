@@ -197,8 +197,16 @@ PyObject *py_zfs_mount(py_zfs_resource_t *res,
 			   mntopts,
 			   flags,
 			   mountpoint);
-	if (err)
+	if (err) {
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
+	} else {
+		/*
+		 * Refresh cached properties so that callers see
+		 * the updated 'mounted' state without having to
+		 * re-open the dataset handle.
+		 */
+		zfs_refresh_properties(res->obj.zhp);
+	}
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
