@@ -37,6 +37,7 @@ truenas_pylibzfs = Extension(
         'src/libzfs_core/libzfs_core_replication.c',
         'src/pyzfs_kstat/pyzfs_kstat.c',
         'src/pyzfs_kstat/arcstats.c',
+        'src/pyzfs_kstat/zilstats.c',
     ],
     libraries = [
         'zfs',
