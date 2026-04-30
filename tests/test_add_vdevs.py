@@ -377,19 +377,22 @@ class TestAddVdevsTopologyValidation:
         finally:
             _destroy(lz)
 
-    def test_special_parity_too_low_for_raidz2_pool_rejected(self, make_disks):
-        """special vdev with parity < pool storage parity must be rejected."""
+    def test_special_mirror_on_raidz2_pool_accepted(self, make_disks):
+        """A redundant special vdev (mirror) is accepted on a raidz2 pool;
+        the parity levels are not required to match."""
         disks = make_disks(7)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_raidz_pool(lz, 2, disks[:4])
-        # mirror (parity 1) < raidz2 (parity 2)
         special_mirror = truenas_pylibzfs.create_vdev_spec(
             vdev_type=VDevType.MIRROR,
             children=[_spec(disks[4]), _spec(disks[5])],
         )
         try:
-            with pytest.raises(ValueError):
-                pool.add_vdevs(special_vdevs=[special_mirror])
+            pool.add_vdevs(special_vdevs=[special_mirror])
+        except truenas_pylibzfs.ZFSException:
+            pass
+        except ValueError:
+            raise
         finally:
             _destroy(lz)
 
@@ -734,19 +737,19 @@ class TestAddVdevsForce:
         finally:
             _destroy(lz)
 
-    def test_force_bypasses_special_parity_check(self, make_disks):
-        """force=True bypasses the special vdev parity check."""
+    def test_force_bypasses_special_redundancy_check(self, make_disks):
+        """force=True bypasses the special vdev redundancy floor check."""
         disks = make_disks(5)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_raidz_pool(lz, 2, disks[:4])
-        # mirror (parity 1) < raidz2 (parity 2)
-        special_mirror = _mirror(disks[3], disks[4])
+        # leaf special (parity 0) on a redundant pool is rejected by default
+        special_leaf = _spec(disks[4])
 
-        with pytest.raises(ValueError):
-            pool.add_vdevs(special_vdevs=[special_mirror])
+        with pytest.raises(ValueError, match="redundancy"):
+            pool.add_vdevs(special_vdevs=[special_leaf])
 
         try:
-            pool.add_vdevs(special_vdevs=[special_mirror], force=True)
+            pool.add_vdevs(special_vdevs=[special_leaf], force=True)
         except truenas_pylibzfs.ZFSException:
             pass
         except ValueError:
@@ -754,13 +757,13 @@ class TestAddVdevsForce:
         finally:
             _destroy(lz)
 
-    def test_force_bypasses_dedup_parity_check(self, make_disks):
-        """force=True bypasses the dedup vdev parity check."""
+    def test_force_bypasses_dedup_redundancy_check(self, make_disks):
+        """force=True bypasses the dedup vdev redundancy floor check."""
         disks = make_disks(5)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_raidz_pool(lz, 2, disks[:4])
-        # leaf dedup (parity 0) < raidz2 (parity 2)
-        with pytest.raises(ValueError):
+        # leaf dedup (parity 0) on a redundant pool is rejected by default
+        with pytest.raises(ValueError, match="redundancy"):
             pool.add_vdevs(dedup_vdevs=[_spec(disks[3])])
 
         try:

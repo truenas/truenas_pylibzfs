@@ -417,9 +417,11 @@ validate_log_vdevs(PyObject *seq)
 }
 
 /*
- * Special and dedup vdevs must not be dRAID, and must have a parity level
- * (redundancy) at least equal to that of the storage vdevs.
- * Allowed types: leaf (only when storage is also stripe), mirror, raidz1/2/3.
+ * Special and dedup vdevs must not be dRAID.  When the storage tier is
+ * redundant (mirror or raidz, parity >= 1), special/dedup vdevs must also
+ * carry some redundancy (parity >= 1); the parity levels are not required
+ * to match.  When storage is striped (parity 0), no redundancy floor
+ * applies.  Allowed types: leaf, mirror, raidz1/2/3.
  */
 static boolean_t
 validate_special_dedup_vdevs(PyObject *seq,
@@ -459,12 +461,12 @@ validate_special_dedup_vdevs(PyObject *seq,
 		}
 
 		parity = vdev_parity_level(py_type);
-		if (parity < storage_parity) {
+		if (storage_parity >= 1 && parity < 1) {
 			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev type \"%U\" (parity %d) provides less "
-			    "redundancy than storage type \"%U\" (parity %d)",
-			    context, py_type, parity,
-			    storage_py_type, storage_parity);
+			    "%s: vdev type \"%U\" has no redundancy but "
+			    "storage vdevs (type \"%U\") are redundant; "
+			    "pass force=True to override",
+			    context, py_type, storage_py_type);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
@@ -1714,9 +1716,13 @@ validate_metadata_no_draid(PyObject *seq, const char *context)
 }
 
 /*
- * Validate parity of metadata vdevs (special or dedup) against the existing
- * pool storage parity.  Only called when force=False and existing->valid.
- * Returns B_TRUE on success, B_FALSE with exception set on failure.
+ * Validate redundancy of metadata vdevs (special or dedup) against the
+ * existing pool storage.  When the existing pool storage is redundant
+ * (parity >= 1), metadata vdevs must also have some redundancy (parity >= 1);
+ * the levels are not required to match.  When the existing pool is striped
+ * (parity 0), no redundancy floor applies.  Only called when force=False and
+ * existing->valid.  Returns B_TRUE on success, B_FALSE with exception set on
+ * failure.
  */
 static boolean_t
 validate_metadata_parity(PyObject *seq, const char *context,
@@ -1734,11 +1740,12 @@ validate_metadata_parity(PyObject *seq, const char *context,
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 		parity = vdev_parity_level(py_type);
-		if (parity < (int)existing->parity) {
+		if (existing->parity >= 1 && parity < 1) {
 			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev type \"%U\" (parity %d) provides less "
-			    "redundancy than existing pool storage (parity %llu)",
-			    context, py_type, parity,
+			    "%s: vdev type \"%U\" has no redundancy but "
+			    "existing pool storage is redundant (parity %llu); "
+			    "pass force=True to override",
+			    context, py_type,
 			    (unsigned long long)existing->parity);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
