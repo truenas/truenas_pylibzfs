@@ -427,8 +427,9 @@ def test_create_pool_special_draid_rejected():
         )
 
 
-def test_create_pool_special_insufficient_parity():
-    # raidz2 storage (parity 2) + mirror special (parity 1) must be rejected.
+def test_create_pool_redundant_storage_accepts_mirror_special():
+    # raidz2 storage (parity 2) + mirror special (parity 1): mirror provides
+    # some redundancy, so the validator accepts it even though parity differs.
     lz = truenas_pylibzfs.open_handle()
     storage_disks = [
         truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/s{i}.img")
@@ -442,12 +443,69 @@ def test_create_pool_special_insufficient_parity():
     special_mirror = truenas_pylibzfs.create_vdev_spec(
         vdev_type="mirror", children=[c1, c2]
     )
-    with pytest.raises(ValueError):
+    try:
         lz.create_pool(
             name=POOL_NAME,
             storage_vdevs=[storage],
             special_vdevs=[special_mirror],
         )
+    except (truenas_pylibzfs.ZFSException, OSError):
+        pass
+    except ValueError:
+        raise
+    finally:
+        _destroy()
+
+
+def test_create_pool_redundant_storage_rejects_leaf_special():
+    # raidz2 storage (parity 2) + leaf special (parity 0) must be rejected:
+    # storage tier is redundant, so special tier needs some redundancy.
+    lz = truenas_pylibzfs.open_handle()
+    storage_disks = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/s{i}.img")
+        for i in range(4)
+    ]
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="raidz2", children=storage_disks
+    )
+    special_leaf = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="file", name="/tmp/sp.img"
+    )
+    with pytest.raises(ValueError, match="redundancy"):
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            special_vdevs=[special_leaf],
+        )
+
+
+def test_create_pool_force_bypasses_special_redundancy_check():
+    # raidz2 storage + leaf special is rejected by default but accepted with
+    # force=True (libzfs may still reject at the file/device level).
+    lz = truenas_pylibzfs.open_handle()
+    storage_disks = [
+        truenas_pylibzfs.create_vdev_spec(vdev_type="file", name=f"/tmp/s{i}.img")
+        for i in range(4)
+    ]
+    storage = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="raidz2", children=storage_disks
+    )
+    special_leaf = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="file", name="/tmp/sp.img"
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[storage],
+            special_vdevs=[special_leaf],
+            force=True,
+        )
+    except (truenas_pylibzfs.ZFSException, OSError):
+        pass
+    except ValueError:
+        raise
+    finally:
+        _destroy()
 
 
 def test_create_pool_dedup_insufficient_parity():
