@@ -589,18 +589,23 @@ class TestLocalReplicateErrors:
         finally:
             _destroy_recv(lz, dest_fs)
 
-    def test_source_missing_error_message_includes_source(self, pool_fixture):
+    def test_source_missing_error_message_is_actionable(self, pool_fixture):
+        """A missing source can surface as ENOENT from the send side or as
+        a stream-decode error from the recv side, depending on timing.
+        Either way the user should get an errno name and at least one of
+        the dataset paths -- not the bare ('msg', None) tuple-repr."""
         _, pool = pool_fixture
         bad_src = f"{pool}/nosuch@snap"
+        bad_dst = f"{pool}/recv@snap1"
         with pytest.raises(lzc.ZFSCoreException) as exc_info:
-            lzc.local_replicate(source=bad_src,
-                                dest=f"{pool}/recv@snap1")
+            lzc.local_replicate(source=bad_src, dest=bad_dst)
         text = str(exc_info.value)
-        # Either source missing surfaces on send_space (lzc_send_space()
-        # failed for source=...) or on send (lzc_send() failed for
-        # source=...).  Both are valid; assert the source path is in
-        # whichever message landed.
-        assert bad_src in text, f"missing source path: {text!r}"
+        assert "[" in text and "]" in text, (
+            f"missing errno-name bracket: {text!r}"
+        )
+        assert (bad_src in text) or (bad_dst in text), (
+            f"missing dataset context: {text!r}"
+        )
 
 
 # ===========================================================================
