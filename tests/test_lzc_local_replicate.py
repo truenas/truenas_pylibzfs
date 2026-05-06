@@ -384,7 +384,7 @@ class TestLocalReplicateRaw:
         # Atomic umount + key unload.  A separate enc_rsrc.umount()
         # followed by crypto().unload_key() races with the kernel's
         # mount-reference release and frequently fails with EBUSY.
-        enc_rsrc.umount(unload=True)
+        enc_rsrc.unmount(unload=True)
         assert enc_rsrc.crypto().info().key_is_loaded is False
 
         dest_fs = f"{pool}/enc_dst"
@@ -400,7 +400,7 @@ class TestLocalReplicateRaw:
         """raw=False on an encrypted source whose key is not loaded must
         fail (ZFS cannot decrypt to send a plaintext stream)."""
         lz, pool, snap, enc_rsrc = encrypted_snapped_pool
-        enc_rsrc.umount(unload=True)
+        enc_rsrc.unmount(unload=True)
 
         with pytest.raises(lzc.ZFSCoreException):
             lzc.local_replicate(source=snap, dest=f"{pool}/enc_dst@snap1")
