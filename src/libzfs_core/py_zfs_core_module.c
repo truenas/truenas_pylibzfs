@@ -1961,11 +1961,7 @@ PyDoc_STRVAR(py_lzc_local_replicate__doc__,
 "    underlying cause).  Also raised if the up-front total-size\n"
 "    estimate fails when progress_callback is requested.\n"
 "RuntimeError:\n"
-"    Failed to log history.\n"
-"Anything raised by progress_callback:\n"
-"    Re-raised after the transfer completes.  The destination dataset\n"
-"    is left in whatever state the receive produced (usually fully\n"
-"    received) before the exception surfaces.\n\n"
+"    Failed to log history.\n\n"
 "Notes\n"
 "-----\n"
 "This call is not interruptible from Python while a transfer is in\n"
@@ -1980,9 +1976,10 @@ PyDoc_STRVAR(py_lzc_local_replicate__doc__,
 "progress_callback runs on a dedicated polling thread (not the main\n"
 "Python thread).  It must be safe to call concurrently with whatever\n"
 "the main thread is doing; ZFS-mutating operations from inside the\n"
-"callback are not recommended.  Exceptions raised by the callback\n"
-"are captured and re-raised by local_replicate after the transfer\n"
-"settles.\n"
+"callback are not recommended.  Exceptions raised by the callback are\n"
+"routed through sys.unraisablehook (default: traceback to stderr) and\n"
+"polling stops; the transfer itself completes normally and the\n"
+"function returns None.\n"
 );
 
 static int
