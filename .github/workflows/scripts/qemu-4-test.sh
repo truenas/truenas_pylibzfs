@@ -39,6 +39,23 @@ lsmod | grep zfs
 cd /home/debian/truenas_pylibzfs
 
 echo "=========================================="
+echo "Configuring core dump capture"
+echo "=========================================="
+
+# Allow core files of any size from the test process.
+ulimit -c unlimited
+ulimit -c
+
+# Direct cores to a known path inside the VM, bypassing any
+# systemd-coredump pipe handler so we get raw files we can inspect
+# with gdb.  %e=executable, %p=pid, %t=epoch.
+sudo mkdir -p /tmp/cores
+sudo chmod 1777 /tmp/cores
+sudo systemctl mask systemd-coredump.socket 2>/dev/null || true
+echo '/tmp/cores/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
+echo "core_pattern: $(cat /proc/sys/kernel/core_pattern)"
+
+echo "=========================================="
 echo "Running verification tests"
 echo "=========================================="
 
@@ -50,13 +67,56 @@ python3 -c "import truenas_pylibzfs; print('Module imported successfully')"
 if [ -d "tests" ]; then
     echo ""
     echo "Running pytest tests..."
-    python3 -m pytest tests/ -v --tb=short --timeout=120
+    # Faulthandler prints a Python+C traceback on fatal signals before the
+    # process dies; useful even when the kernel does not write a core file.
+    # Disable -e around pytest so a segfault (non-zero exit) does not skip
+    # the core-dump backtrace section that follows.
+    set +e
+    PYTHONFAULTHANDLER=1 python3 -m pytest tests/ -v --tb=short --timeout=120
     TEST_EXIT_CODE=$?
+    set -e
 else
     echo ""
     echo "No tests directory found, skipping pytest"
     TEST_EXIT_CODE=0
 fi
+
+echo "=========================================="
+echo "Core dump backtraces"
+echo "=========================================="
+# Mirror gdb output to a file as well as stdout so it ends up in both
+# the GitHub Actions log and the uploaded qemu-logs artifact.
+BT_LOG=/home/debian/coredump-backtraces.log
+: > "$BT_LOG"
+shopt -s nullglob
+CORES=(/tmp/cores/core.*)
+if [ ${#CORES[@]} -eq 0 ]; then
+    echo "No core files were produced." | tee -a "$BT_LOG"
+else
+    for core in "${CORES[@]}"; do
+        {
+            echo ""
+            echo "------ $core ------"
+            ls -lh "$core"
+            # Recover the crashed executable from the core_pattern filename
+            # (core.<exe>.<pid>.<epoch>); fall back to python3 if it's not
+            # on PATH (e.g. the crash was in a subprocess we can't locate).
+            exe_name=$(basename "$core" | awk -F. '{print $2}')
+            exe_path=$(command -v "$exe_name" || echo /usr/bin/python3)
+            echo "Executable: $exe_path"
+            # thread apply all bt full prints every thread's full backtrace
+            # including locals, which is what we need to diagnose the
+            # C-extension segfault.
+            gdb -batch -nx \
+                -ex "set pagination off" \
+                -ex "set print pretty on" \
+                -ex "thread apply all bt full" \
+                "$exe_path" "$core" 2>&1 || true
+        } | tee -a "$BT_LOG"
+    done
+fi
+shopt -u nullglob
+sudo chown debian:debian "$BT_LOG" 2>/dev/null || true
 
 echo "=========================================="
 echo "Test run complete (exit code: $TEST_EXIT_CODE)"
