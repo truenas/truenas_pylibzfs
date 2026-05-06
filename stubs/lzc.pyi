@@ -1,5 +1,5 @@
 import enum
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 class SendFlags(enum.IntFlag):
@@ -83,4 +83,17 @@ def receive(
     force: bool = False,
     resumable: bool = False,
     raw: bool = False,
+) -> None: ...
+def local_replicate(
+    *,
+    source: str,
+    dest: str,
+    fromsnap: str | None = None,
+    send_flags: SendFlags | int = 0,
+    props: dict[str, Any] | None = None,
+    force: bool = False,
+    raw: bool = False,
+    progress_callback: Callable[[int, int, Any], None] | None = None,
+    progress_state: Any = None,
+    progress_interval_seconds: int = 1,
 ) -> None: ...

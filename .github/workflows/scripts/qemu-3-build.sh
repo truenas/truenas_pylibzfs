@@ -80,7 +80,8 @@ sudo apt-get install -y \
   python3-mypy \
   git \
   linux-headers-amd64 \
-  dkms
+  dkms \
+  gdb
 
 # Check if we have cached ZFS packages
 if [ -d "/tmp/zfs-debs" ] && [ "$(ls -A /tmp/zfs-debs/*.deb 2>/dev/null)" ]; then

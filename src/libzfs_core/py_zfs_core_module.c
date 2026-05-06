@@ -137,6 +137,39 @@ void setup_zfs_core_exception(PyObject *module)
 	Py_DECREF(errno_mod);
 }
 
+/*
+ * Build a user-facing exception message of the form
+ *     [<ENAME>] <msg>: <strerror>
+ * for plain unix errnos, or just
+ *     [<EZFS_NAME>] <msg>
+ * when the code is a libzfs EZFS_* value.  Caller-supplied msg should
+ * already include any operation context (e.g. dataset names) the
+ * caller wants in the visible string.  Truncates via snprintf if the
+ * combined output exceeds buflen.
+ */
+static void
+format_zfscore_msg(char *buf, size_t buflen, int code, const char *msg)
+{
+	const char *zname;
+	const char *ename;
+
+	zname = zfs_error_name(code);
+	if (strcmp(zname, "UNKNOWN") != 0) {
+		snprintf(buf, buflen, "[%s] %s", zname, msg);
+		return;
+	}
+
+	ename = strerrorname_np(code);
+	if (ename != NULL) {
+		snprintf(buf, buflen, "[%s] %s: %s",
+			 ename, msg, strerror(code));
+		return;
+	}
+
+	snprintf(buf, buflen, "[errno=%d] %s: %s",
+		 code, msg, strerror(code));
+}
+
 void set_zfscore_exc(PyObject *module,
 		     const char *msg,
 		     int code,
@@ -148,6 +181,7 @@ void set_zfscore_exc(PyObject *module,
 	const char *name = NULL;
 	PyObject *error_name = NULL;
 	PyObject *pycode = NULL;
+	char rich_msg[512];
 	int err;
 
 	pycode = Py_BuildValue("i", code);
@@ -178,7 +212,32 @@ void set_zfscore_exc(PyObject *module,
 		}
 	}
 
-	v = PyObject_CallFunction(state->zc_exc, "s:O", msg, errors_tuple);
+	/*
+	 * args layout depends on whether the caller has per-op error
+	 * detail to surface:
+	 *
+	 *   - errors_tuple is None/NULL (callers like lzc.send / lzc.receive
+	 *     where there is no per-prop info to show): wrap the bare msg in
+	 *     a [ENAME] ... : strerror form so str(e) is self-explanatory
+	 *     instead of the ('msg', None) tuple-repr Python falls back to.
+	 *     args = (rich_msg,).
+	 *
+	 *   - errors_tuple is non-None (channel programs, snapshots, holds,
+	 *     etc. where the kernel already returned structured detail):
+	 *     leave the args layout exactly as it was before -- (msg,
+	 *     errors_tuple).  Existing consumers that match on the
+	 *     errors_tuple repr in str(e) are unaffected.
+	 *
+	 * Named attributes (code, msg, name, errors) keep their original
+	 * values either way.
+	 */
+	if (errors_tuple == NULL || errors_tuple == Py_None) {
+		format_zfscore_msg(rich_msg, sizeof(rich_msg), code, msg);
+		v = PyObject_CallFunction(state->zc_exc, "s", rich_msg);
+	} else {
+		v = PyObject_CallFunction(state->zc_exc, "sO",
+					  msg, errors_tuple);
+	}
 	if (v == NULL)
 		return;
 
@@ -1826,12 +1885,30 @@ PyDoc_STRVAR(py_lzc_receive__doc__,
 "    Clone origin dataset name. Required when receiving a clone stream\n"
 "    that was sent with a -S (saved) flag or from a clone source.\n"
 "props: dict | None, optional, default=None\n"
-"    Dictionary of property overrides to apply to the received dataset.\n"
-"    Keys and values may be strings, ints, or nested dicts.\n"
+"    Property values to record on the destination dataset with\n"
+"    source \"received\" (visible via `zfs get -s received`).  A\n"
+"    locally-set value at the destination still takes precedence;\n"
+"    `zfs inherit -S <prop>` clears the local override and falls\n"
+"    back to the received value.  Anything `zfs set` would accept\n"
+"    on a dataset of the destination type works here - native\n"
+"    dataset properties, user properties in the\n"
+"    \"module:property\" namespace, and userquota@ / groupquota@ /\n"
+"    projectquota@ entries.\n"
+"    Per-property errors are NOT raised - an invalid entry (wrong\n"
+"    value type, value out of range, etc.) is dropped silently\n"
+"    while the receive itself still succeeds.  Use `zfs get`\n"
+"    afterwards to confirm the values took effect.\n"
+"    Dict format: keys are property names; values may be strings,\n"
+"    ints, or {\"value\": ...} dicts in the format `zfs get`\n"
+"    returns.\n"
 "force: bool, optional, default=False\n"
 "    If True, roll back the target dataset to its most recent snapshot\n"
 "    before receiving, allowing a full stream to overwrite a modified\n"
-"    filesystem (equivalent to zfs receive -F).\n"
+"    filesystem (equivalent to zfs receive -F).  Force does NOT destroy\n"
+"    a pre-existing destination snapshot with the same name as the\n"
+"    stream's terminal snap; in that case the receive still fails with\n"
+"    EEXIST and you must either destroy the conflicting snapshot, or\n"
+"    send an incremental from a common base via fromsnap.\n"
 "resumable: bool, optional, default=False\n"
 "    If True, make the receive resumable on interruption. If interrupted\n"
 "    a receive_resume_token property is written to the partial dataset,\n"
@@ -1856,6 +1933,121 @@ PyDoc_STRVAR(py_lzc_receive__doc__,
 "    - ENOTSUP: required pool feature not enabled.\n"
 "RuntimeError:\n"
 "    Failed to log history.\n"
+);
+
+PyDoc_STRVAR(py_lzc_local_replicate__doc__,
+"local_replicate(*, source, dest, fromsnap=None, send_flags=0, props=None,\n"
+"                force=False, raw=False, progress_callback=None,\n"
+"                progress_state=None, progress_interval_seconds=1) -> None\n"
+"-------------------------------------------------------------------------\n\n"
+"Replicate a snapshot to another location on the same system by sending\n"
+"and receiving in a single call.  The GIL is released for the duration\n"
+"of the transfer so other Python threads can run.\n\n"
+"Parameters\n"
+"----------\n"
+"source: str, required\n"
+"    Source snapshot name to send, e.g. \"pool/ds@snap\".\n"
+"dest: str, required\n"
+"    Destination snapshot name to receive into, e.g. \"pool2/ds@snap\".\n"
+"    For a full stream (fromsnap is None, i.e. the stream carries\n"
+"    the entire snapshot rather than a delta from a base) the\n"
+"    parent dataset (here \"pool2/ds\") is created automatically and\n"
+"    only its enclosing parent (\"pool2\") need exist.  For an\n"
+"    incremental stream (fromsnap is set) the parent dataset must\n"
+"    already exist and contain fromsnap.\n"
+"fromsnap: str | None, optional, default=None\n"
+"    Incremental base snapshot.  When provided, only the delta between\n"
+"    fromsnap and source is sent.  fromsnap must be an ancestor of\n"
+"    source.\n"
+"send_flags: int, optional, default=0\n"
+"    Bitwise combination of SendFlags values that affect the wire\n"
+"    format of the send stream:\n"
+"    - EMBED_DATA: include WRITE_EMBEDDED records for small blocks.\n"
+"    - LARGE_BLOCK: allow blocks larger than 128 KiB.\n"
+"    - COMPRESS: send compressed WRITE records.\n"
+"    SendFlags.RAW must be set via the raw=True keyword argument and\n"
+"    is rejected here.  SendFlags.SAVED is a resume-flow concept and\n"
+"    is not supported.\n"
+"props: dict | None, optional, default=None\n"
+"    Property overrides applied to the destination, equivalent\n"
+"    to `zfs receive -o key=value`.  Anything `zfs set` would\n"
+"    accept on a dataset of the destination type works here:\n"
+"    native dataset properties, user properties in the\n"
+"    \"module:property\" namespace, and userquota@ / groupquota@\n"
+"    / projectquota@ entries.\n"
+"    Values are validated up front, so an unknown property name\n"
+"    or out-of-range value raises ZFSCoreException before the\n"
+"    transfer starts.\n"
+"    Dict format: keys are property names; values may be\n"
+"    strings, ints, or {\"value\": ...} dicts in the format\n"
+"    `zfs get` returns.\n"
+"force: bool, optional, default=False\n"
+"    If True, roll back the destination dataset to its most recent\n"
+"    snapshot before receiving (equivalent to zfs receive -F).  Force\n"
+"    does NOT destroy a pre-existing destination snapshot with the\n"
+"    same name as the stream's terminal snap; in that case the\n"
+"    receive still fails with EEXIST and you must either destroy the\n"
+"    conflicting snapshot, or send an incremental stream from a\n"
+"    common base via fromsnap.\n"
+"raw: bool, optional, default=False\n"
+"    If True, send and receive the stream as raw on-disk records\n"
+"    (equivalent to zfs send -w).  Required for replicating an\n"
+"    encrypted dataset without loading the wrapping key.  This flag\n"
+"    drives both the send and receive sides; the two must always\n"
+"    agree.\n"
+"progress_callback: Callable[[int, int, Any], None] | None, optional, default=None\n"
+"    If provided, called periodically while the transfer is in flight\n"
+"    with (bytes_sent, estimated_total, progress_state).  The total is\n"
+"    a one-shot estimate produced before the transfer starts; it does\n"
+"    not change during the call.  When None, no progress polling is\n"
+"    done and no extra threads are spawned.\n"
+"progress_state: Any, optional, default=None\n"
+"    Opaque object passed through verbatim to progress_callback as the\n"
+"    third argument.  Mirrors the (callback, state) shape used by\n"
+"    iter_filesystems / iter_snapshots / iter_pools.\n"
+"progress_interval_seconds: int, optional, default=1\n"
+"    Minimum seconds between progress_callback invocations.  Must be\n"
+"    a positive integer.  The first invocation fires after roughly one\n"
+"    interval, so a transfer that completes in less than this duration\n"
+"    will not produce any callbacks.\n\n"
+"Returns\n"
+"-------\n"
+"None\n\n"
+"Raises\n"
+"------\n"
+"ValueError:\n"
+"    source or dest was omitted, send_flags contained RAW or SAVED,\n"
+"    or progress_interval_seconds was not a positive integer.\n"
+"TypeError:\n"
+"    props is not a dictionary, or progress_callback is not callable.\n"
+"OSError:\n"
+"    Failed to set up the internal transport between the send and\n"
+"    receive sides.\n"
+"ZFSCoreException:\n"
+"    The send or receive failed.  If both sides fail, the receive\n"
+"    error is reported (a failed receive is almost always the\n"
+"    underlying cause).  Also raised if the up-front total-size\n"
+"    estimate fails when progress_callback is requested.\n"
+"RuntimeError:\n"
+"    Failed to log history.\n\n"
+"Notes\n"
+"-----\n"
+"This call is not interruptible from Python while a transfer is in\n"
+"progress.  SIGINT (Ctrl-C) cannot raise KeyboardInterrupt during\n"
+"the call; depending on what the kernel is doing when the signal\n"
+"arrives, the caller observes one of:\n"
+"  - ZFSCoreException with errno == EINTR if the kernel returned\n"
+"    early on the signal.\n"
+"  - The call completes normally and KeyboardInterrupt is raised\n"
+"    on the next Python statement.\n"
+"To cancel a stuck replication, send SIGKILL to the process.\n\n"
+"progress_callback runs on a dedicated polling thread (not the main\n"
+"Python thread).  It must be safe to call concurrently with whatever\n"
+"the main thread is doing; ZFS-mutating operations from inside the\n"
+"callback are not recommended.  Exceptions raised by the callback are\n"
+"routed through sys.unraisablehook (default: traceback to stderr) and\n"
+"polling stops; the transfer itself completes normally and the\n"
+"function returns None.\n"
 );
 
 static int
@@ -1943,6 +2135,12 @@ static PyMethodDef TruenasPylibzfsCoreMethods[] = {
 		.ml_meth = (PyCFunction)py_lzc_receive,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_lzc_receive__doc__
+	},
+	{
+		.ml_name = "local_replicate",
+		.ml_meth = (PyCFunction)py_lzc_local_replicate,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_lzc_local_replicate__doc__
 	},
 	{NULL}
 };
