@@ -121,12 +121,20 @@ A few details worth knowing before touching the implementation:
   fixed marker rather than rendered inline.
 - **`props` semantics.** User-supplied `props` are passed to
   `lzc_receive_with_cmdprops` as `cmdprops`, applied to the
-  destination with source `LOCAL` (the `zfs receive -o` slot).
-  The recv-side props slot is left empty - putting overrides
-  there would be silently overwritten by the source dataset's
-  local properties carried in the stream, making the override
-  invisible whenever the property is set on the source (the
-  common case).
+  destination with source `LOCAL` - the `zfs receive -o` slot.
+  This matches the mental model most callers have for "set
+  this property on the destination": LOCAL is what `zfs get`
+  reports without `-s received`, and `zfs inherit <prop>`
+  clears it the way users expect.
+- **`props` value conversion.** The kernel's
+  `zfs_set_prop_nvlist` rejects `DATA_TYPE_STRING` values for
+  non-string properties (compression, readonly, etc.). The
+  caller-supplied dict arrives as a string-valued nvlist via
+  `py_dict_to_nvlist`, so a temporary `libzfs` handle is
+  opened (via `lzc_repl_open_temp_handle`) just to run
+  `zfs_valid_proplist` and convert strings to the native
+  types the ioctl expects. Bad values are reported as
+  `ZFSCoreException` before the transfer starts.
 - **Cancellation.** The call is not interruptible from Python.
   `SIGINT` is queued during the underlying ioctls; depending on
   where the kernel is when the signal arrives, the ioctl may

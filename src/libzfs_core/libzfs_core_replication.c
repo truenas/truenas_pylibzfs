@@ -6,6 +6,26 @@
 #include <signal.h>
 #include <unistd.h>
 
+/*
+ * Open a temporary libzfs handle for a one-shot libzfs operation that
+ * requires one (resume-token decoding, prop validation, etc.).  Returns
+ * NULL with a Python RuntimeError set on failure.  Caller must close
+ * the handle with libzfs_fini.
+ */
+static libzfs_handle_t *
+lzc_repl_open_temp_handle(void)
+{
+	libzfs_handle_t *hdl;
+
+	Py_BEGIN_ALLOW_THREADS
+	hdl = libzfs_init();
+	Py_END_ALLOW_THREADS
+	if (hdl == NULL)
+		PyErr_SetString(PyExc_RuntimeError,
+				"Failed to create temporary libzfs handle.");
+	return hdl;
+}
+
 PyObject *
 py_lzc_send_progress(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 {
@@ -136,12 +156,9 @@ py_lzc_send(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		libzfs_handle_t *lz;
 		nvlist_t *nvl;
 
-		lz = libzfs_init();
-		if (lz == NULL) {
-			PyErr_SetString(PyExc_RuntimeError,
-					"libzfs_init() failed");
+		lz = lzc_repl_open_temp_handle();
+		if (lz == NULL)
 			return NULL;
-		}
 
 		nvl = zfs_send_resume_token_to_nvlist(lz, resume_token);
 		libzfs_fini(lz);
@@ -401,9 +418,45 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		effective_flags |= LZC_SEND_FLAG_RAW;
 
 	if (py_props != NULL && py_props != Py_None) {
-		props = py_dict_to_nvlist(py_props);
-		if (props == NULL)
+		nvlist_t *raw_props;
+		libzfs_handle_t *vp_hdl;
+		nvlist_t *valid_props;
+		char vp_errbuf[1024];
+
+		raw_props = py_dict_to_nvlist(py_props);
+		if (raw_props == NULL)
 			return NULL;
+
+		/*
+		 * The kernel rejects DATA_TYPE_STRING values for non-string
+		 * properties (compression, readonly, etc.).  zfs_valid_proplist
+		 * is the canonical string-nvlist -> native-nvlist converter and
+		 * is what libzfs's own zfs_prop_set_list_flags / recv_impl run
+		 * before crossing the ioctl boundary.
+		 */
+		vp_hdl = lzc_repl_open_temp_handle();
+		if (vp_hdl == NULL) {
+			fnvlist_free(raw_props);
+			return NULL;
+		}
+
+		snprintf(vp_errbuf, sizeof(vp_errbuf),
+			 "cannot validate properties for receive into '%s'",
+			 dest);
+		valid_props = zfs_valid_proplist(vp_hdl, ZFS_TYPE_DATASET,
+						 raw_props, 0, NULL, NULL,
+						 B_FALSE, vp_errbuf);
+		fnvlist_free(raw_props);
+		if (valid_props == NULL) {
+			py_zfs_error_t zfs_err;
+			py_get_zfs_error(vp_hdl, &zfs_err);
+			libzfs_fini(vp_hdl);
+			set_exc_from_libzfs(&zfs_err,
+					    "zfs_valid_proplist() failed");
+			return NULL;
+		}
+		libzfs_fini(vp_hdl);
+		props = valid_props;
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.local_replicate",
