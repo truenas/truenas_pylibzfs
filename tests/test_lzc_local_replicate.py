@@ -11,13 +11,13 @@ the entire transfer.  These tests exercise the full surface:
   - raw=True for encrypted datasets
   - props on the receive side
   - force on a modified destination
-  - pipe_size kwarg behaviour
   - Error paths (source missing, dest parent missing, dest exists)
   - GIL is released for the duration
   - Audit event firing
   - History entry on success
   - Argument validation
   - No fd / thread leaks
+  - Concurrent invocations on disjoint dataset pairs
 
 The pool fixtures mirror those in tests/test_lzc_replication.py.
 """
@@ -500,49 +500,7 @@ class TestLocalReplicateForce:
 
 
 # ===========================================================================
-# 7. pipe_size
-# ===========================================================================
-
-class TestLocalReplicatePipeSize:
-    def test_default_pipe_size(self, snapped_pool):
-        lz, pool, snap = snapped_pool
-        lzc.local_replicate(source=snap, dest=f"{pool}/recv@snap1")
-        _destroy_recv(lz, f"{pool}/recv")
-
-    def test_small_pipe_size(self, snapped_pool):
-        """Tiny pipe still completes (slower but correct)."""
-        lz, pool, snap = snapped_pool
-        lzc.local_replicate(
-            source=snap, dest=f"{pool}/recv@snap1", pipe_size=4096,
-        )
-        _destroy_recv(lz, f"{pool}/recv")
-
-    def test_large_pipe_size_best_effort(self, snapped_pool):
-        """Oversize requests are silently capped by the kernel."""
-        lz, pool, snap = snapped_pool
-        lzc.local_replicate(
-            source=snap, dest=f"{pool}/recv@snap1",
-            pipe_size=64 * 1024 * 1024,
-        )
-        _destroy_recv(lz, f"{pool}/recv")
-
-    def test_zero_pipe_size_rejected(self, snapped_pool):
-        _, pool, snap = snapped_pool
-        with pytest.raises(ValueError):
-            lzc.local_replicate(
-                source=snap, dest=f"{pool}/recv@snap1", pipe_size=0,
-            )
-
-    def test_negative_pipe_size_rejected(self, snapped_pool):
-        _, pool, snap = snapped_pool
-        with pytest.raises(ValueError):
-            lzc.local_replicate(
-                source=snap, dest=f"{pool}/recv@snap1", pipe_size=-1,
-            )
-
-
-# ===========================================================================
-# 8. Error paths
+# 7. Error paths
 # ===========================================================================
 
 class TestLocalReplicateErrors:
@@ -591,7 +549,7 @@ class TestLocalReplicateErrors:
 
 
 # ===========================================================================
-# 9. GIL released for the duration
+# 8. GIL released for the duration
 # ===========================================================================
 
 class TestLocalReplicateGIL:
@@ -633,7 +591,7 @@ class TestLocalReplicateGIL:
 
 
 # ===========================================================================
-# 10. Audit
+# 9. Audit
 # ===========================================================================
 
 # Module-level capture so the audit hook (which cannot be uninstalled)
@@ -658,12 +616,14 @@ class TestLocalReplicateAudit:
         events = _AUDIT_EVENTS[before:]
         assert len(events) == 1
         _, args = events[0]
-        # (source, dest, fromsnap, send_flags, raw)
+        # (source, dest, fromsnap, effective_flags, force, raw, props)
         assert args[0] == snap
         assert args[1] == dest
-        assert args[2] == ""
+        assert args[2] is None
         assert args[3] == 0
         assert args[4] == 0
+        assert args[5] == 0
+        assert args[6] is None
         _destroy_recv(lz, f"{pool}/recv")
 
     def test_audit_event_carries_kwargs(self, two_snapped_pool):
@@ -676,18 +636,39 @@ class TestLocalReplicateAudit:
             source=snap2, dest=f"{dest_fs}@snap2",
             fromsnap=snap1,
             send_flags=int(lzc.SendFlags.COMPRESS),
+            force=True,
+            props={"compression": "off"},
         )
         events = _AUDIT_EVENTS[before:]
         assert len(events) == 1
         _, args = events[0]
-        assert args[2] == snap1                      # fromsnap
-        assert args[3] == int(lzc.SendFlags.COMPRESS)  # send_flags
-        assert args[4] == 0                          # raw
+        assert args[2] == snap1                        # fromsnap
+        assert args[3] == int(lzc.SendFlags.COMPRESS)  # effective_flags
+        assert args[4] == 1                            # force
+        assert args[5] == 0                            # raw
+        assert args[6] == {"compression": "off"}       # props
         _destroy_recv(lz, dest_fs)
+
+    def test_audit_event_effective_flags_include_raw(
+        self, encrypted_snapped_pool
+    ):
+        """raw=True is folded into effective_flags before auditing so
+        downstream audit consumers see the on-wire flag set, not the
+        user-facing kwarg split."""
+        lz, pool, snap, _ = encrypted_snapped_pool
+        dest = f"{pool}/recv_enc@snap1"
+        before = len(_AUDIT_EVENTS)
+        lzc.local_replicate(source=snap, dest=dest, raw=True)
+        events = _AUDIT_EVENTS[before:]
+        assert len(events) == 1
+        _, args = events[0]
+        assert args[3] & int(lzc.SendFlags.RAW)
+        assert args[5] == 1                            # raw kwarg also set
+        _destroy_recv(lz, f"{pool}/recv_enc")
 
 
 # ===========================================================================
-# 11. History
+# 10. History
 # ===========================================================================
 
 class TestLocalReplicateHistory:
@@ -723,9 +704,47 @@ class TestLocalReplicateHistory:
         ]
         assert after == before
 
+    def test_history_renders_send_and_recv_flags(self, two_snapped_pool):
+        """Flags passed via send_flags / force / raw / props should appear
+        in the synthesized 'zfs send | zfs receive' history entry as the
+        equivalent CLI mnemonics so the log is useful for troubleshooting.
+        """
+        lz, pool, snap1, snap2 = two_snapped_pool
+        dest_fs = f"{pool}/recv"
+        # Baseline first so the incremental has a base to apply against.
+        lzc.local_replicate(source=snap1, dest=f"{dest_fs}@snap1")
+        lzc.local_replicate(
+            source=snap2, dest=f"{dest_fs}@snap2",
+            fromsnap=snap1,
+            send_flags=(int(lzc.SendFlags.LARGE_BLOCK)
+                        | int(lzc.SendFlags.COMPRESS)),
+            force=True,
+            props={"readonly": "on"},
+        )
+        cmds = [
+            rec["history command"]
+            for rec in lz.open_pool(name=pool).iter_history()
+            if "history command" in rec
+        ]
+        # The most recent zfs-send-pipe-receive entry must carry every
+        # flag we set.  Anchor on the dest path so we do not match the
+        # earlier baseline call.
+        matches = [c for c in cmds if "zfs receive" in c
+                   and f"{dest_fs}@snap2" in c]
+        assert matches, f"no incremental history line found in {cmds[-5:]}"
+        line = matches[-1]
+        assert " -L" in line, f"missing -L (LARGE_BLOCK) in: {line}"
+        assert " -c" in line, f"missing -c (COMPRESS) in: {line}"
+        assert " -F" in line, f"missing -F (force) in: {line}"
+        assert " -i " in line, f"missing -i (incremental) in: {line}"
+        assert "received-side properties" in line, (
+            f"missing props marker in: {line}"
+        )
+        _destroy_recv(lz, dest_fs)
+
 
 # ===========================================================================
-# 12. Argument validation
+# 11. Argument validation
 # ===========================================================================
 
 class TestLocalReplicateArgValidation:
@@ -769,14 +788,6 @@ class TestLocalReplicateArgValidation:
                 props="bad",  # type: ignore
             )
 
-    def test_pipe_size_wrong_type(self, snapped_pool):
-        _, pool, snap = snapped_pool
-        with pytest.raises(TypeError):
-            lzc.local_replicate(
-                source=snap, dest=f"{pool}/recv@snap1",
-                pipe_size="bad",  # type: ignore
-            )
-
     def test_unknown_kwarg_rejected(self, snapped_pool):
         _, pool, snap = snapped_pool
         with pytest.raises(TypeError):
@@ -787,7 +798,7 @@ class TestLocalReplicateArgValidation:
 
 
 # ===========================================================================
-# 13. Cleanup (no fd / thread leaks)
+# 12. Cleanup (no fd / thread leaks)
 # ===========================================================================
 
 class TestLocalReplicateCleanup:
@@ -837,3 +848,97 @@ class TestLocalReplicateCleanup:
         after = threading.active_count()
         _destroy_recv(lz, dest_fs)
         assert after == before
+
+
+# ===========================================================================
+# 13. Concurrent invocations
+# ===========================================================================
+
+class TestLocalReplicateConcurrent:
+    """N parallel local_replicate calls on disjoint dataset pairs must
+    all succeed.  The docstring promises the GIL is released for the
+    duration of both ioctls; this test guards against a future
+    regression that introduces a global lock around the call."""
+
+    def test_concurrent_replicates_succeed(self, pool_fixture):
+        lz, pool = pool_fixture
+        N = 4
+        # Per-pair payload kept small so 4 source datasets + 4 receives
+        # fit comfortably in the 256 MiB pool fixture.  Random bytes so
+        # ZFS compression cannot shrink the on-wire stream below the
+        # point where parallelism is observable.
+        payload = 8 * 1024 * 1024
+
+        sources = []
+        for i in range(N):
+            src_fs = f"{pool}/csrc{i}"
+            lz.create_resource(
+                name=src_fs,
+                type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+            )
+            lz.open_resource(name=src_fs).mount()
+            _write_data(f"/{src_fs}", payload, random=True)
+            snap = f"{src_fs}@snap1"
+            _snap(snap)
+            sources.append((src_fs, snap))
+
+        try:
+            # ---- Serial baseline ----
+            serial_dests = [f"{pool}/cdst_serial{i}" for i in range(N)]
+            t0 = time.monotonic()
+            for (_, snap), dest_fs in zip(sources, serial_dests):
+                lzc.local_replicate(source=snap, dest=f"{dest_fs}@snap1")
+            t_serial = time.monotonic() - t0
+            for d in serial_dests:
+                _destroy_recv(lz, d)
+
+            # ---- Concurrent run ----
+            par_dests = [f"{pool}/cdst_par{i}" for i in range(N)]
+            errors = [None] * N
+
+            def _worker(idx, snap, dest_fs):
+                try:
+                    lzc.local_replicate(
+                        source=snap, dest=f"{dest_fs}@snap1",
+                    )
+                except Exception as e:
+                    errors[idx] = e
+
+            threads = [
+                threading.Thread(
+                    target=_worker,
+                    args=(i, sources[i][1], par_dests[i]),
+                )
+                for i in range(N)
+            ]
+            t0 = time.monotonic()
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=120)
+            t_par = time.monotonic() - t0
+
+            # Hard requirement: every concurrent call succeeded and
+            # left a usable destination snapshot.
+            assert all(e is None for e in errors), (
+                f"concurrent calls produced errors: {errors}"
+            )
+            for d in par_dests:
+                assert lz.open_resource(name=f"{d}@snap1") is not None
+
+            # Soft timing assertion, gated on the serial baseline being
+            # long enough to rise above scheduling noise.  On a fast
+            # runner with too-small payload both runs are sub-second
+            # and the comparison is meaningless.
+            if t_serial > 1.0:
+                assert t_par < t_serial * 0.7, (
+                    f"concurrent run was not faster than serial "
+                    f"(serial={t_serial:.2f}s, parallel={t_par:.2f}s) - "
+                    "check for an unexpected internal lock"
+                )
+
+            for d in par_dests:
+                _destroy_recv(lz, d)
+        finally:
+            for src_fs, _ in sources:
+                _destroy_recv(lz, src_fs)

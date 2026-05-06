@@ -93,5 +93,4 @@ def local_replicate(
     props: dict[str, Any] | None = None,
     force: bool = False,
     raw: bool = False,
-    pipe_size: int = 1048576,
 ) -> None: ...
