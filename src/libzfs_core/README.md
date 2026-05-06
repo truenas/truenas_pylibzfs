@@ -38,6 +38,7 @@ operations (snapshot management, send/receive, holds, channel programs).
 | `send_space` | `lzc_send_space` | no |
 | `send_progress` | `lzc_send_progress` | no |
 | `receive` | `lzc_receive` / `lzc_receive_resumable` | yes |
+| `local_replicate` | `lzc_send` + `lzc_receive` (paired in one call via an internal pipe and pthread) | yes |
 | `wait` | `lzc_wait` | no |
 
 ## Developer notes

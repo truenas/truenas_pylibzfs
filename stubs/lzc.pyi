@@ -84,3 +84,14 @@ def receive(
     resumable: bool = False,
     raw: bool = False,
 ) -> None: ...
+def local_replicate(
+    *,
+    source: str,
+    dest: str,
+    fromsnap: str | None = None,
+    send_flags: SendFlags | int = 0,
+    props: dict[str, Any] | None = None,
+    force: bool = False,
+    raw: bool = False,
+    pipe_size: int = 1048576,
+) -> None: ...
