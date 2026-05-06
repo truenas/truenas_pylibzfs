@@ -21,7 +21,7 @@ operations (snapshot management, send/receive, holds, channel programs).
 | File | Purpose |
 |---|---|
 | `py_zfs_core_module.c` | Module entry point, method table, `ZFSCoreException`, `ZCPScript` enum, and docstrings (`PyDoc_STRVAR`) for all methods |
-| `libzfs_core_replication.h/.c` | `send`, `send_space`, `send_progress`, `receive` wrapper functions (no docstrings here) |
+| `libzfs_core_replication.h/.c` | `send`, `send_space`, `send_progress`, `receive`, `local_replicate` wrapper functions (no docstrings here) |
 | `lua_channel_programs.h` | Built-in ZCP (Lua channel program) script table |
 
 ## Exposed methods
@@ -82,3 +82,46 @@ if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.<method>", "...", ...) < 0)
 All `PyDoc_STRVAR` definitions belong in `py_zfs_core_module.c`.
 Implementation files (`libzfs_core_replication.c`, etc.) must not contain
 docstrings.
+
+### `local_replicate` design notes
+
+`local_replicate` is a single-call wrapper that drives `lzc_send` and
+`lzc_receive` against opposite ends of an anonymous pipe inside the
+process. The send side runs in a `pthread_create`'d thread so the
+receive ioctl can block on the read end concurrently, and both ioctls
+run with the GIL released.
+
+A few details worth knowing before touching the implementation:
+
+- **Pipe sizing.** The pipe is enlarged to 1 MiB via
+  `F_SETPIPE_SZ` immediately after `pipe2()`, before any writer
+  exists. The resize is best-effort: failures (`EPERM` over
+  `/proc/sys/fs/pipe-max-size` for non-root, `EINVAL` on rejected
+  sizes) are tolerated and the kernel default takes over. The
+  resize is intentionally done while the pipe is empty to avoid
+  Linux kernel bug 212295, which can deadlock `F_SETPIPE_SZ` on
+  a pipe that already has partial-unit data buffered.
+- **`SIGPIPE` masking.** The send thread blocks `SIGPIPE` so a
+  failed receive (which closes the read end) surfaces as `EPIPE`
+  from `lzc_send` rather than terminating the process.
+- **Error precedence.** If both sides fail, the receive error is
+  reported and the send error is dropped; a failed receive is
+  almost always the underlying cause and the downstream `EPIPE`
+  on the send side would mask it.
+- **`SendFlags.RAW` handling.** `RAW` is rejected when set in
+  `send_flags` and must instead be passed via `raw=True`, which
+  drives both the send and receive sides together so they cannot
+  disagree. `SendFlags.SAVED` is rejected entirely; resume flows
+  must use `lzc.send` + `lzc.receive` directly.
+- **History entry.** The receive ioctl sets the `allow_log` TSD
+  on the calling thread, so `py_log_history_impl` can record a
+  synthesized `zfs send | zfs receive` line. Send/recv flags are
+  rendered as their CLI mnemonics (`-L`, `-e`, `-c`, `-w`, `-F`)
+  for grep-ability; received-side properties are noted with a
+  fixed marker rather than rendered inline.
+- **Cancellation.** The call is not interruptible from Python.
+  `SIGINT` is queued during the underlying ioctls; depending on
+  where the kernel is when the signal arrives, the ioctl may
+  return `EINTR` (surfaced as `ZFSCoreException`) or run to
+  completion with `KeyboardInterrupt` raised on the next bytecode
+  after return.

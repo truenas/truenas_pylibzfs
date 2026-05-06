@@ -317,12 +317,22 @@ lzc_local_replicate_send_thread(void *arg)
 	return NULL;
 }
 
+/*
+ * Internal pipe buffer size in bytes.  Applied best-effort with
+ * F_SETPIPE_SZ; failures (EPERM over /proc/sys/fs/pipe-max-size for
+ * non-root, EINVAL on rejected sizes) are tolerated and the kernel
+ * default takes over.  1 MiB matches the unprivileged default of
+ * /proc/sys/fs/pipe-max-size, so the resize typically succeeds without
+ * CAP_SYS_RESOURCE.
+ */
+#define LZC_LOCAL_REPLICATE_PIPE_SIZE	(1 << 20)
+
 PyObject *
 py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 {
 	char *kwnames[] = {
 		"source", "dest", "fromsnap", "send_flags", "props",
-		"force", "raw", "pipe_size", NULL
+		"force", "raw", NULL
 	};
 	const char *source = NULL;
 	const char *dest = NULL;
@@ -331,7 +341,6 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	PyObject *py_props = NULL;
 	int force_int = 0;
 	int raw_int = 0;
-	int pipe_size = 1 << 20;
 
 	nvlist_t *props = NULL;
 	int fds[2] = { -1, -1 };
@@ -340,12 +349,16 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	int pthread_create_err = 0;
 	struct lzc_replicate_send_args send_args;
 	enum lzc_send_flags effective_flags;
+	char send_opts[64] = {0};
+	char recv_opts[8] = {0};
+	const char *props_marker = "";
+	int opts_off = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$zzziOppi",
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$zzziOpp",
 					 kwnames,
 					 &source, &dest, &fromsnap,
 					 &send_flags, &py_props,
-					 &force_int, &raw_int, &pipe_size))
+					 &force_int, &raw_int))
 		return NULL;
 
 	if (source == NULL) {
@@ -383,12 +396,6 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		return NULL;
 	}
 
-	if (pipe_size <= 0) {
-		PyErr_SetString(PyExc_ValueError,
-				"pipe_size must be positive");
-		return NULL;
-	}
-
 	effective_flags = (enum lzc_send_flags)send_flags;
 	if (raw_int)
 		effective_flags |= LZC_SEND_FLAG_RAW;
@@ -400,10 +407,10 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.local_replicate",
-			"sszii",
-			source, dest,
-			fromsnap ? fromsnap : "",
-			send_flags, raw_int) < 0) {
+			"ssziiiO",
+			source, dest, fromsnap,
+			(int)effective_flags, force_int, raw_int,
+			py_props ? py_props : Py_None) < 0) {
 		fnvlist_free(props);
 		return NULL;
 	}
@@ -415,13 +422,12 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	}
 
 	/*
-	 * Best-effort pipe enlargement.  Larger than the kernel default
-	 * (64 KiB) reduces context-switch overhead between the threads.
-	 * EPERM (over /proc/sys/fs/pipe-max-size for non-root) and EINVAL
-	 * are tolerated; the resize is safe because the pipe is empty
-	 * (kernel bug 212295 only deadlocks on a non-empty pipe).
+	 * Best-effort pipe enlargement; ignore failures and let the kernel
+	 * default stand if the resize is rejected.  The resize is safe
+	 * here because the pipe is empty (kernel bug 212295 only deadlocks
+	 * on a non-empty pipe).
 	 */
-	(void)fcntl(fds[1], F_SETPIPE_SZ, pipe_size);
+	(void)fcntl(fds[1], F_SETPIPE_SZ, LZC_LOCAL_REPLICATE_PIPE_SIZE);
 
 	send_args.snapname = source;
 	send_args.fromsnap = fromsnap;
@@ -487,25 +493,50 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	/*
 	 * History logging: the receive ioctl set the allow-log TSD
 	 * (Thread-Specific Data) on the calling thread, so we can log a
-	 * synthesized "zfs send | zfs receive" entry.  Two formats keeps
-	 * the message readable.
+	 * synthesized "zfs send | zfs receive" entry.  Render send/recv
+	 * flags as their CLI mnemonics so the entry is grep-able and
+	 * matches the equivalent shell pipeline.  props are not rendered
+	 * inline (an arbitrary nested dict does not fit a single log line);
+	 * a fixed marker is appended instead so a reader knows to inspect
+	 * the audit hook for the values.
+	 *
+	 * py_props (the original PyObject) survives past the
+	 * fnvlist_free(props) above; use it rather than the freed nvlist
+	 * to decide whether to emit the marker.
 	 */
+	if (effective_flags & LZC_SEND_FLAG_LARGE_BLOCK)
+		opts_off += snprintf(send_opts + opts_off,
+				     sizeof(send_opts) - opts_off, " -L");
+	if (effective_flags & LZC_SEND_FLAG_EMBED_DATA)
+		opts_off += snprintf(send_opts + opts_off,
+				     sizeof(send_opts) - opts_off, " -e");
+	if (effective_flags & LZC_SEND_FLAG_COMPRESS)
+		opts_off += snprintf(send_opts + opts_off,
+				     sizeof(send_opts) - opts_off, " -c");
+	if (effective_flags & LZC_SEND_FLAG_RAW)
+		opts_off += snprintf(send_opts + opts_off,
+				     sizeof(send_opts) - opts_off, " -w");
+
+	if (force_int)
+		snprintf(recv_opts, sizeof(recv_opts), " -F");
+
+	if (py_props != NULL && py_props != Py_None &&
+	    PyDict_Size(py_props) > 0)
+		props_marker = " (with received-side properties)";
+
 	if (fromsnap) {
 		if (py_log_history_impl(NULL, NULL,
 					"zfs send%s -i %s %s | "
-					"zfs receive%s %s",
-					raw_int ? " -w" : "",
-					fromsnap, source,
-					force_int ? " -F" : "",
-					dest))
+					"zfs receive%s %s%s",
+					send_opts, fromsnap, source,
+					recv_opts, dest, props_marker))
 			return NULL;
 	} else {
 		if (py_log_history_impl(NULL, NULL,
-					"zfs send%s %s | zfs receive%s %s",
-					raw_int ? " -w" : "",
-					source,
-					force_int ? " -F" : "",
-					dest))
+					"zfs send%s %s | "
+					"zfs receive%s %s%s",
+					send_opts, source,
+					recv_opts, dest, props_marker))
 			return NULL;
 	}
 
