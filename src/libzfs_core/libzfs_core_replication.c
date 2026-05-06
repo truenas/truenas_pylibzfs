@@ -4,6 +4,8 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdbool.h>
+#include <time.h>
 #include <unistd.h>
 
 /*
@@ -24,6 +26,52 @@ lzc_repl_open_temp_handle(void)
 		PyErr_SetString(PyExc_RuntimeError,
 				"Failed to create temporary libzfs handle.");
 	return hdl;
+}
+
+/*
+ * Convert a Python dict of dataset property overrides into the native-
+ * typed nvlist that lzc_receive_with_cmdprops expects.  py_dict_to_nvlist
+ * produces a string-valued nvlist; the kernel rejects DATA_TYPE_STRING
+ * for non-string properties (compression, readonly, etc.), so we run
+ * zfs_valid_proplist against a temporary libzfs handle to do the
+ * string -> native conversion that libzfs_sendrecv.c does for
+ * `zfs receive -o`.  Returns the converted nvlist (caller frees with
+ * fnvlist_free) or NULL with a Python exception set.
+ */
+static nvlist_t *
+local_replicate_build_cmdprops(PyObject *py_props, const char *dest)
+{
+	nvlist_t *raw_props;
+	libzfs_handle_t *vp_hdl;
+	nvlist_t *valid_props;
+	char vp_errbuf[1024];
+	py_zfs_error_t zfs_err;
+
+	raw_props = py_dict_to_nvlist(py_props);
+	if (raw_props == NULL)
+		return NULL;
+
+	vp_hdl = lzc_repl_open_temp_handle();
+	if (vp_hdl == NULL) {
+		fnvlist_free(raw_props);
+		return NULL;
+	}
+
+	snprintf(vp_errbuf, sizeof(vp_errbuf),
+		 "cannot validate properties for receive into '%s'", dest);
+	valid_props = zfs_valid_proplist(vp_hdl, ZFS_TYPE_DATASET,
+					 raw_props, 0, NULL, NULL,
+					 B_FALSE, vp_errbuf);
+	fnvlist_free(raw_props);
+	if (valid_props == NULL) {
+		py_get_zfs_error(vp_hdl, &zfs_err);
+		libzfs_fini(vp_hdl);
+		set_exc_from_libzfs(&zfs_err,
+				    "zfs_valid_proplist() failed");
+		return NULL;
+	}
+	libzfs_fini(vp_hdl);
+	return valid_props;
 }
 
 PyObject *
@@ -249,7 +297,7 @@ py_lzc_receive(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		return NULL;
 	}
 
-	if (py_props != NULL && py_props != Py_None) {
+	if (!NULL_OR_NONE(py_props)) {
 		props = py_dict_to_nvlist(py_props);
 		if (props == NULL)
 			return NULL;
@@ -344,12 +392,267 @@ lzc_local_replicate_send_thread(void *arg)
  */
 #define LZC_LOCAL_REPLICATE_PIPE_SIZE	(1 << 20)
 
+/*
+ * Emit the synthesized "zfs send | zfs receive" history entry that
+ * makes a successful local_replicate grep-able in pool history.  Send
+ * and recv flags are rendered as their CLI mnemonics; props are not
+ * rendered inline (an arbitrary nested dict does not fit a single log
+ * line), only flagged with a fixed marker so a reader knows to inspect
+ * the audit hook for the values.  Returns 0 on success, non-zero from
+ * py_log_history_impl on failure.
+ */
+static int
+local_replicate_log_history(const char *source, const char *dest,
+			    const char *fromsnap,
+			    enum lzc_send_flags flags,
+			    bool force, bool has_props)
+{
+	char send_opts[64] = {0};
+	char recv_opts[8] = {0};
+	const char *props_marker = "";
+	int off = 0;
+
+	if (flags & LZC_SEND_FLAG_LARGE_BLOCK)
+		off += snprintf(send_opts + off,
+				sizeof(send_opts) - off, " -L");
+	if (flags & LZC_SEND_FLAG_EMBED_DATA)
+		off += snprintf(send_opts + off,
+				sizeof(send_opts) - off, " -e");
+	if (flags & LZC_SEND_FLAG_COMPRESS)
+		off += snprintf(send_opts + off,
+				sizeof(send_opts) - off, " -c");
+	if (flags & LZC_SEND_FLAG_RAW)
+		off += snprintf(send_opts + off,
+				sizeof(send_opts) - off, " -w");
+
+	if (force)
+		snprintf(recv_opts, sizeof(recv_opts), " -F");
+
+	if (has_props)
+		props_marker = " (with -o property overrides)";
+
+	if (fromsnap) {
+		return py_log_history_impl(NULL, NULL,
+					   "zfs send%s -i %s %s | "
+					   "zfs receive%s %s%s",
+					   send_opts, fromsnap, source,
+					   recv_opts, dest, props_marker);
+	}
+	return py_log_history_impl(NULL, NULL,
+				   "zfs send%s %s | zfs receive%s %s%s",
+				   send_opts, source, recv_opts, dest,
+				   props_marker);
+}
+
+/*
+ * Argument struct for the progress-poller pthread used by
+ * py_lzc_local_replicate when the caller supplies a progress_callback.
+ * Lives on the stack of the main thread for the duration of the
+ * transfer.  The callback / state pointers are borrowed from the
+ * function's kwargs and remain valid until the call returns.
+ */
+struct lzc_replicate_progress_args {
+	const char *snapname;
+	int fd;
+	uint64_t total;
+	PyObject *callback;
+	PyObject *state;
+	int interval_seconds;
+	pthread_mutex_t lock;
+	pthread_cond_t cond;
+	bool stop;
+	PyObject *exc_type;
+	PyObject *exc_value;
+	PyObject *exc_tb;
+};
+
+/*
+ * Poller thread.  Sleeps interval_seconds between polls, queries the
+ * kernel for bytes-sent against the internal send fd, reacquires the
+ * GIL, and invokes the user callback with (written, total, state).
+ * On callback exception the exc_* fields are populated for the main
+ * thread to PyErr_Restore after both ioctls have settled.
+ *
+ * Coordination with the main thread is via lock + cond + stop flag:
+ * the main thread sets stop=true and signals cond once both transfer
+ * ioctls return, so this poller exits promptly rather than running
+ * out the interval timer.
+ */
+static void *
+lzc_local_replicate_progress_thread(void *arg)
+{
+	struct lzc_replicate_progress_args *p = arg;
+
+	for (;;) {
+		struct timespec ts;
+		bool stopped;
+		uint64_t written = 0, blocks = 0;
+		PyObject *result;
+		PyObject *written_obj;
+		PyObject *total_obj;
+		PyGILState_STATE gs;
+
+		pthread_mutex_lock(&p->lock);
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		ts.tv_sec += p->interval_seconds;
+		while (!p->stop) {
+			int rc = pthread_cond_timedwait(&p->cond, &p->lock,
+							&ts);
+			if (rc == ETIMEDOUT)
+				break;
+		}
+		stopped = p->stop;
+		pthread_mutex_unlock(&p->lock);
+		if (stopped)
+			break;
+
+		if (lzc_send_progress(p->snapname, p->fd, &written,
+				      &blocks) != 0)
+			continue;
+
+		gs = PyGILState_Ensure();
+		written_obj = PyLong_FromUnsignedLongLong(written);
+		total_obj = PyLong_FromUnsignedLongLong(p->total);
+		result = NULL;
+		if (written_obj != NULL && total_obj != NULL)
+			result = PyObject_CallFunctionObjArgs(p->callback,
+							      written_obj,
+							      total_obj,
+							      p->state, NULL);
+		Py_XDECREF(written_obj);
+		Py_XDECREF(total_obj);
+		if (result == NULL) {
+			PyErr_Fetch(&p->exc_type, &p->exc_value, &p->exc_tb);
+			PyGILState_Release(gs);
+			pthread_mutex_lock(&p->lock);
+			p->stop = true;
+			pthread_mutex_unlock(&p->lock);
+			break;
+		}
+		Py_DECREF(result);
+		PyGILState_Release(gs);
+	}
+	return NULL;
+}
+
+/*
+ * One-shot setup of the progress-poller arg struct.  Computes the
+ * total-bytes estimate via lzc_send_space and initializes the mutex
+ * + cond used to coordinate the poller with the main thread.  The
+ * fd is left at -1; the caller must assign it after pipe2() succeeds.
+ *
+ * Returns 0 on success.  Returns -1 with a Python exception set on
+ * lzc_send_space failure; mutex/cond are left uninitialized in that
+ * case so the caller must not call local_replicate_progress_fini.
+ */
+static int
+local_replicate_progress_init(struct lzc_replicate_progress_args *p,
+			      const char *source, const char *fromsnap,
+			      enum lzc_send_flags flags,
+			      PyObject *callback, PyObject *state,
+			      int interval_seconds, PyObject *exc_owner)
+{
+	uint64_t total = 0;
+	int err;
+	pthread_condattr_t cattr;
+
+	Py_BEGIN_ALLOW_THREADS
+	err = lzc_send_space(source, fromsnap, flags, &total);
+	Py_END_ALLOW_THREADS
+	if (err) {
+		set_zfscore_exc(exc_owner, "lzc_send_space() failed",
+				err, Py_None);
+		return -1;
+	}
+
+	p->snapname = source;
+	p->fd = -1;
+	p->total = total;
+	p->callback = callback;
+	p->state = (state != NULL) ? state : Py_None;
+	p->interval_seconds = interval_seconds;
+	p->stop = false;
+	p->exc_type = NULL;
+	p->exc_value = NULL;
+	p->exc_tb = NULL;
+	pthread_mutex_init(&p->lock, NULL);
+	/*
+	 * Use CLOCK_MONOTONIC for cond_timedwait deadlines so wall-clock
+	 * adjustments (NTP, manual `date`, leap seconds) cannot push the
+	 * poller into a busy loop or stall it past its interval.  The
+	 * deadline computed by lzc_local_replicate_progress_thread must
+	 * use the same clock, and does.
+	 */
+	pthread_condattr_init(&cattr);
+	pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
+	pthread_cond_init(&p->cond, &cattr);
+	pthread_condattr_destroy(&cattr);
+	return 0;
+}
+
+/*
+ * Tear down the sync primitives initialized by
+ * local_replicate_progress_init.  Always paired one-for-one with that
+ * function on the success-of-init path.
+ */
+static void
+local_replicate_progress_fini(struct lzc_replicate_progress_args *p)
+{
+	pthread_mutex_destroy(&p->lock);
+	pthread_cond_destroy(&p->cond);
+}
+
+/*
+ * Discard a captured callback exception on transfer-error paths where
+ * a higher-precedence error (recv/send/pthread_create failure) takes
+ * over the function's return.  Idempotent; safe even when no exception
+ * was ever captured.
+ */
+static void
+local_replicate_progress_drop_exc(struct lzc_replicate_progress_args *p)
+{
+	Py_CLEAR(p->exc_type);
+	Py_CLEAR(p->exc_value);
+	Py_CLEAR(p->exc_tb);
+}
+
+/*
+ * Spawn the progress poller thread.  Returns 0 on success, or the
+ * errno value from pthread_create on failure.  Must be called inside
+ * a Py_BEGIN_ALLOW_THREADS block; the GIL is not held by the spawned
+ * thread until it explicitly reacquires it for callback dispatch.
+ */
+static int
+local_replicate_progress_start(pthread_t *tid,
+			       struct lzc_replicate_progress_args *p)
+{
+	return pthread_create(tid, NULL,
+			      lzc_local_replicate_progress_thread, p);
+}
+
+/*
+ * Wake the progress poller out of its cond_timedwait and join it.
+ * Must be called once after both transfer ioctls have settled, and
+ * only when local_replicate_progress_start returned 0.
+ */
+static void
+local_replicate_progress_stop(pthread_t tid,
+			      struct lzc_replicate_progress_args *p)
+{
+	pthread_mutex_lock(&p->lock);
+	p->stop = true;
+	pthread_cond_signal(&p->cond);
+	pthread_mutex_unlock(&p->lock);
+	pthread_join(tid, NULL);
+}
+
 PyObject *
 py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 {
 	char *kwnames[] = {
 		"source", "dest", "fromsnap", "send_flags", "props",
-		"force", "raw", NULL
+		"force", "raw", "progress_callback", "progress_state",
+		"progress_interval_seconds", NULL
 	};
 	const char *source = NULL;
 	const char *dest = NULL;
@@ -358,6 +661,9 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	PyObject *py_props = NULL;
 	int force_int = 0;
 	int raw_int = 0;
+	PyObject *py_progress_cb = NULL;
+	PyObject *py_progress_state = NULL;
+	int progress_interval = 1;
 
 	nvlist_t *props = NULL;
 	int fds[2] = { -1, -1 };
@@ -366,16 +672,18 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	int pthread_create_err = 0;
 	struct lzc_replicate_send_args send_args;
 	enum lzc_send_flags effective_flags;
-	char send_opts[64] = {0};
-	char recv_opts[8] = {0};
-	const char *props_marker = "";
-	int opts_off = 0;
+	struct lzc_replicate_progress_args progress_args;
+	pthread_t progress_tid;
+	bool progress_active = false;
+	int progress_create_err = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$zzziOpp",
+	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$zzziOppOOi",
 					 kwnames,
 					 &source, &dest, &fromsnap,
 					 &send_flags, &py_props,
-					 &force_int, &raw_int))
+					 &force_int, &raw_int,
+					 &py_progress_cb, &py_progress_state,
+					 &progress_interval))
 		return NULL;
 
 	if (source == NULL) {
@@ -413,50 +721,27 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		return NULL;
 	}
 
+	if (!NULL_OR_NONE(py_progress_cb) &&
+	    !PyCallable_Check(py_progress_cb)) {
+		PyErr_SetString(PyExc_TypeError,
+				"progress_callback must be callable or None");
+		return NULL;
+	}
+
+	if (progress_interval <= 0) {
+		PyErr_SetString(PyExc_ValueError,
+				"progress_interval_seconds must be positive");
+		return NULL;
+	}
+
 	effective_flags = (enum lzc_send_flags)send_flags;
 	if (raw_int)
 		effective_flags |= LZC_SEND_FLAG_RAW;
 
-	if (py_props != NULL && py_props != Py_None) {
-		nvlist_t *raw_props;
-		libzfs_handle_t *vp_hdl;
-		nvlist_t *valid_props;
-		char vp_errbuf[1024];
-
-		raw_props = py_dict_to_nvlist(py_props);
-		if (raw_props == NULL)
+	if (!NULL_OR_NONE(py_props)) {
+		props = local_replicate_build_cmdprops(py_props, dest);
+		if (props == NULL)
 			return NULL;
-
-		/*
-		 * The kernel rejects DATA_TYPE_STRING values for non-string
-		 * properties (compression, readonly, etc.).  zfs_valid_proplist
-		 * is the canonical string-nvlist -> native-nvlist converter and
-		 * is what libzfs's own zfs_prop_set_list_flags / recv_impl run
-		 * before crossing the ioctl boundary.
-		 */
-		vp_hdl = lzc_repl_open_temp_handle();
-		if (vp_hdl == NULL) {
-			fnvlist_free(raw_props);
-			return NULL;
-		}
-
-		snprintf(vp_errbuf, sizeof(vp_errbuf),
-			 "cannot validate properties for receive into '%s'",
-			 dest);
-		valid_props = zfs_valid_proplist(vp_hdl, ZFS_TYPE_DATASET,
-						 raw_props, 0, NULL, NULL,
-						 B_FALSE, vp_errbuf);
-		fnvlist_free(raw_props);
-		if (valid_props == NULL) {
-			py_zfs_error_t zfs_err;
-			py_get_zfs_error(vp_hdl, &zfs_err);
-			libzfs_fini(vp_hdl);
-			set_exc_from_libzfs(&zfs_err,
-					    "zfs_valid_proplist() failed");
-			return NULL;
-		}
-		libzfs_fini(vp_hdl);
-		props = valid_props;
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.local_replicate",
@@ -470,9 +755,25 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		return NULL;
 	}
 
+	if (!NULL_OR_NONE(py_progress_cb)) {
+		if (local_replicate_progress_init(&progress_args,
+						  source, fromsnap,
+						  effective_flags,
+						  py_progress_cb,
+						  py_progress_state,
+						  progress_interval,
+						  self) < 0) {
+			fnvlist_free(props);
+			return NULL;
+		}
+		progress_active = true;
+	}
+
 	if (pipe2(fds, O_CLOEXEC) < 0) {
 		PyErr_SetFromErrno(PyExc_OSError);
 		fnvlist_free(props);
+		if (progress_active)
+			local_replicate_progress_fini(&progress_args);
 		return NULL;
 	}
 
@@ -490,11 +791,17 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	send_args.flags = effective_flags;
 	send_args.err = 0;
 
+	if (progress_active)
+		progress_args.fd = fds[1];
+
 	Py_BEGIN_ALLOW_THREADS
 	pthread_create_err = pthread_create(&tid, NULL,
 					    lzc_local_replicate_send_thread,
 					    &send_args);
 	if (pthread_create_err == 0) {
+		if (progress_active)
+			progress_create_err = local_replicate_progress_start(
+				&progress_tid, &progress_args);
 		/*
 		 * Pass user props as cmdprops (the `zfs receive -o` slot,
 		 * applied with source LOCAL) rather than as the recv-side
@@ -530,6 +837,11 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		pthread_join(tid, NULL);
 		/* Sender thread closed fds[1] from inside the thread. */
 		fds[1] = -1;
+
+		/* Wake & join the progress poller, if it was started. */
+		if (progress_active && progress_create_err == 0)
+			local_replicate_progress_stop(progress_tid,
+						      &progress_args);
 	} else {
 		/* No sender thread launched: clean up both fds ourselves. */
 		close(fds[0]);
@@ -541,7 +853,19 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 
 	fnvlist_free(props);
 
+	/*
+	 * Tear down progress sync primitives before any error-handling
+	 * return so we don't leak them on the unhappy path.  Any captured
+	 * callback exception is dropped on transfer-error paths (the
+	 * transfer error takes precedence) and restored only on the
+	 * success path.
+	 */
+	if (progress_active)
+		local_replicate_progress_fini(&progress_args);
+
 	if (pthread_create_err != 0) {
+		if (progress_active)
+			local_replicate_progress_drop_exc(&progress_args);
 		errno = pthread_create_err;
 		PyErr_SetFromErrno(PyExc_OSError);
 		return NULL;
@@ -554,66 +878,52 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	 * cause.  Only surface the send error when the receive succeeded.
 	 */
 	if (recv_err) {
+		if (progress_active)
+			local_replicate_progress_drop_exc(&progress_args);
 		set_zfscore_exc(self, "lzc_receive() failed",
 				recv_err, Py_None);
 		return NULL;
 	}
 
 	if (send_args.err) {
+		if (progress_active)
+			local_replicate_progress_drop_exc(&progress_args);
 		set_zfscore_exc(self, "lzc_send() failed",
 				send_args.err, Py_None);
 		return NULL;
 	}
 
 	/*
+	 * Transfer succeeded.  Surface progress-thread failures now: a
+	 * pthread_create failure for the poller becomes OSError; a
+	 * captured exception from the user's callback is restored.
+	 */
+	if (progress_active && progress_create_err != 0) {
+		errno = progress_create_err;
+		PyErr_SetFromErrno(PyExc_OSError);
+		return NULL;
+	}
+
+	if (progress_active && progress_args.exc_type != NULL) {
+		PyErr_Restore(progress_args.exc_type,
+			      progress_args.exc_value,
+			      progress_args.exc_tb);
+		return NULL;
+	}
+
+	/*
 	 * History logging: the receive ioctl set the allow-log TSD
 	 * (Thread-Specific Data) on the calling thread, so we can log a
-	 * synthesized "zfs send | zfs receive" entry.  Render send/recv
-	 * flags as their CLI mnemonics so the entry is grep-able and
-	 * matches the equivalent shell pipeline.  props are not rendered
-	 * inline (an arbitrary nested dict does not fit a single log line);
-	 * a fixed marker is appended instead so a reader knows to inspect
-	 * the audit hook for the values.
-	 *
-	 * py_props (the original PyObject) survives past the
-	 * fnvlist_free(props) above; use it rather than the freed nvlist
-	 * to decide whether to emit the marker.
+	 * synthesized "zfs send | zfs receive" entry.  py_props survives
+	 * past the fnvlist_free(props) above, so we can still inspect it
+	 * to decide whether to emit the props marker.
 	 */
-	if (effective_flags & LZC_SEND_FLAG_LARGE_BLOCK)
-		opts_off += snprintf(send_opts + opts_off,
-				     sizeof(send_opts) - opts_off, " -L");
-	if (effective_flags & LZC_SEND_FLAG_EMBED_DATA)
-		opts_off += snprintf(send_opts + opts_off,
-				     sizeof(send_opts) - opts_off, " -e");
-	if (effective_flags & LZC_SEND_FLAG_COMPRESS)
-		opts_off += snprintf(send_opts + opts_off,
-				     sizeof(send_opts) - opts_off, " -c");
-	if (effective_flags & LZC_SEND_FLAG_RAW)
-		opts_off += snprintf(send_opts + opts_off,
-				     sizeof(send_opts) - opts_off, " -w");
-
-	if (force_int)
-		snprintf(recv_opts, sizeof(recv_opts), " -F");
-
-	if (py_props != NULL && py_props != Py_None &&
-	    PyDict_Size(py_props) > 0)
-		props_marker = " (with -o property overrides)";
-
-	if (fromsnap) {
-		if (py_log_history_impl(NULL, NULL,
-					"zfs send%s -i %s %s | "
-					"zfs receive%s %s%s",
-					send_opts, fromsnap, source,
-					recv_opts, dest, props_marker))
-			return NULL;
-	} else {
-		if (py_log_history_impl(NULL, NULL,
-					"zfs send%s %s | "
-					"zfs receive%s %s%s",
-					send_opts, source,
-					recv_opts, dest, props_marker))
-			return NULL;
-	}
+	if (local_replicate_log_history(source, dest, fromsnap,
+					effective_flags,
+					force_int != 0,
+					!NULL_OR_NONE(py_props) &&
+					PyDict_Size(py_props) > 0))
+		return NULL;
 
 	Py_RETURN_NONE;
 }
