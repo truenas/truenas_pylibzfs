@@ -21,7 +21,7 @@ operations (snapshot management, send/receive, holds, channel programs).
 | File | Purpose |
 |---|---|
 | `py_zfs_core_module.c` | Module entry point, method table, `ZFSCoreException`, `ZCPScript` enum, and docstrings (`PyDoc_STRVAR`) for all methods |
-| `libzfs_core_replication.h/.c` | `send`, `send_space`, `send_progress`, `receive` wrapper functions (no docstrings here) |
+| `libzfs_core_replication.h/.c` | `send`, `send_space`, `send_progress`, `receive`, `local_replicate` wrapper functions (no docstrings here) |
 | `lua_channel_programs.h` | Built-in ZCP (Lua channel program) script table |
 
 ## Exposed methods
@@ -38,6 +38,7 @@ operations (snapshot management, send/receive, holds, channel programs).
 | `send_space` | `lzc_send_space` | no |
 | `send_progress` | `lzc_send_progress` | no |
 | `receive` | `lzc_receive` / `lzc_receive_resumable` | yes |
+| `local_replicate` | `lzc_send` + `lzc_receive` (paired in one call via an internal pipe and pthread) | yes |
 | `wait` | `lzc_wait` | no |
 
 ## Developer notes
@@ -81,3 +82,80 @@ if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.<method>", "...", ...) < 0)
 All `PyDoc_STRVAR` definitions belong in `py_zfs_core_module.c`.
 Implementation files (`libzfs_core_replication.c`, etc.) must not contain
 docstrings.
+
+### `local_replicate` design notes
+
+`local_replicate` is a single-call wrapper that drives `lzc_send` and
+`lzc_receive` against opposite ends of an anonymous pipe inside the
+process. The send side runs in a `pthread_create`'d thread so the
+receive ioctl can block on the read end concurrently, and both ioctls
+run with the GIL released.
+
+A few details worth knowing before touching the implementation:
+
+- **Pipe sizing.** The pipe is enlarged to 1 MiB via
+  `F_SETPIPE_SZ` immediately after `pipe2()`, before any writer
+  exists. The resize is best-effort: failures (`EPERM` over
+  `/proc/sys/fs/pipe-max-size` for non-root, `EINVAL` on rejected
+  sizes) are tolerated and the kernel default takes over. The
+  resize is intentionally done while the pipe is empty to avoid
+  Linux kernel bug 212295, which can deadlock `F_SETPIPE_SZ` on
+  a pipe that already has partial-unit data buffered.
+- **`SIGPIPE` masking.** The send thread blocks `SIGPIPE` so a
+  failed receive (which closes the read end) surfaces as `EPIPE`
+  from `lzc_send` rather than terminating the process.
+- **Error precedence.** If both sides fail, the receive error is
+  reported and the send error is dropped; a failed receive is
+  almost always the underlying cause and the downstream `EPIPE`
+  on the send side would mask it.
+- **`SendFlags.RAW` handling.** `RAW` is rejected when set in
+  `send_flags` and must instead be passed via `raw=True`, which
+  drives both the send and receive sides together so they cannot
+  disagree. `SendFlags.SAVED` is rejected entirely; resume flows
+  must use `lzc.send` + `lzc.receive` directly.
+- **History entry.** The receive ioctl sets the `allow_log` TSD
+  on the calling thread, so `py_log_history_impl` can record a
+  synthesized `zfs send | zfs receive` line. Send/recv flags are
+  rendered as their CLI mnemonics (`-L`, `-e`, `-c`, `-w`, `-F`)
+  for grep-ability; `-o` property overrides are noted with a
+  fixed marker rather than rendered inline.
+- **`props` semantics.** User-supplied `props` are passed to
+  `lzc_receive_with_cmdprops` as `cmdprops`, applied to the
+  destination with source `LOCAL` - the `zfs receive -o` slot.
+  This matches the mental model most callers have for "set
+  this property on the destination": LOCAL is what `zfs get`
+  reports without `-s received`, and `zfs inherit <prop>`
+  clears it the way users expect.
+- **`props` value conversion.** The kernel's
+  `zfs_set_prop_nvlist` rejects `DATA_TYPE_STRING` values for
+  non-string properties (compression, readonly, etc.). The
+  caller-supplied dict arrives as a string-valued nvlist via
+  `py_dict_to_nvlist`, so a temporary `libzfs` handle is
+  opened (via `lzc_repl_open_temp_handle`) just to run
+  `zfs_valid_proplist` and convert strings to the native
+  types the ioctl expects. Bad values are reported as
+  `ZFSCoreException` before the transfer starts.
+- **Progress callback.** When the caller passes a
+  `progress_callback`, a third pthread (the poller) is
+  spawned alongside the existing send thread. It does
+  `pthread_cond_timedwait` (cond bound to `CLOCK_MONOTONIC`
+  via `pthread_condattr_setclock` so wall-clock jumps cannot
+  perturb the cadence) for `progress_interval_seconds`, then
+  queries the kernel via `lzc_send_progress` against the
+  internal pipe write fd, reacquires the GIL via
+  `PyGILState_Ensure`, and invokes
+  `callback(written, total, state)`. The `total` comes from
+  a one-shot `lzc_send_space` call up front. When both
+  transfer ioctls return, the main thread sets a stop flag
+  and signals the cond so the poller exits without burning
+  the remainder of its sleep interval. Callback exceptions
+  are reported via `PyErr_WriteUnraisable` (matching how
+  Python handles signal handler / thread / atexit hook
+  exceptions) and the poller stops; the transfer itself is
+  unaffected.
+- **Cancellation.** The call is not interruptible from Python.
+  `SIGINT` is queued during the underlying ioctls; depending on
+  where the kernel is when the signal arrives, the ioctl may
+  return `EINTR` (surfaced as `ZFSCoreException`) or run to
+  completion with `KeyboardInterrupt` raised on the next bytecode
+  after return.

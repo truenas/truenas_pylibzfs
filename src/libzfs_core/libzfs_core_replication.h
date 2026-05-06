@@ -16,5 +16,7 @@ extern PyObject *py_lzc_send_space(PyObject *self, PyObject *args,
 extern PyObject *py_lzc_send_progress(PyObject *self, PyObject *args,
 				      PyObject *kwds);
 extern PyObject *py_lzc_receive(PyObject *self, PyObject *args, PyObject *kwds);
+extern PyObject *py_lzc_local_replicate(PyObject *self, PyObject *args,
+					PyObject *kwds);
 
 #endif /* _LIBZFS_CORE_REPLICATION_H */
