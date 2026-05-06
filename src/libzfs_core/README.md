@@ -117,8 +117,16 @@ A few details worth knowing before touching the implementation:
   on the calling thread, so `py_log_history_impl` can record a
   synthesized `zfs send | zfs receive` line. Send/recv flags are
   rendered as their CLI mnemonics (`-L`, `-e`, `-c`, `-w`, `-F`)
-  for grep-ability; received-side properties are noted with a
+  for grep-ability; `-o` property overrides are noted with a
   fixed marker rather than rendered inline.
+- **`props` semantics.** User-supplied `props` are passed to
+  `lzc_receive_with_cmdprops` as `cmdprops`, applied to the
+  destination with source `LOCAL` (the `zfs receive -o` slot).
+  The recv-side props slot is left empty - putting overrides
+  there would be silently overwritten by the source dataset's
+  local properties carried in the stream, making the override
+  invisible whenever the property is set on the source (the
+  common case).
 - **Cancellation.** The call is not interruptible from Python.
   `SIGINT` is queued during the underlying ioctls; depending on
   where the kernel is when the signal arrives, the ioctl may
