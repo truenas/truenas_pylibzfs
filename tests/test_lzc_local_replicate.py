@@ -17,6 +17,7 @@ the entire transfer.  These tests exercise the full surface:
   - History entry on success
   - Argument validation
   - No fd / thread leaks
+  - Progress callback firing during transfer
   - Concurrent invocations on disjoint dataset pairs
 
 The pool fixtures mirror those in tests/test_lzc_replication.py.
@@ -845,7 +846,220 @@ class TestLocalReplicateCleanup:
 
 
 # ===========================================================================
-# 13. Concurrent invocations
+# 13. Progress callback
+# ===========================================================================
+
+
+# A "big enough" payload that comfortably exceeds 1 second of pipe-driven
+# transfer on the test runner, so the 1s polling interval (the lowest
+# legal value) gets at least one tick.  Random bytes so compression does
+# not shrink the on-wire stream below the threshold.
+_PROGRESS_PAYLOAD = 192 * 1024 * 1024
+
+
+@pytest.fixture
+def progress_pool():
+    """Larger file-backed pool so the progress tests have room for a
+    payload that takes >1s to push through the pipe.  Independent of
+    pool_fixture so the rest of the suite keeps the smaller default."""
+    d = tempfile.mkdtemp(prefix="pylibzfs_lrepl_prog_")
+    path = os.path.join(d, "d0.img")
+    with open(path, "w") as f:
+        os.ftruncate(f.fileno(), 1024 * 1024 * 1024)  # 1 GiB sparse
+    lz = truenas_pylibzfs.open_handle()
+    lz.create_pool(
+        name=POOL,
+        storage_vdevs=[
+            truenas_pylibzfs.create_vdev_spec(
+                vdev_type=truenas_pylibzfs.VDevType.FILE, name=path
+            )
+        ],
+        force=True,
+    )
+    src = f"{POOL}/src_prog"
+    lz.create_resource(
+        name=src, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+    )
+    lz.open_resource(name=src).mount()
+    _write_data(f"/{src}", _PROGRESS_PAYLOAD, random=True)
+    snap = f"{src}@snap1"
+    _snap(snap)
+    try:
+        yield lz, POOL, snap
+    finally:
+        try:
+            lz.destroy_pool(name=POOL, force=True)
+        except Exception:
+            pass
+        shutil.rmtree(d, ignore_errors=True)
+
+
+class TestLocalReplicateProgress:
+    """progress_callback fires while the transfer is in flight, mirrors
+    the (callback, state) shape used by the iter_* methods, and re-raises
+    callback exceptions after the transfer settles."""
+
+    def test_callback_invoked(self, progress_pool):
+        lz, pool, snap = progress_pool
+        dest_fs = f"{pool}/recv_prog"
+        seen = []
+
+        def cb(written, total, state):
+            seen.append((written, total, state))
+
+        t0 = time.monotonic()
+        lzc.local_replicate(
+            source=snap, dest=f"{dest_fs}@snap1",
+            progress_callback=cb,
+        )
+        elapsed = time.monotonic() - t0
+
+        if elapsed < 1.0:
+            pytest.skip(
+                f"transfer too fast ({elapsed:.2f}s < 1s) for "
+                "the integer-second polling interval"
+            )
+
+        assert seen, "progress callback was never invoked"
+        for w, total, state in seen:
+            assert total > 0
+            assert 0 <= w <= total
+            assert state is None
+        # Monotonic non-decreasing.
+        for prev, curr in zip(seen, seen[1:]):
+            assert curr[0] >= prev[0], (
+                f"written counter decreased: {prev[0]} -> {curr[0]}"
+            )
+        _destroy_recv(lz, dest_fs)
+
+    def test_state_passed_through(self, progress_pool):
+        lz, pool, snap = progress_pool
+        dest_fs = f"{pool}/recv_prog2"
+        bag = {"hits": 0}
+        identities = []
+
+        def cb(_w, _t, state):
+            state["hits"] += 1
+            identities.append(state)
+
+        t0 = time.monotonic()
+        lzc.local_replicate(
+            source=snap, dest=f"{dest_fs}@snap1",
+            progress_callback=cb,
+            progress_state=bag,
+        )
+        elapsed = time.monotonic() - t0
+
+        if elapsed < 1.0:
+            pytest.skip(f"transfer too fast ({elapsed:.2f}s) to test state")
+
+        assert bag["hits"] >= 1
+        assert all(s is bag for s in identities)
+        _destroy_recv(lz, dest_fs)
+
+    def test_state_default_is_none(self, progress_pool):
+        lz, pool, snap = progress_pool
+        dest_fs = f"{pool}/recv_prog3"
+        states_seen = []
+
+        def cb(_w, _t, state):
+            states_seen.append(state)
+
+        t0 = time.monotonic()
+        lzc.local_replicate(
+            source=snap, dest=f"{dest_fs}@snap1",
+            progress_callback=cb,
+        )
+        elapsed = time.monotonic() - t0
+
+        if elapsed < 1.0:
+            pytest.skip(f"transfer too fast ({elapsed:.2f}s)")
+
+        assert states_seen
+        assert all(s is None for s in states_seen)
+        _destroy_recv(lz, dest_fs)
+
+    def test_callback_none_unchanged(self, snapped_pool):
+        """Default behaviour with progress_callback=None matches the
+        no-progress baseline -- this is the cheap sanity check that the
+        new code path stays opt-in."""
+        lz, pool, snap = snapped_pool
+        dest_fs = f"{pool}/recv"
+        lzc.local_replicate(
+            source=snap, dest=f"{dest_fs}@snap1",
+            progress_callback=None,
+        )
+        assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
+        _destroy_recv(lz, dest_fs)
+
+    def test_callback_exception_propagates(self, progress_pool):
+        lz, pool, snap = progress_pool
+        dest_fs = f"{pool}/recv_prog4"
+
+        def cb(_w, _t, _s):
+            raise RuntimeError("boom")
+
+        t0 = time.monotonic()
+        with pytest.raises(RuntimeError, match="boom"):
+            lzc.local_replicate(
+                source=snap, dest=f"{dest_fs}@snap1",
+                progress_callback=cb,
+            )
+        elapsed = time.monotonic() - t0
+
+        if elapsed < 1.0:
+            # transfer was too fast for the callback to fire; the
+            # function would have returned cleanly.  Skip.
+            try:
+                _destroy_recv(lz, dest_fs)
+            except Exception:
+                pass
+            pytest.skip(f"transfer too fast ({elapsed:.2f}s)")
+
+        # The receive completes before the callback exception surfaces,
+        # so the destination dataset exists.
+        assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
+        _destroy_recv(lz, dest_fs)
+
+    def test_callback_not_callable_raises(self, snapped_pool):
+        _, pool, snap = snapped_pool
+        with pytest.raises(TypeError):
+            lzc.local_replicate(
+                source=snap, dest=f"{pool}/recv@snap1",
+                progress_callback="not callable",  # type: ignore
+            )
+
+    def test_interval_zero_rejected(self, snapped_pool):
+        _, pool, snap = snapped_pool
+        with pytest.raises(ValueError):
+            lzc.local_replicate(
+                source=snap, dest=f"{pool}/recv@snap1",
+                progress_callback=lambda *_: None,
+                progress_interval_seconds=0,
+            )
+
+    def test_interval_negative_rejected(self, snapped_pool):
+        _, pool, snap = snapped_pool
+        with pytest.raises(ValueError):
+            lzc.local_replicate(
+                source=snap, dest=f"{pool}/recv@snap1",
+                progress_callback=lambda *_: None,
+                progress_interval_seconds=-5,
+            )
+
+    def test_interval_float_rejected(self, snapped_pool):
+        """The `i` format spec rejects floats with TypeError."""
+        _, pool, snap = snapped_pool
+        with pytest.raises(TypeError):
+            lzc.local_replicate(
+                source=snap, dest=f"{pool}/recv@snap1",
+                progress_callback=lambda *_: None,
+                progress_interval_seconds=1.5,  # type: ignore
+            )
+
+
+# ===========================================================================
+# 14. Concurrent invocations
 # ===========================================================================
 
 class TestLocalReplicateConcurrent:
