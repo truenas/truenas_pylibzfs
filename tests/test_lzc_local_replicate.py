@@ -381,12 +381,10 @@ class TestLocalReplicateRaw:
         unloaded -- raw streams ship encrypted blocks as-is and do not
         need the plaintext key on either side."""
         lz, pool, snap, enc_rsrc = encrypted_snapped_pool
-        # Unmount + unload key on the source so raw is the only path
-        try:
-            enc_rsrc.umount()
-        except Exception:
-            pass
-        enc_rsrc.crypto().unload_key()
+        # Atomic umount + key unload.  A separate enc_rsrc.umount()
+        # followed by crypto().unload_key() races with the kernel's
+        # mount-reference release and frequently fails with EBUSY.
+        enc_rsrc.umount(unload=True)
         assert enc_rsrc.crypto().info().key_is_loaded is False
 
         dest_fs = f"{pool}/enc_dst"
@@ -402,11 +400,7 @@ class TestLocalReplicateRaw:
         """raw=False on an encrypted source whose key is not loaded must
         fail (ZFS cannot decrypt to send a plaintext stream)."""
         lz, pool, snap, enc_rsrc = encrypted_snapped_pool
-        try:
-            enc_rsrc.umount()
-        except Exception:
-            pass
-        enc_rsrc.crypto().unload_key()
+        enc_rsrc.umount(unload=True)
 
         with pytest.raises(lzc.ZFSCoreException):
             lzc.local_replicate(source=snap, dest=f"{pool}/enc_dst@snap1")
@@ -621,8 +615,8 @@ class TestLocalReplicateAudit:
         assert args[1] == dest
         assert args[2] is None
         assert args[3] == 0
-        assert args[4] == 0
-        assert args[5] == 0
+        assert args[4] is False
+        assert args[5] is False
         assert args[6] is None
         _destroy_recv(lz, f"{pool}/recv")
 
@@ -644,8 +638,8 @@ class TestLocalReplicateAudit:
         _, args = events[0]
         assert args[2] == snap1                        # fromsnap
         assert args[3] == int(lzc.SendFlags.COMPRESS)  # effective_flags
-        assert args[4] == 1                            # force
-        assert args[5] == 0                            # raw
+        assert args[4] is True                         # force
+        assert args[5] is False                        # raw
         assert args[6] == {"compression": "off"}       # props
         _destroy_recv(lz, dest_fs)
 
@@ -663,7 +657,7 @@ class TestLocalReplicateAudit:
         assert len(events) == 1
         _, args = events[0]
         assert args[3] & int(lzc.SendFlags.RAW)
-        assert args[5] == 1                            # raw kwarg also set
+        assert args[5] is True                         # raw kwarg also set
         _destroy_recv(lz, f"{pool}/recv_enc")
 
 
@@ -737,7 +731,7 @@ class TestLocalReplicateHistory:
         assert " -c" in line, f"missing -c (COMPRESS) in: {line}"
         assert " -F" in line, f"missing -F (force) in: {line}"
         assert " -i " in line, f"missing -i (incremental) in: {line}"
-        assert "received-side properties" in line, (
+        assert "-o property overrides" in line, (
             f"missing props marker in: {line}"
         )
         _destroy_recv(lz, dest_fs)

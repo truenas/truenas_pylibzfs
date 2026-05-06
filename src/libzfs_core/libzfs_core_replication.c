@@ -407,9 +407,11 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.local_replicate",
-			"ssziiiO",
+			"ssziOOO",
 			source, dest, fromsnap,
-			(int)effective_flags, force_int, raw_int,
+			(int)effective_flags,
+			force_int ? Py_True : Py_False,
+			raw_int ? Py_True : Py_False,
 			py_props ? py_props : Py_None) < 0) {
 		fnvlist_free(props);
 		return NULL;
@@ -440,10 +442,30 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 					    lzc_local_replicate_send_thread,
 					    &send_args);
 	if (pthread_create_err == 0) {
-		recv_err = lzc_receive(dest, props, NULL,
-				       (boolean_t)force_int,
-				       (boolean_t)raw_int,
-				       fds[0]);
+		/*
+		 * Pass user props as cmdprops (the `zfs receive -o` slot,
+		 * applied with source LOCAL) rather than as the recv-side
+		 * props slot.  Recv-side props are overwritten by the
+		 * source dataset's local properties carried in the stream,
+		 * which makes the override invisible whenever a value
+		 * exists on the source - which is the common case.  LOCAL
+		 * source on the destination beats the stream's values, so
+		 * the override actually sticks.
+		 */
+		recv_err = lzc_receive_with_cmdprops(
+			dest,
+			NULL,			/* recv-side props */
+			props,			/* cmdprops (-o) */
+			NULL, 0,		/* wkeydata, wkeylen */
+			NULL,			/* origin */
+			(boolean_t)force_int,
+			B_FALSE,		/* resumable */
+			(boolean_t)raw_int,
+			fds[0],
+			NULL,			/* begin_record */
+			-1,			/* cleanup_fd */
+			NULL, NULL, NULL,	/* read_bytes/errflags/action_handle */
+			NULL);			/* per-prop errors */
 		/*
 		 * Closing the read end before joining ensures the sender
 		 * exits promptly even on recv error: any further writes on
@@ -522,7 +544,7 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 
 	if (py_props != NULL && py_props != Py_None &&
 	    PyDict_Size(py_props) > 0)
-		props_marker = " (with received-side properties)";
+		props_marker = " (with -o property overrides)";
 
 	if (fromsnap) {
 		if (py_log_history_impl(NULL, NULL,
