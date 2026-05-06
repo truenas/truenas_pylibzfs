@@ -129,6 +129,7 @@ py_lzc_send_space(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	int flags = 0;
 	uint64_t size = 0;
 	int err;
+	char ctx_msg[ZFS_MAX_DATASET_NAME_LEN + 64];
 
 	char *kwnames[] = { "snapname", "fromsnap", "flags", NULL };
 
@@ -155,7 +156,10 @@ py_lzc_send_space(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	Py_END_ALLOW_THREADS
 
 	if (err) {
-		set_zfscore_exc(self, "lzc_send_space() failed", err, Py_None);
+		snprintf(ctx_msg, sizeof(ctx_msg),
+			 "lzc_send_space() failed for snapname='%s'",
+			 snapname);
+		set_zfscore_exc(self, ctx_msg, err, Py_None);
 		return NULL;
 	}
 
@@ -171,6 +175,7 @@ py_lzc_send(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	int fd = -1;
 	int flags = 0;
 	int err;
+	char ctx_msg[ZFS_MAX_DATASET_NAME_LEN + 64];
 
 	char *kwnames[] = {
 		"snapname", "fd", "fromsnap", "flags", "resume_token", NULL
@@ -234,8 +239,10 @@ py_lzc_send(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		Py_END_ALLOW_THREADS
 
 		if (err) {
-			set_zfscore_exc(self, "lzc_send_resume() failed",
-					err, Py_None);
+			snprintf(ctx_msg, sizeof(ctx_msg),
+				 "lzc_send_resume() failed for snapname='%s'",
+				 snapname);
+			set_zfscore_exc(self, ctx_msg, err, Py_None);
 			return NULL;
 		}
 	} else {
@@ -245,8 +252,10 @@ py_lzc_send(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 		Py_END_ALLOW_THREADS
 
 		if (err) {
-			set_zfscore_exc(self, "lzc_send() failed",
-					err, Py_None);
+			snprintf(ctx_msg, sizeof(ctx_msg),
+				 "lzc_send() failed for snapname='%s'",
+				 snapname);
+			set_zfscore_exc(self, ctx_msg, err, Py_None);
 			return NULL;
 		}
 	}
@@ -274,6 +283,7 @@ py_lzc_receive(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	boolean_t raw = B_FALSE;
 	nvlist_t *props = NULL;
 	int err;
+	char ctx_msg[ZFS_MAX_DATASET_NAME_LEN + 64];
 
 	char *kwnames[] = {
 		"snapname", "fd", "origin", "props",
@@ -322,7 +332,10 @@ py_lzc_receive(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	Py_END_ALLOW_THREADS
 
 	if (err) {
-		set_zfscore_exc(self, "lzc_receive() failed", err, Py_None);
+		snprintf(ctx_msg, sizeof(ctx_msg),
+			 "lzc_receive() failed for snapname='%s'",
+			 snapname);
+		set_zfscore_exc(self, ctx_msg, err, Py_None);
 		return NULL;
 	}
 
@@ -563,13 +576,16 @@ local_replicate_progress_init(struct lzc_replicate_progress_args *p,
 	uint64_t total = 0;
 	int err;
 	pthread_condattr_t cattr;
+	char ctx_msg[ZFS_MAX_DATASET_NAME_LEN + 64];
 
 	Py_BEGIN_ALLOW_THREADS
 	err = lzc_send_space(source, fromsnap, flags, &total);
 	Py_END_ALLOW_THREADS
 	if (err) {
-		set_zfscore_exc(exc_owner, "lzc_send_space() failed",
-				err, Py_None);
+		snprintf(ctx_msg, sizeof(ctx_msg),
+			 "lzc_send_space() failed for source='%s'",
+			 source);
+		set_zfscore_exc(exc_owner, ctx_msg, err, Py_None);
 		return -1;
 	}
 
@@ -667,6 +683,7 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	pthread_t progress_tid;
 	bool progress_active = false;
 	int progress_create_err = 0;
+	char ctx_msg[ZFS_MAX_DATASET_NAME_LEN + 64];
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs, "|$zzziOppOOi",
 					 kwnames,
@@ -861,14 +878,18 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	 * cause.  Only surface the send error when the receive succeeded.
 	 */
 	if (recv_err) {
-		set_zfscore_exc(self, "lzc_receive() failed",
-				recv_err, Py_None);
+		snprintf(ctx_msg, sizeof(ctx_msg),
+			 "lzc_receive() failed for dest='%s'",
+			 dest);
+		set_zfscore_exc(self, ctx_msg, recv_err, Py_None);
 		return NULL;
 	}
 
 	if (send_args.err) {
-		set_zfscore_exc(self, "lzc_send() failed",
-				send_args.err, Py_None);
+		snprintf(ctx_msg, sizeof(ctx_msg),
+			 "lzc_send() failed for source='%s'",
+			 source);
+		set_zfscore_exc(self, ctx_msg, send_args.err, Py_None);
 		return NULL;
 	}
 

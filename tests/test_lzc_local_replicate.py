@@ -542,6 +542,66 @@ class TestLocalReplicateErrors:
             lzc.local_replicate(source=snap, dest=dest)
         _destroy_recv(lz, dest_fs)
 
+    def test_dest_exists_error_message_is_actionable(self, snapped_pool):
+        """A dest-already-exists EEXIST should produce a str(e) that names
+        the errno, the dest path, and a description -- enough that a
+        user can act on it without reading attributes interactively."""
+        import errno as _errno
+
+        lz, pool, snap = snapped_pool
+        dest_fs = f"{pool}/recv"
+        dest = f"{dest_fs}@snap1"
+        lzc.local_replicate(source=snap, dest=dest)
+        try:
+            with pytest.raises(lzc.ZFSCoreException) as exc_info:
+                lzc.local_replicate(source=snap, dest=dest)
+            e = exc_info.value
+            text = str(e)
+            assert "EEXIST" in text, f"missing errno name: {text!r}"
+            assert dest in text, f"missing dest path: {text!r}"
+            # strerror text for EEXIST is "File exists" on Linux glibc.
+            assert "exists" in text.lower(), (
+                f"missing description: {text!r}"
+            )
+            # Named-attribute contract is preserved.
+            assert e.code == _errno.EEXIST
+            assert e.name == "EEXIST"
+            assert e.msg.startswith("lzc_receive() failed")
+            assert dest in e.msg
+        finally:
+            _destroy_recv(lz, dest_fs)
+
+    def test_dest_exists_with_force_still_errors(self, snapped_pool):
+        """force=True does NOT destroy a pre-existing destination snapshot;
+        the receive still fails with EEXIST.  Documented behavior; this
+        test pins it so a future change that silently makes force
+        destructive would have to break this test consciously."""
+        import errno as _errno
+
+        lz, pool, snap = snapped_pool
+        dest_fs = f"{pool}/recv"
+        dest = f"{dest_fs}@snap1"
+        lzc.local_replicate(source=snap, dest=dest)
+        try:
+            with pytest.raises(lzc.ZFSCoreException) as exc_info:
+                lzc.local_replicate(source=snap, dest=dest, force=True)
+            assert exc_info.value.code == _errno.EEXIST
+        finally:
+            _destroy_recv(lz, dest_fs)
+
+    def test_source_missing_error_message_includes_source(self, pool_fixture):
+        _, pool = pool_fixture
+        bad_src = f"{pool}/nosuch@snap"
+        with pytest.raises(lzc.ZFSCoreException) as exc_info:
+            lzc.local_replicate(source=bad_src,
+                                dest=f"{pool}/recv@snap1")
+        text = str(exc_info.value)
+        # Either source missing surfaces on send_space (lzc_send_space()
+        # failed for source=...) or on send (lzc_send() failed for
+        # source=...).  Both are valid; assert the source path is in
+        # whichever message landed.
+        assert bad_src in text, f"missing source path: {text!r}"
+
 
 # ===========================================================================
 # 8. GIL released for the duration
