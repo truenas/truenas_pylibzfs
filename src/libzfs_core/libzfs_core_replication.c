@@ -872,11 +872,27 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	}
 
 	/*
-	 * Error precedence: receive error wins.  A failed receive closes
-	 * the read end which causes the sender to fail with EPIPE; that
-	 * downstream send error is uninteresting and would mask the real
-	 * cause.  Only surface the send error when the receive succeeded.
+	 * Error precedence:
+	 *
+	 * - If both sides failed and the send error is anything other
+	 *   than EPIPE, the send is the root cause (e.g. ENOENT for a
+	 *   missing source) and the recv-side error is just the
+	 *   downstream "stream truncated" effect.  Surface the send
+	 *   error so the user sees the real reason.
+	 *
+	 * - Otherwise the recv side is authoritative.  A failed receive
+	 *   closes the read end which causes the sender to fail with
+	 *   EPIPE; surfacing that downstream send error would mask the
+	 *   real cause.
 	 */
+	if (recv_err && send_args.err && send_args.err != EPIPE) {
+		snprintf(ctx_msg, sizeof(ctx_msg),
+			 "lzc_send() failed for source='%s'",
+			 source);
+		set_zfscore_exc(self, ctx_msg, send_args.err, Py_None);
+		return NULL;
+	}
+
 	if (recv_err) {
 		snprintf(ctx_msg, sizeof(ctx_msg),
 			 "lzc_receive() failed for dest='%s'",

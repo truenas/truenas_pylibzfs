@@ -213,13 +213,31 @@ void set_zfscore_exc(PyObject *module,
 	}
 
 	/*
-	 * args = (rich_msg,) so str(exc) returns the rich form rather than
-	 * the tuple-repr ('msg', None) Python falls back to for >=2-arg
-	 * exception args.  Named attributes (code, msg, name, errors) keep
-	 * their original values so existing consumers are unaffected.
+	 * args layout depends on whether the caller has per-op error
+	 * detail to surface:
+	 *
+	 *   - errors_tuple is None/NULL (callers like lzc.send / lzc.receive
+	 *     where there is no per-prop info to show): wrap the bare msg in
+	 *     a [ENAME] ... : strerror form so str(e) is self-explanatory
+	 *     instead of the ('msg', None) tuple-repr Python falls back to.
+	 *     args = (rich_msg,).
+	 *
+	 *   - errors_tuple is non-None (channel programs, snapshots, holds,
+	 *     etc. where the kernel already returned structured detail):
+	 *     leave the args layout exactly as it was before -- (msg,
+	 *     errors_tuple).  Existing consumers that match on the
+	 *     errors_tuple repr in str(e) are unaffected.
+	 *
+	 * Named attributes (code, msg, name, errors) keep their original
+	 * values either way.
 	 */
-	format_zfscore_msg(rich_msg, sizeof(rich_msg), code, msg);
-	v = PyObject_CallFunction(state->zc_exc, "s", rich_msg);
+	if (errors_tuple == NULL || errors_tuple == Py_None) {
+		format_zfscore_msg(rich_msg, sizeof(rich_msg), code, msg);
+		v = PyObject_CallFunction(state->zc_exc, "s", rich_msg);
+	} else {
+		v = PyObject_CallFunction(state->zc_exc, "sO",
+					  msg, errors_tuple);
+	}
 	if (v == NULL)
 		return;
 
