@@ -137,6 +137,39 @@ void setup_zfs_core_exception(PyObject *module)
 	Py_DECREF(errno_mod);
 }
 
+/*
+ * Build a user-facing exception message of the form
+ *     [<ENAME>] <msg>: <strerror>
+ * for plain unix errnos, or just
+ *     [<EZFS_NAME>] <msg>
+ * when the code is a libzfs EZFS_* value.  Caller-supplied msg should
+ * already include any operation context (e.g. dataset names) the
+ * caller wants in the visible string.  Truncates via snprintf if the
+ * combined output exceeds buflen.
+ */
+static void
+format_zfscore_msg(char *buf, size_t buflen, int code, const char *msg)
+{
+	const char *zname;
+	const char *ename;
+
+	zname = zfs_error_name(code);
+	if (strcmp(zname, "UNKNOWN") != 0) {
+		snprintf(buf, buflen, "[%s] %s", zname, msg);
+		return;
+	}
+
+	ename = strerrorname_np(code);
+	if (ename != NULL) {
+		snprintf(buf, buflen, "[%s] %s: %s",
+			 ename, msg, strerror(code));
+		return;
+	}
+
+	snprintf(buf, buflen, "[errno=%d] %s: %s",
+		 code, msg, strerror(code));
+}
+
 void set_zfscore_exc(PyObject *module,
 		     const char *msg,
 		     int code,
@@ -148,6 +181,7 @@ void set_zfscore_exc(PyObject *module,
 	const char *name = NULL;
 	PyObject *error_name = NULL;
 	PyObject *pycode = NULL;
+	char rich_msg[512];
 	int err;
 
 	pycode = Py_BuildValue("i", code);
@@ -178,7 +212,14 @@ void set_zfscore_exc(PyObject *module,
 		}
 	}
 
-	v = PyObject_CallFunction(state->zc_exc, "s:O", msg, errors_tuple);
+	/*
+	 * args = (rich_msg,) so str(exc) returns the rich form rather than
+	 * the tuple-repr ('msg', None) Python falls back to for >=2-arg
+	 * exception args.  Named attributes (code, msg, name, errors) keep
+	 * their original values so existing consumers are unaffected.
+	 */
+	format_zfscore_msg(rich_msg, sizeof(rich_msg), code, msg);
+	v = PyObject_CallFunction(state->zc_exc, "s", rich_msg);
 	if (v == NULL)
 		return;
 
@@ -1845,7 +1886,11 @@ PyDoc_STRVAR(py_lzc_receive__doc__,
 "force: bool, optional, default=False\n"
 "    If True, roll back the target dataset to its most recent snapshot\n"
 "    before receiving, allowing a full stream to overwrite a modified\n"
-"    filesystem (equivalent to zfs receive -F).\n"
+"    filesystem (equivalent to zfs receive -F).  Force does NOT destroy\n"
+"    a pre-existing destination snapshot with the same name as the\n"
+"    stream's terminal snap; in that case the receive still fails with\n"
+"    EEXIST and you must either destroy the conflicting snapshot, or\n"
+"    send an incremental from a common base via fromsnap.\n"
 "resumable: bool, optional, default=False\n"
 "    If True, make the receive resumable on interruption. If interrupted\n"
 "    a receive_resume_token property is written to the partial dataset,\n"
@@ -1920,7 +1965,12 @@ PyDoc_STRVAR(py_lzc_local_replicate__doc__,
 "    `zfs get` returns.\n"
 "force: bool, optional, default=False\n"
 "    If True, roll back the destination dataset to its most recent\n"
-"    snapshot before receiving (equivalent to zfs receive -F).\n"
+"    snapshot before receiving (equivalent to zfs receive -F).  Force\n"
+"    does NOT destroy a pre-existing destination snapshot with the\n"
+"    same name as the stream's terminal snap; in that case the\n"
+"    receive still fails with EEXIST and you must either destroy the\n"
+"    conflicting snapshot, or send an incremental stream from a\n"
+"    common base via fromsnap.\n"
 "raw: bool, optional, default=False\n"
 "    If True, send and receive the stream as raw on-disk records\n"
 "    (equivalent to zfs send -w).  Required for replicating an\n"
