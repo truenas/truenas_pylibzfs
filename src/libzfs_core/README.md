@@ -138,18 +138,21 @@ A few details worth knowing before touching the implementation:
 - **Progress callback.** When the caller passes a
   `progress_callback`, a third pthread (the poller) is
   spawned alongside the existing send thread. It does
-  `pthread_cond_timedwait` for `progress_interval_seconds`,
-  then queries the kernel via `lzc_send_progress` against
-  the internal pipe write fd, reacquires the GIL via
+  `pthread_cond_timedwait` (cond bound to `CLOCK_MONOTONIC`
+  via `pthread_condattr_setclock` so wall-clock jumps cannot
+  perturb the cadence) for `progress_interval_seconds`, then
+  queries the kernel via `lzc_send_progress` against the
+  internal pipe write fd, reacquires the GIL via
   `PyGILState_Ensure`, and invokes
   `callback(written, total, state)`. The `total` comes from
   a one-shot `lzc_send_space` call up front. When both
   transfer ioctls return, the main thread sets a stop flag
   and signals the cond so the poller exits without burning
-  the remainder of its sleep interval. Exceptions raised by
-  the callback are captured via `PyErr_Fetch` and restored
-  by the main thread after the transfer settles, so a
-  callback raise still allows the recv to complete cleanly.
+  the remainder of its sleep interval. Callback exceptions
+  are reported via `PyErr_WriteUnraisable` (matching how
+  Python handles signal handler / thread / atexit hook
+  exceptions) and the poller stops; the transfer itself is
+  unaffected.
 - **Cancellation.** The call is not interruptible from Python.
   `SIGINT` is queued during the underlying ioctls; depending on
   where the kernel is when the signal arrives, the ioctl may

@@ -992,33 +992,42 @@ class TestLocalReplicateProgress:
         assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
         _destroy_recv(lz, dest_fs)
 
-    def test_callback_exception_propagates(self, progress_pool):
+    def test_callback_exception_does_not_abort_transfer(self, progress_pool):
+        """A buggy progress callback must not turn a successful
+        replication into a failure.  The exception is routed through
+        sys.unraisablehook (matching signal handlers, thread targets,
+        and atexit hooks); the function returns None and the
+        destination dataset is fully received."""
         lz, pool, snap = progress_pool
         dest_fs = f"{pool}/recv_prog4"
 
-        def cb(_w, _t, _s):
-            raise RuntimeError("boom")
+        unraised = []
+        prev_hook = sys.unraisablehook
+        sys.unraisablehook = lambda args: unraised.append(args)
+        try:
+            def cb(_w, _t, _s):
+                raise RuntimeError("boom")
 
-        t0 = time.monotonic()
-        with pytest.raises(RuntimeError, match="boom"):
+            t0 = time.monotonic()
+            # No exception expected.
             lzc.local_replicate(
                 source=snap, dest=f"{dest_fs}@snap1",
                 progress_callback=cb,
             )
-        elapsed = time.monotonic() - t0
+            elapsed = time.monotonic() - t0
+        finally:
+            sys.unraisablehook = prev_hook
 
-        if elapsed < 1.0:
-            # transfer was too fast for the callback to fire; the
-            # function would have returned cleanly.  Skip.
-            try:
-                _destroy_recv(lz, dest_fs)
-            except Exception:
-                pass
-            pytest.skip(f"transfer too fast ({elapsed:.2f}s)")
-
-        # The receive completes before the callback exception surfaces,
-        # so the destination dataset exists.
+        # The receive completed, so the destination dataset exists.
         assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
+
+        if elapsed >= 1.0:
+            # The callback got at least one chance to fire; assert the
+            # exception was handed to unraisablehook.
+            assert unraised, "callback raised but unraisablehook was not invoked"
+            assert any(isinstance(u.exc_value, RuntimeError) and
+                       str(u.exc_value) == "boom" for u in unraised)
+
         _destroy_recv(lz, dest_fs)
 
     def test_callback_not_callable_raises(self, snapped_pool):

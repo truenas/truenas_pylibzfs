@@ -461,17 +461,18 @@ struct lzc_replicate_progress_args {
 	pthread_mutex_t lock;
 	pthread_cond_t cond;
 	bool stop;
-	PyObject *exc_type;
-	PyObject *exc_value;
-	PyObject *exc_tb;
 };
 
 /*
  * Poller thread.  Sleeps interval_seconds between polls, queries the
  * kernel for bytes-sent against the internal send fd, reacquires the
  * GIL, and invokes the user callback with (written, total, state).
- * On callback exception the exc_* fields are populated for the main
- * thread to PyErr_Restore after both ioctls have settled.
+ *
+ * Callback exceptions are routed through sys.unraisablehook (default:
+ * traceback to stderr) and the poller exits without firing the
+ * callback again.  The transfer itself is unaffected; progress is
+ * advisory and a buggy hook should not turn a successful replication
+ * into a failure.
  *
  * Coordination with the main thread is via lock + cond + stop flag:
  * the main thread sets stop=true and signals cond once both transfer
@@ -522,7 +523,14 @@ lzc_local_replicate_progress_thread(void *arg)
 		Py_XDECREF(written_obj);
 		Py_XDECREF(total_obj);
 		if (result == NULL) {
-			PyErr_Fetch(&p->exc_type, &p->exc_value, &p->exc_tb);
+			/*
+			 * Callback (or building its args) raised.  Route to
+			 * sys.unraisablehook the same way signal handlers,
+			 * thread targets, and atexit hooks do, then stop
+			 * polling so we do not spam the hook each interval.
+			 * The transfer itself continues unaffected.
+			 */
+			PyErr_WriteUnraisable(p->callback);
 			PyGILState_Release(gs);
 			pthread_mutex_lock(&p->lock);
 			p->stop = true;
@@ -572,9 +580,6 @@ local_replicate_progress_init(struct lzc_replicate_progress_args *p,
 	p->state = (state != NULL) ? state : Py_None;
 	p->interval_seconds = interval_seconds;
 	p->stop = false;
-	p->exc_type = NULL;
-	p->exc_value = NULL;
-	p->exc_tb = NULL;
 	pthread_mutex_init(&p->lock, NULL);
 	/*
 	 * Use CLOCK_MONOTONIC for cond_timedwait deadlines so wall-clock
@@ -600,20 +605,6 @@ local_replicate_progress_fini(struct lzc_replicate_progress_args *p)
 {
 	pthread_mutex_destroy(&p->lock);
 	pthread_cond_destroy(&p->cond);
-}
-
-/*
- * Discard a captured callback exception on transfer-error paths where
- * a higher-precedence error (recv/send/pthread_create failure) takes
- * over the function's return.  Idempotent; safe even when no exception
- * was ever captured.
- */
-static void
-local_replicate_progress_drop_exc(struct lzc_replicate_progress_args *p)
-{
-	Py_CLEAR(p->exc_type);
-	Py_CLEAR(p->exc_value);
-	Py_CLEAR(p->exc_tb);
 }
 
 /*
@@ -853,19 +844,11 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 
 	fnvlist_free(props);
 
-	/*
-	 * Tear down progress sync primitives before any error-handling
-	 * return so we don't leak them on the unhappy path.  Any captured
-	 * callback exception is dropped on transfer-error paths (the
-	 * transfer error takes precedence) and restored only on the
-	 * success path.
-	 */
+	/* Tear down progress sync primitives before any error return. */
 	if (progress_active)
 		local_replicate_progress_fini(&progress_args);
 
 	if (pthread_create_err != 0) {
-		if (progress_active)
-			local_replicate_progress_drop_exc(&progress_args);
 		errno = pthread_create_err;
 		PyErr_SetFromErrno(PyExc_OSError);
 		return NULL;
@@ -878,36 +861,21 @@ py_lzc_local_replicate(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 	 * cause.  Only surface the send error when the receive succeeded.
 	 */
 	if (recv_err) {
-		if (progress_active)
-			local_replicate_progress_drop_exc(&progress_args);
 		set_zfscore_exc(self, "lzc_receive() failed",
 				recv_err, Py_None);
 		return NULL;
 	}
 
 	if (send_args.err) {
-		if (progress_active)
-			local_replicate_progress_drop_exc(&progress_args);
 		set_zfscore_exc(self, "lzc_send() failed",
 				send_args.err, Py_None);
 		return NULL;
 	}
 
-	/*
-	 * Transfer succeeded.  Surface progress-thread failures now: a
-	 * pthread_create failure for the poller becomes OSError; a
-	 * captured exception from the user's callback is restored.
-	 */
+	/* Transfer succeeded.  Surface progress-thread spawn failures. */
 	if (progress_active && progress_create_err != 0) {
 		errno = progress_create_err;
 		PyErr_SetFromErrno(PyExc_OSError);
-		return NULL;
-	}
-
-	if (progress_active && progress_args.exc_type != NULL) {
-		PyErr_Restore(progress_args.exc_type,
-			      progress_args.exc_value,
-			      progress_args.exc_tb);
 		return NULL;
 	}
 
