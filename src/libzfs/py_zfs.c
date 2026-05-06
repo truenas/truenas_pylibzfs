@@ -1461,14 +1461,15 @@ PyObject *py_zfs_import_pool(PyObject *self,
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".import_pool",
-			"OOpOpOO",
+			"OOOOOOOO",
 			py_name ? py_name : Py_None,
 			py_guid ? py_guid : Py_None,
-			allow_missing_log,
+			allow_missing_log ? Py_True : Py_False,
 			py_altroot ? py_altroot : Py_None,
-			force,
+			force ? Py_True : Py_False,
 			pyprops ? pyprops : Py_None,
-			py_tmpname ? py_tmpname : Py_None) < 0) {
+			py_tmpname ? py_tmpname : Py_None,
+			py_device ? py_device : Py_None) < 0) {
 		return NULL;
 	}
 
