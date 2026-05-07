@@ -61,8 +61,9 @@ namespace.
 | `py_zfs.c` | `ZFS` handle object - `open_handle`, `create_resource`, `open_resource`, `destroy_resource`, `iter_root_filesystems`, `iter_pools`, `open_pool`, `destroy_pool`, `export_pool`, `create_pool`, `import_pool_find`, `import_pool`, `resource_cryptography_config`, `zpool_events` |
 | `py_zfs_pool.c` | `ZFSPool` - all pool-level operations: status, properties, device management (`add_vdevs`, `attach_vdev`, `replace_vdev`, `detach_vdev`, `remove_vdev`, `online_device`, `offline_device`), `scan`, `sync_pool`, `upgrade`, `expand_info`, `scrub_info`, `iter_history` |
 | `py_zfs_resource.c` | Shared methods on `ZFSResource`: property get/set, rename, promote, mount/unmount, snapshot, clone, destroy, iter_filesystems/snapshots/bookmarks |
-| `py_zfs_dataset.c` | `ZFSDataset`-specific additions: `iter_userspace`, `set_userquotas`, `crypto` property accessor |
-| `py_zfs_volume.c` | `ZFSVolume`-specific additions: `crypto` property accessor, `promote` |
+| `py_zfs_dataset.c` | `ZFSDataset`-specific additions: `iter_userspace`, `set_userquotas`, `crypto` property accessor, `local_replicate` thin wrapper |
+| `py_zfs_volume.c` | `ZFSVolume`-specific additions: `crypto` property accessor, `promote`, `local_replicate` thin wrapper |
+| `py_zfs_local_replicate.c` | `local_replicate` for `ZFSDataset` and `ZFSVolume`. Filesystem path is `zfs send -Rp [-w]` (recursive); volume path is `zfs send -p [-w]` (single snapshot, non-recursive); both pipe into a co-resident `zfs receive`. Source properties always embedded; pass `props={...}` to override on the destination. |
 | `py_zfs_snapshot.c` | `ZFSSnapshot`-specific additions: `get_holds`, `get_clones`, `clone` |
 | `py_zfs_object.c` | `ZFSObject` base - `rename`; read-only properties `name`, `type`, `guid`, `createtxg`, `pool_name`, `encrypted` |
 | `py_zfs_common.c` | `py_zfs_promote()` shared helper used by dataset, volume, and resource |

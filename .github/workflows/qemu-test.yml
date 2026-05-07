@@ -7,6 +7,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
+# Bump IMAGE_VERSION to bust both the cloud-image cache and the
+# OpenZFS deb cache together.  Use this when the cached cloud image
+# has drifted (kernel update, broken DKMS rebuild, etc.) - the new
+# image will come with a new kernel, and the ZFS debs need to
+# rebuild against it.
+env:
+  IMAGE_VERSION: v1
+
 jobs:
   qemu-test:
     name: Debian Trixie QEMU Test
@@ -32,7 +40,14 @@ jobs:
       uses: actions/cache@v4
       with:
         path: /tmp/zfs-debs
-        key: zfs-debs-debian-trixie-${{ steps.zfs-hash.outputs.hash }}
+        key: zfs-debs-debian-trixie-${{ env.IMAGE_VERSION }}-${{ steps.zfs-hash.outputs.hash }}
+
+    - name: Cache Debian Trixie cloud image
+      id: cache-image
+      uses: actions/cache@v4
+      with:
+        path: /tmp/qemu-work/debian-trixie.qcow2
+        key: debian-trixie-cloudimage-${{ env.IMAGE_VERSION }}
 
     - name: Start Debian Trixie VM
       timeout-minutes: 10
