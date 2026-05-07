@@ -449,6 +449,167 @@ truenas_pylibzfs.lzc.send(
 
 ---
 
+## Local Replication
+
+For pool-to-pool replication on the **same host**, three methods pair `zfs send` and `zfs receive` together inside one call: the stream goes through an in-process pipe, the receive runs on the calling thread, the send runs on a worker thread. The caller does not manage any file descriptors. Errors from either side surface as a single Python exception (receive errors win over send errors when both fail). When the caller passes a `progress_callback`, a third thread polls byte counts and invokes the callback with the GIL held.
+
+Pick the method that matches the source object you have:
+
+| Method | Behaves like | When to use |
+|---|---|---|
+| `lzc.local_replicate(source=..., dest=...)` | `zfs send <source> \| zfs receive <dest>` | Single snapshot, no recursion, full snapshot name in hand. Cheapest path. |
+| `ZFSDataset.local_replicate(tosnap=..., dest=...)` | `zfs send -Rp [-w] <self>@<tosnap> \| zfs receive [-F] <dest>` | Filesystem replication including descendants and clones. |
+| `ZFSVolume.local_replicate(tosnap=..., dest=...)` | `zfs send -p [-w] <self>@<tosnap> \| zfs receive [-F] <dest>` | Single-volume replication. Volumes have no non-snapshot descendants, so the send is non-recursive. |
+
+All three accept `fromsnap=` for incremental sends and `raw=True` for encrypted-without-key sends.
+
+### Initial bulk copy of a filesystem and its descendants
+
+```python
+src = lz.open_resource(name="tank/data")
+truenas_pylibzfs.lzc.create_snapshots(snapshot_names={"tank/data@snap1"})
+
+src.local_replicate(tosnap="snap1", dest="backup/data")
+```
+
+The receive creates `backup/data@snap1` and any descendant filesystems / volumes / clones present on the source.
+
+### Periodic incremental sync
+
+```python
+truenas_pylibzfs.lzc.create_snapshots(snapshot_names={"tank/data@snap2"})
+
+src.local_replicate(
+    tosnap="snap2",
+    fromsnap="snap1",     # last snapshot the destination already has
+    dest="backup/data",
+    force=True,           # zfs receive -F: roll back dest to its latest snap first
+)
+```
+
+`fromsnap` maps to `zfs send -i` (single delta), not `-I` (all intermediates). If a caller needs to bring the destination up through every intermediate snapshot, run `lzc.send` / `lzc.receive` directly in a loop.
+
+### Single-snapshot copy via lzc
+
+```python
+truenas_pylibzfs.lzc.local_replicate(
+    source="tank/data@snap1",
+    dest="backup/data",
+)
+```
+
+The lzc method takes a full snapshot name (`dataset@snap`) rather than a resource handle and a suffix. Useful when a caller already has names in hand (audit log, REST payload, scheduling table) and does not need recursion or `-p` semantics.
+
+### Resumable transfer via lzc
+
+```python
+# Initial attempt - opt into resumable so an interruption leaves a token
+try:
+    truenas_pylibzfs.lzc.local_replicate(
+        source="tank/data@snap1",
+        dest="backup/data",
+        resumable=True,
+    )
+except truenas_pylibzfs.ZFSCoreException:
+    pass
+
+# Pull the token off the partially-received destination
+backup = lz.open_resource(name="backup/data")
+token = backup.get_properties(
+    properties={truenas_pylibzfs.ZFSProperty.RECEIVE_RESUME_TOKEN}
+).receive_resume_token.value
+
+# Resume.  Keep resumable=True so a re-interruption can be resumed again.
+truenas_pylibzfs.lzc.local_replicate(
+    source="tank/data@snap1",
+    dest="backup/data",
+    resumable=True,
+    resume_token=token,
+)
+```
+
+`resumable=True` and `resume_token=` are only available on `lzc.local_replicate`. The resource-object methods (`ZFSDataset.local_replicate`, `ZFSVolume.local_replicate`) reject them: a resume token only addresses one (dataset, snapshot) and the dataset path is recursive, so the two cannot compose. Callers needing resumable replication go through the lzc path. Note that `progress_callback`'s `total` argument is `0` on a resumed transfer (no upfront estimate is computed for resumes).
+
+### Encrypted source
+
+```python
+src.local_replicate(
+    tosnap="snap1",
+    dest="backup/data",
+    raw=True,     # zfs send -w: bytes encrypted on disk go to the destination as-is
+)
+```
+
+`raw=True` drives both the send and receive sides together, so the destination ends up encrypted with the same wrapping key as the source without the key ever being loaded.
+
+### Property overrides on the destination
+
+```python
+src.local_replicate(
+    tosnap="snap1",
+    dest="backup/data",
+    props={"mountpoint": "/mnt/backup-data", "canmount": "noauto"},
+)
+```
+
+`props=` is the `zfs receive -o` slot. Values are applied at source `LOCAL` on the destination, so they win over the source's embedded properties (which arrive at the destination as `RECEIVED`). The most common reason to set `props=` is to avoid mount-point collisions when the source's `mountpoint` would land on a path already in use.
+
+### Excluding properties on the destination
+
+```python
+src.local_replicate(
+    tosnap="snap1",
+    dest="backup/data",
+    exclude_props={"mountpoint", "canmount"},
+)
+```
+
+`exclude_props=` is the `zfs receive -x` slot. The named properties are NOT applied to the destination from the stream; the destination inherits them from its parent dataset instead. Combine with `props=` to override some values and let others inherit; the same property name in both is rejected with `ValueError`.  `exclude_props` is only available on the resource-object methods (`ZFSDataset.local_replicate` / `ZFSVolume.local_replicate`); the lzc path does not embed source properties in the stream, so there is nothing for `-x` to suppress there.
+
+### Skipping auto-mount on the destination
+
+```python
+src.local_replicate(
+    tosnap="snap1",
+    dest="backup/data",
+    nomount=True,
+)
+```
+
+By default `zfs receive` auto-mounts new filesystems after a successful receive. Pass `nomount=True` (equivalent to `zfs receive -u`) when you want the destination dataset to exist but stay unmounted, for example when you intend to drive mounts separately, or when the source's `mountpoint` would collide with an existing mount on the same host. Resource-object methods only; `lzc.local_replicate` never auto-mounts.
+
+### Progress reporting
+
+```python
+def on_progress(written, total, state):
+    # total is 0 for the resource-object methods (no upfront estimate);
+    # lzc.local_replicate computes total via lzc_send_space.
+    state["last"] = written
+
+state = {"last": 0}
+src.local_replicate(
+    tosnap="snap1",
+    dest="backup/data",
+    progress_callback=on_progress,
+    progress_state=state,
+    progress_interval_seconds=2,
+)
+```
+
+The callback runs on a poller thread that holds the GIL only for the duration of the call. Exceptions raised inside the callback go to `sys.unraisablehook` and the poller stops (the transfer itself is unaffected).
+
+### What `local_replicate` does not cover
+
+- **Cross-host replication**: out of scope. Use `lzc.send` / `lzc.receive` with sockets / SSH and let the caller wire the fds.
+- **Resumable transfers on the resource-object methods**: only on `lzc.local_replicate` — see "Resumable transfer via lzc" above. The resource-object methods reject `resumable` / `resume_token` because a resume token only covers a single (dataset, snapshot) and the dataset path is recursive.
+- **Range sends with all intermediates** (`zfs send -I`): not exposed; loop `lzc.send`/`lzc.receive` per snapshot.
+- **`SendFlags.RAW` via `send_flags=`**: rejected. Use `raw=True` so the send and receive sides cannot disagree.
+- **`SendFlags.SAVED`**: rejected. Resumable flows belong on the lower-level primitives.
+
+Successful transfers are recorded in pool history as a synthesized `zfs send | zfs receive` line so they are grep-able alongside CLI-driven replications.
+
+---
+
 ## Encryption
 
 ### Create encrypted dataset

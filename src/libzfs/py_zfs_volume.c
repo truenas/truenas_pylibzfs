@@ -64,6 +64,14 @@ PyObject *py_zfs_volume_promote(PyObject *self, PyObject *Py_UNUSED(ignored))
 }
 
 static
+PyObject *py_zfs_volume_local_replicate(PyObject *self, PyObject *args,
+					PyObject *kwargs)
+{
+	py_zfs_resource_t *res = &((py_zfs_volume_t *)self)->rsrc;
+	return py_zfs_local_replicate(res, args, kwargs);
+}
+
+static
 PyGetSetDef zfs_volume_getsetters[] = {
 	{ .name = NULL }
 };
@@ -81,6 +89,12 @@ PyMethodDef zfs_volume_methods[] = {
 		.ml_meth = py_zfs_volume_promote,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_promote__doc__
+	},
+	{
+		.ml_name = "local_replicate",
+		.ml_meth = (PyCFunction)py_zfs_volume_local_replicate,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_local_replicate__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };
