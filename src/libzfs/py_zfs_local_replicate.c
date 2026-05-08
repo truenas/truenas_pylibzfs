@@ -45,6 +45,7 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 	char source_buf[ZFS_MAX_DATASET_NAME_LEN];
 	char fromsnap_buf[ZFS_MAX_DATASET_NAME_LEN];
 	struct local_replicate_args la;
+	int n = 0;
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
 					 "|$zzziOOpppOOi",
@@ -84,10 +85,26 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 	 * this stack frame for the duration of py_local_replicate.
 	 */
 	src_name = zfs_get_name(obj->zhp);
-	snprintf(source_buf, sizeof(source_buf), "%s@%s", src_name, tosnap);
-	if (fromsnap != NULL)
-		snprintf(fromsnap_buf, sizeof(fromsnap_buf), "%s@%s",
-			 src_name, fromsnap);
+	n = snprintf(source_buf, sizeof(source_buf), "%s@%s", src_name, tosnap);
+	if (n < 0 || (size_t)n >= sizeof(source_buf)) {
+		PyErr_Format(PyExc_ValueError,
+			     "combined source name '%s@%s' exceeds "
+			     "ZFS_MAX_DATASET_NAME_LEN (%zu)",
+			     src_name, tosnap, sizeof(source_buf));
+		return NULL;
+	}
+	if (fromsnap != NULL) {
+		n = snprintf(fromsnap_buf, sizeof(fromsnap_buf), "%s@%s",
+			     src_name, fromsnap);
+		if (n < 0 || (size_t)n >= sizeof(fromsnap_buf)) {
+			PyErr_Format(PyExc_ValueError,
+				     "combined fromsnap name '%s@%s' exceeds "
+				     "ZFS_MAX_DATASET_NAME_LEN (%zu)",
+				     src_name, fromsnap,
+				     sizeof(fromsnap_buf));
+			return NULL;
+		}
+	}
 
 	la = (struct local_replicate_args){
 		.mode = LOCAL_REPLICATE_ZFS,
