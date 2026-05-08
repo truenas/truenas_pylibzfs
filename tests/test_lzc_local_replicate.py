@@ -1100,24 +1100,11 @@ class TestLocalReplicateCleanup:
 # ===========================================================================
 # 13. Progress callback
 # ===========================================================================
-#
-# Tests that observed the progress poller actually firing
-# mid-transfer (test_callback_invoked, test_state_passed_through,
-# test_state_default_is_none, test_callback_exception_does_not_abort_transfer)
-# previously lived here.  They depended on the transfer outlasting
-# the minimum polling interval (1 second, since
-# progress_interval_seconds is `int >= 1` at the API surface).  On
-# fast hardware that condition rarely holds without GBs of fixture
-# data, so the tests skipped silently.  Removing them is honest:
-# the current API can't reliably exercise sub-second-callback
-# behaviour in a test runner.  Re-add when the API gains
-# fractional-second progress intervals.
 
 
 class TestLocalReplicateProgress:
     """progress_callback wiring: kwarg shape, default behaviour when
-    omitted, callable check, and interval validation.  The "callback
-    actually fires" tests have been removed (see comment above)."""
+    omitted, callable check, and interval validation."""
 
     def test_callback_none_unchanged(self, snapped_pool):
         """Default behaviour with progress_callback=None matches the
