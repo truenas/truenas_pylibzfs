@@ -1172,6 +1172,56 @@ class TestLocalReplicateProgress:
                 progress_interval_seconds=1.5,  # type: ignore
             )
 
+    def test_callback_fires_with_correct_shape_and_unraisable(
+        self, random_data_snapped_pool
+    ):
+        """When the callback fires, it receives (written, total, state)
+        with the user-supplied state passed through, and exceptions
+        raised inside it route to sys.unraisablehook without aborting
+        the transfer.  May skip on fast runners (incl. the GH Actions
+        QEMU VM) where the transfer completes faster than the 1s
+        minimum poll interval (progress_interval_seconds is integer-
+        only at the API surface)."""
+        lz, pool, snap = random_data_snapped_pool
+        dest_fs = f"{pool}/recv_progress_fires"
+        sentinel = object()
+        calls = []
+
+        class CallbackError(RuntimeError):
+            pass
+
+        def cb(written, total, state):
+            calls.append((written, total, state))
+            raise CallbackError()
+
+        captured = []
+        orig_hook = sys.unraisablehook
+        sys.unraisablehook = lambda args: captured.append(args)
+        try:
+            lzc.local_replicate(
+                source=snap,
+                dest=f"{dest_fs}@snap1",
+                progress_callback=cb,
+                progress_state=sentinel,
+                progress_interval_seconds=1,
+            )
+        finally:
+            sys.unraisablehook = orig_hook
+
+        if not calls:
+            pytest.skip(
+                "progress callback did not fire: transfer completed "
+                "faster than the 1s minimum poll interval"
+            )
+
+        written, total, state = calls[0]
+        assert isinstance(written, int) and written >= 0
+        assert isinstance(total, int) and total >= 0
+        assert state is sentinel
+        assert any(isinstance(u.exc_value, CallbackError) for u in captured)
+        assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
+        _destroy_recv(lz, dest_fs)
+
 
 # ===========================================================================
 # 14. Concurrent invocations
