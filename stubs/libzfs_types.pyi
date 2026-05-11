@@ -1017,6 +1017,7 @@ class ZFSDataset(ZFSResource):  # type: ignore[misc]
         force: bool = False,
         raw: bool = False,
         nomount: bool = False,
+        include_intermediates: bool = False,
         progress_callback: Callable[[int, int, Any], None] | None = None,
         progress_state: Any = None,
         progress_interval_seconds: int = 1,
@@ -1030,8 +1031,11 @@ class ZFSDataset(ZFSResource):  # type: ignore[misc]
         let those properties inherit from the dest's parent instead
         of being applied from the stream (zfs receive -x), or
         nomount=True to skip auto-mounting after receive
-        (zfs receive -u).  For a single-snapshot, lzc-pure transfer
-        use truenas_pylibzfs.lzc.local_replicate instead.
+        (zfs receive -u).  Pair fromsnap with include_intermediates=True
+        for zfs send -I semantics (every intermediate snapshot is
+        included); the default is single-delta zfs send -i.  For a
+        single-snapshot, lzc-pure transfer use
+        truenas_pylibzfs.lzc.local_replicate instead.
         """
 
 @final
@@ -1051,6 +1055,7 @@ class ZFSVolume(ZFSResource):  # type: ignore[misc]
         force: bool = False,
         raw: bool = False,
         nomount: bool = False,
+        include_intermediates: bool = False,
         progress_callback: Callable[[int, int, Any], None] | None = None,
         progress_state: Any = None,
         progress_interval_seconds: int = 1,
@@ -1060,8 +1065,11 @@ class ZFSVolume(ZFSResource):  # type: ignore[misc]
         Non-recursive: volumes have no non-snapshot descendants, so
         only the named snapshot is sent.  Source properties are
         always embedded (zfs send -p semantics).  Pass fromsnap for
-        an incremental, props={...} to override specific values on
-        the destination, exclude_props={...} to let properties
+        an incremental (zfs send -i); pair it with
+        include_intermediates=True for zfs send -I semantics where
+        every intermediate snapshot between fromsnap and tosnap is
+        also included.  Pass props={...} to override specific values
+        on the destination, exclude_props={...} to let properties
         inherit from the dest's parent (zfs receive -x), or
         nomount=True to skip auto-mounting (zfs receive -u).
         """

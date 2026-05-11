@@ -66,6 +66,19 @@ struct local_replicate_args {
 	boolean_t recursive;
 
 	/*
+	 * zfs-mode only: when true, sendflags_t.doall is set so the
+	 * stream includes every intermediate snapshot between fromsnap
+	 * and the target (`zfs send -I`).  The default (false) gives
+	 * `zfs send -i` semantics - a single delta from fromsnap to
+	 * target.  Requires fromsnap; validate_args rejects the
+	 * combination of include_intermediates with no fromsnap.
+	 * Combined with recursive on filesystems this gives `-RI`.
+	 * lzc_send has no doall equivalent so this is rejected in
+	 * LOCAL_REPLICATE_LZC mode.
+	 */
+	boolean_t include_intermediates;
+
+	/*
 	 * zfs-mode only: when true, recvflags_t.nomount is set so the
 	 * destination is not auto-mounted after receive.  The `zfs receive
 	 * -u` flag.  Inapplicable to lzc mode - lzc_receive_with_cmdprops

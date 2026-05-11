@@ -487,7 +487,18 @@ src.local_replicate(
 )
 ```
 
-`fromsnap` maps to `zfs send -i` (single delta), not `-I` (all intermediates). If a caller needs to bring the destination up through every intermediate snapshot, run `lzc.send` / `lzc.receive` directly in a loop.
+`fromsnap` defaults to `zfs send -i` (single delta). Pass `include_intermediates=True` for `zfs send -I` semantics, where every snapshot between `fromsnap` and `tosnap` is included in the stream:
+
+```python
+src.local_replicate(
+    tosnap="snap5",
+    fromsnap="snap1",
+    include_intermediates=True,   # zfs send -I (or -RI on a filesystem)
+    dest="backup/data",
+)
+```
+
+On a filesystem this composes with the implicit `-R` for `-RI` semantics. `include_intermediates` is only supported on the resource-object methods; `lzc.local_replicate` and `lzc.send` operate on a single delta, so for lzc-pure flows loop `lzc.send` / `lzc.receive` per snapshot.
 
 ### Single-snapshot copy via lzc
 
@@ -602,7 +613,7 @@ The callback runs on a poller thread that holds the GIL only for the duration of
 
 - **Cross-host replication**: out of scope. Use `lzc.send` / `lzc.receive` with sockets / SSH and let the caller wire the fds.
 - **Resumable transfers on the resource-object methods**: only on `lzc.local_replicate` — see "Resumable transfer via lzc" above. The resource-object methods reject `resumable` / `resume_token` because a resume token only covers a single (dataset, snapshot) and the dataset path is recursive.
-- **Range sends with all intermediates** (`zfs send -I`): not exposed; loop `lzc.send`/`lzc.receive` per snapshot.
+- **Range sends with all intermediates over lzc primitives**: `include_intermediates=True` is on the resource-object methods (built on `zfs_send`'s native iteration); `lzc.local_replicate` and `lzc.send` stay single-delta because `lzc_send` has no `-I` equivalent. For an lzc-pure all-intermediates flow, loop `lzc.send` / `lzc.receive` per snapshot.
 - **`SendFlags.RAW` via `send_flags=`**: rejected. Use `raw=True` so the send and receive sides cannot disagree.
 - **`SendFlags.SAVED`**: rejected. Resumable flows belong on the lower-level primitives.
 
