@@ -79,7 +79,7 @@ sudo apt-get install -y \
   python3-pytest-timeout \
   python3-mypy \
   git \
-  linux-headers-amd64 \
+  "linux-headers-$(uname -r)" \
   dkms \
   gdb
 
@@ -116,6 +116,21 @@ else
   echo "Updating module dependencies..."
   sudo depmod -a
 fi
+
+# Sanity-check: the installed kmod must target the running kernel.  If
+# the build picked up headers for a different kernel (apt-get install
+# linux-headers-amd64 used to do this) or a stale cache deb installed,
+# zfs.ko ends up under /lib/modules/<other>/ and modprobe will fail
+# silently after the post-build reboot.  Fail loudly here instead.
+KVER="$(uname -r)"
+ZFS_KO="$(find "/lib/modules/$KVER" -name 'zfs.ko' -print -quit 2>/dev/null || true)"
+if [ -z "$ZFS_KO" ]; then
+  echo "FATAL: no zfs.ko under /lib/modules/$KVER/"
+  echo "Installed zfs.ko paths in /lib/modules:"
+  find /lib/modules -name 'zfs.ko' 2>/dev/null || echo "  (none found)"
+  exit 1
+fi
+echo "Found zfs.ko at: $ZFS_KO"
 
 # Build truenas_pylibzfs
 echo "Building truenas_pylibzfs..."

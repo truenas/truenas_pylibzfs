@@ -1,6 +1,8 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 import enum
 from typing import Any, ClassVar, Literal, Self, final, overload
+
+from . import lzc
 
 
 # ---------------------------------------------------------------------------
@@ -1003,12 +1005,74 @@ class ZFSDataset(ZFSResource):  # type: ignore[misc]
     def set_userquotas(self, *, quotas: Any) -> None: ...
     def crypto(self) -> ZFSCrypto | None: ...
     def promote(self) -> None: ...
+    def local_replicate(
+        self,
+        *,
+        tosnap: str,
+        dest: str,
+        fromsnap: str | None = None,
+        send_flags: lzc.SendFlags | int = 0,
+        props: dict[str, Any] | None = None,
+        exclude_props: Iterable[str] | None = None,
+        force: bool = False,
+        raw: bool = False,
+        nomount: bool = False,
+        include_intermediates: bool = False,
+        progress_callback: Callable[[int, int, Any], None] | None = None,
+        progress_state: Any = None,
+        progress_interval_seconds: int = 1,
+    ) -> None:
+        """Replicate this dataset (and descendants) to dest@tosnap.
+
+        Recursive: descendants and clones are included in the stream
+        (zfs send -R), and source properties are always embedded
+        (zfs send -p semantics).  Pass props={...} to override
+        specific values on the destination, exclude_props={...} to
+        let those properties inherit from the dest's parent instead
+        of being applied from the stream (zfs receive -x), or
+        nomount=True to skip auto-mounting after receive
+        (zfs receive -u).  Pair fromsnap with include_intermediates=True
+        for zfs send -I semantics (every intermediate snapshot is
+        included); the default is single-delta zfs send -i.  For a
+        single-snapshot, lzc-pure transfer use
+        truenas_pylibzfs.lzc.local_replicate instead.
+        """
 
 @final
 class ZFSVolume(ZFSResource):  # type: ignore[misc]
     """ZFS volume (zvol) dataset."""
     def crypto(self) -> ZFSCrypto | None: ...
     def promote(self) -> None: ...
+    def local_replicate(
+        self,
+        *,
+        tosnap: str,
+        dest: str,
+        fromsnap: str | None = None,
+        send_flags: lzc.SendFlags | int = 0,
+        props: dict[str, Any] | None = None,
+        exclude_props: Iterable[str] | None = None,
+        force: bool = False,
+        raw: bool = False,
+        nomount: bool = False,
+        include_intermediates: bool = False,
+        progress_callback: Callable[[int, int, Any], None] | None = None,
+        progress_state: Any = None,
+        progress_interval_seconds: int = 1,
+    ) -> None:
+        """Replicate this volume's snapshot to dest@tosnap.
+
+        Non-recursive: volumes have no non-snapshot descendants, so
+        only the named snapshot is sent.  Source properties are
+        always embedded (zfs send -p semantics).  Pass fromsnap for
+        an incremental (zfs send -i); pair it with
+        include_intermediates=True for zfs send -I semantics where
+        every intermediate snapshot between fromsnap and tosnap is
+        also included.  Pass props={...} to override specific values
+        on the destination, exclude_props={...} to let properties
+        inherit from the dest's parent (zfs receive -x), or
+        nomount=True to skip auto-mounting (zfs receive -u).
+        """
 
 @final
 class ZFSEventIterator(Iterator[dict[str, Any]]):
