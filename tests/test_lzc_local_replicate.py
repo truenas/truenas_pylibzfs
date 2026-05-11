@@ -180,6 +180,22 @@ def large_block_snapped_pool(pool_fixture):
 
 
 @pytest.fixture
+def random_data_snapped_pool(pool_fixture):
+    """Source dataset with 16 MiB of random (incompressible) data and
+    one snapshot."""
+    lz, pool = pool_fixture
+    src = f"{pool}/src_rand"
+    lz.create_resource(
+        name=src, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+    )
+    lz.open_resource(name=src).mount()
+    _write_data(f"/{src}", 16 * 1024 * 1024, random=True)
+    snap = f"{src}@snap1"
+    _snap(snap)
+    yield lz, pool, snap
+
+
+@pytest.fixture
 def encrypted_snapped_pool(pool_fixture):
     """Encrypted (passphrase) source dataset with data and one snapshot.
 
@@ -209,6 +225,13 @@ def encrypted_snapped_pool(pool_fixture):
 
 class TestLocalReplicateSmoke:
     def test_full_roundtrip_returns_none(self, snapped_pool):
+        """
+        Before:                  After:
+          POOL/src                 POOL/src             (unchanged)
+          POOL/src@snap1           POOL/src@snap1
+                                   POOL/recv
+                                   POOL/recv@snap1
+        """
         lz, pool, snap = snapped_pool
         dest = f"{pool}/recv@snap1"
         result = lzc.local_replicate(source=snap, dest=dest)
@@ -216,6 +239,8 @@ class TestLocalReplicateSmoke:
         _destroy_recv(lz, f"{pool}/recv")
 
     def test_full_received_snapshot_accessible(self, snapped_pool):
+        """Same shape as test_full_roundtrip_returns_none; this one
+        opens the destination snapshot."""
         lz, pool, snap = snapped_pool
         dest_fs = f"{pool}/recv"
         dest = f"{dest_fs}@snap1"
@@ -225,6 +250,15 @@ class TestLocalReplicateSmoke:
         _destroy_recv(lz, dest_fs)
 
     def test_full_received_data_matches_source(self, snapped_pool):
+        """
+        Before:                  After:
+          POOL/src                 POOL/src             (unchanged)
+          POOL/src/payload.dat       contents identical on dest
+          POOL/src@snap1           POOL/src@snap1
+                                   POOL/recv
+                                   POOL/recv/payload.dat
+                                   POOL/recv@snap1
+        """
         lz, pool, snap = snapped_pool
         dest_fs = f"{pool}/recv"
         dest = f"{dest_fs}@snap1"
@@ -247,6 +281,16 @@ class TestLocalReplicateSmoke:
 
 class TestLocalReplicateIncremental:
     def test_incremental_roundtrip(self, two_snapped_pool):
+        """Initial full from snap1 then snap1 -> snap2 incremental.
+
+        Before final replicate:           After final replicate:
+          POOL/src                          POOL/src              (unchanged)
+          POOL/src@snap1                    POOL/src@snap1
+          POOL/src@snap2  (with new data)   POOL/src@snap2
+          POOL/recv         (from snap1)    POOL/recv
+          POOL/recv@snap1                   POOL/recv@snap1
+                                            POOL/recv@snap2
+        """
         lz, pool, snap1, snap2 = two_snapped_pool
         dest_fs = f"{pool}/recv"
         dest1 = f"{dest_fs}@snap1"
@@ -258,6 +302,9 @@ class TestLocalReplicateIncremental:
         _destroy_recv(lz, dest_fs)
 
     def test_incremental_data_matches(self, two_snapped_pool):
+        """Same shape as test_incremental_roundtrip; this one verifies
+        the post-snap1 data ('more.dat') made it through the
+        snap1 -> snap2 incremental."""
         lz, pool, snap1, snap2 = two_snapped_pool
         dest_fs = f"{pool}/recv"
         lzc.local_replicate(source=snap1, dest=f"{dest_fs}@snap1")
@@ -366,7 +413,14 @@ class TestLocalReplicateRaw:
     def test_raw_replicates_encrypted_with_loaded_key(
         self, encrypted_snapped_pool
     ):
-        """raw=True works when the wrapping key is loaded on the source."""
+        """
+        Before:                              After:
+          POOL/enc_src   (encrypted, key       POOL/enc_src        (unchanged)
+                          loaded)
+          POOL/enc_src@snap1                   POOL/enc_src@snap1
+                                               POOL/enc_dst        (encrypted)
+                                               POOL/enc_dst@snap1
+        """
         lz, pool, snap, enc_rsrc = encrypted_snapped_pool
         dest_fs = f"{pool}/enc_dst"
         dest = f"{dest_fs}@snap1"
@@ -378,9 +432,16 @@ class TestLocalReplicateRaw:
     def test_raw_replicates_encrypted_with_unloaded_key(
         self, encrypted_snapped_pool
     ):
-        """raw=True must succeed even when the wrapping key has been
-        unloaded -- raw streams ship encrypted blocks as-is and do not
-        need the plaintext key on either side."""
+        """raw=True ships encrypted blocks as-is; the plaintext key is
+        not needed on either side.
+
+        Before:                              After:
+          POOL/enc_src   (encrypted, key       POOL/enc_src        (unchanged)
+                          UNLOADED)
+          POOL/enc_src@snap1                   POOL/enc_src@snap1
+                                               POOL/enc_dst        (encrypted)
+                                               POOL/enc_dst@snap1
+        """
         lz, pool, snap, enc_rsrc = encrypted_snapped_pool
         # Atomic umount + key unload.  A separate enc_rsrc.umount()
         # followed by crypto().unload_key() races with the kernel's
@@ -406,6 +467,23 @@ class TestLocalReplicateRaw:
         with pytest.raises(lzc.ZFSCoreException):
             lzc.local_replicate(source=snap, dest=f"{pool}/enc_dst@snap1")
 
+    def test_raw_flag_on_unencrypted_source_succeeds(self, snapped_pool):
+        """raw=True on an unencrypted dataset is a no-op-style success.
+
+        Before:                          After:
+          POOL/src        (unencrypted)    POOL/src              (unchanged)
+          POOL/src@snap1                   POOL/src@snap1
+                                           POOL/recv_raw_plain   (unencrypted)
+                                           POOL/recv_raw_plain@snap1
+        """
+        lz, pool, snap = snapped_pool
+        dest_fs = f"{pool}/recv_raw_plain"
+        lzc.local_replicate(
+            source=snap, dest=f"{dest_fs}@snap1", raw=True,
+        )
+        assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
+        _destroy_recv(lz, dest_fs)
+
 
 # ===========================================================================
 # 5. props
@@ -420,6 +498,14 @@ class TestLocalReplicateProps:
         _destroy_recv(lz, dest_fs)
 
     def test_props_compression_applied(self, snapped_pool):
+        """
+        Before:                  After:
+          POOL/src                 POOL/src              (unchanged)
+          POOL/src@snap1           POOL/src@snap1
+                                   POOL/recv
+                                     compression=lz4   (LOCAL)
+                                   POOL/recv@snap1
+        """
         lz, pool, snap = snapped_pool
         dest_fs = f"{pool}/recv"
         lzc.local_replicate(
@@ -432,6 +518,14 @@ class TestLocalReplicateProps:
         _destroy_recv(lz, dest_fs)
 
     def test_props_readonly_applied(self, snapped_pool):
+        """
+        Before:                  After:
+          POOL/src                 POOL/src              (unchanged)
+          POOL/src@snap1           POOL/src@snap1
+                                   POOL/recv
+                                     readonly=on       (LOCAL)
+                                   POOL/recv@snap1
+        """
         lz, pool, snap = snapped_pool
         dest_fs = f"{pool}/recv"
         lzc.local_replicate(
@@ -450,6 +544,34 @@ class TestLocalReplicateProps:
                 source=snap, dest=f"{pool}/recv@snap1", props="bad"
             )
 
+    def test_user_property_override_applied(self, snapped_pool):
+        """User properties (`module:property` namespace) ride through the
+        cmdprops path alongside native properties; zfs_valid_proplist
+        recognizes them via zfs_prop_user."""
+        lz, pool, snap = snapped_pool
+        dest_fs = f"{pool}/recv_user_prop"
+        lzc.local_replicate(
+            source=snap, dest=f"{dest_fs}@snap1",
+            props={"org.myapp:owner": "alice"},
+        )
+        ds = lz.open_resource(name=dest_fs)
+        user_props = ds.get_user_properties()
+        assert user_props.get("org.myapp:owner") == "alice"
+        _destroy_recv(lz, dest_fs)
+
+    def test_invalid_property_name_rejected(self, snapped_pool):
+        """An unknown native property name (no `:` in it, so not a user
+        property either) must be caught up-front by zfs_valid_proplist
+        in build_cmdprops, before any pipe or worker is spun up."""
+        _, pool, snap = snapped_pool
+        with pytest.raises(
+            (truenas_pylibzfs.ZFSException, lzc.ZFSCoreException)
+        ):
+            lzc.local_replicate(
+                source=snap, dest=f"{pool}/recv@snap1",
+                props={"nosuchprop": "value"},
+            )
+
 
 # ===========================================================================
 # 6. force=
@@ -457,6 +579,18 @@ class TestLocalReplicateProps:
 
 class TestLocalReplicateForce:
     def test_no_force_on_modified_dest_fails(self, two_snapped_pool):
+        """Incremental into a modified dest without force=True is
+        rejected by the kernel.
+
+        Before final replicate:           After (state unchanged):
+          POOL/src@snap1                    POOL/src@snap1
+          POOL/src@snap2                    POOL/src@snap2
+          POOL/recv         (from snap1
+                             plus locally
+                             written
+                             taint.dat)
+          POOL/recv@snap1                   POOL/recv@snap1
+        """
         lz, pool, snap1, snap2 = two_snapped_pool
         dest_fs = f"{pool}/recv"
         # Full receive of snap1
@@ -472,6 +606,18 @@ class TestLocalReplicateForce:
         _destroy_recv(lz, dest_fs)
 
     def test_force_true_on_modified_dest_succeeds(self, two_snapped_pool):
+        """force=True rolls back the dirty dest and applies the
+        incremental.
+
+        Before final replicate:           After final replicate:
+          POOL/src@snap1                    POOL/src@snap1
+          POOL/src@snap2                    POOL/src@snap2
+          POOL/recv         (with locally   POOL/recv         (rolled back,
+                             written                           taint.dat
+                             taint.dat)                        gone)
+          POOL/recv@snap1                   POOL/recv@snap1
+                                            POOL/recv@snap2
+        """
         lz, pool, snap1, snap2 = two_snapped_pool
         dest_fs = f"{pool}/recv"
         lzc.local_replicate(source=snap1, dest=f"{dest_fs}@snap1")
@@ -485,6 +631,14 @@ class TestLocalReplicateForce:
         _destroy_recv(lz, dest_fs)
 
     def test_force_on_fresh_dest_is_harmless(self, snapped_pool):
+        """force=True is a no-op on a non-existent destination.
+
+        Before:                  After:
+          POOL/src                 POOL/src              (unchanged)
+          POOL/src@snap1           POOL/src@snap1
+                                   POOL/recv
+                                   POOL/recv@snap1
+        """
         lz, pool, snap = snapped_pool
         dest_fs = f"{pool}/recv"
         lzc.local_replicate(
@@ -726,6 +880,39 @@ class TestLocalReplicateAudit:
         assert args[5] is True                         # raw kwarg also set
         _destroy_recv(lz, f"{pool}/recv_enc")
 
+    def test_audit_resumable_field_set(self, snapped_pool):
+        """resumable=True flows through to args[7] in the audit tuple;
+        an unset resume_token shows up as the empty string at args[8]."""
+        lz, pool, snap = snapped_pool
+        dest = f"{pool}/recv_audit_res@snap1"
+        before = len(_AUDIT_EVENTS)
+        lzc.local_replicate(source=snap, dest=dest, resumable=True)
+        events = _AUDIT_EVENTS[before:]
+        assert len(events) == 1
+        _, args = events[0]
+        # (source, dest, fromsnap, flags, force, raw, props,
+        #  resumable, resume_token)
+        assert args[7] is True
+        assert args[8] == ""                           # no token passed
+        _destroy_recv(lz, f"{pool}/recv_audit_res")
+
+    def test_audit_resume_token_field_logs_token(self, snapped_pool):
+        """resume_token is logged verbatim at args[8].  A bogus token
+        is fine for this assertion: the audit fires before decode."""
+        _, pool, snap = snapped_pool
+        before = len(_AUDIT_EVENTS)
+        with pytest.raises(ValueError):
+            lzc.local_replicate(
+                source=snap, dest=f"{pool}/recv_audit_tok@snap1",
+                resumable=True, resume_token="not-a-real-token",
+                force=True,
+            )
+        events = _AUDIT_EVENTS[before:]
+        assert len(events) == 1
+        _, args = events[0]
+        assert args[7] is True
+        assert args[8] == "not-a-real-token"
+
 
 # ===========================================================================
 # 10. History
@@ -915,134 +1102,9 @@ class TestLocalReplicateCleanup:
 # ===========================================================================
 
 
-# A "big enough" payload that comfortably exceeds 1 second of pipe-driven
-# transfer on the test runner, so the 1s polling interval (the lowest
-# legal value) gets at least one tick.  Random bytes so compression does
-# not shrink the on-wire stream below the threshold.
-_PROGRESS_PAYLOAD = 192 * 1024 * 1024
-
-
-@pytest.fixture
-def progress_pool():
-    """Larger file-backed pool so the progress tests have room for a
-    payload that takes >1s to push through the pipe.  Independent of
-    pool_fixture so the rest of the suite keeps the smaller default."""
-    d = tempfile.mkdtemp(prefix="pylibzfs_lrepl_prog_")
-    path = os.path.join(d, "d0.img")
-    with open(path, "w") as f:
-        os.ftruncate(f.fileno(), 1024 * 1024 * 1024)  # 1 GiB sparse
-    lz = truenas_pylibzfs.open_handle()
-    lz.create_pool(
-        name=POOL,
-        storage_vdevs=[
-            truenas_pylibzfs.create_vdev_spec(
-                vdev_type=truenas_pylibzfs.VDevType.FILE, name=path
-            )
-        ],
-        force=True,
-    )
-    src = f"{POOL}/src_prog"
-    lz.create_resource(
-        name=src, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
-    )
-    lz.open_resource(name=src).mount()
-    _write_data(f"/{src}", _PROGRESS_PAYLOAD, random=True)
-    snap = f"{src}@snap1"
-    _snap(snap)
-    try:
-        yield lz, POOL, snap
-    finally:
-        try:
-            lz.destroy_pool(name=POOL, force=True)
-        except Exception:
-            pass
-        shutil.rmtree(d, ignore_errors=True)
-
-
 class TestLocalReplicateProgress:
-    """progress_callback fires while the transfer is in flight, mirrors
-    the (callback, state) shape used by the iter_* methods, and re-raises
-    callback exceptions after the transfer settles."""
-
-    def test_callback_invoked(self, progress_pool):
-        lz, pool, snap = progress_pool
-        dest_fs = f"{pool}/recv_prog"
-        seen = []
-
-        def cb(written, total, state):
-            seen.append((written, total, state))
-
-        t0 = time.monotonic()
-        lzc.local_replicate(
-            source=snap, dest=f"{dest_fs}@snap1",
-            progress_callback=cb,
-        )
-        elapsed = time.monotonic() - t0
-
-        if elapsed < 1.0:
-            pytest.skip(
-                f"transfer too fast ({elapsed:.2f}s < 1s) for "
-                "the integer-second polling interval"
-            )
-
-        assert seen, "progress callback was never invoked"
-        for w, total, state in seen:
-            assert total > 0
-            assert 0 <= w <= total
-            assert state is None
-        # Monotonic non-decreasing.
-        for prev, curr in zip(seen, seen[1:]):
-            assert curr[0] >= prev[0], (
-                f"written counter decreased: {prev[0]} -> {curr[0]}"
-            )
-        _destroy_recv(lz, dest_fs)
-
-    def test_state_passed_through(self, progress_pool):
-        lz, pool, snap = progress_pool
-        dest_fs = f"{pool}/recv_prog2"
-        bag = {"hits": 0}
-        identities = []
-
-        def cb(_w, _t, state):
-            state["hits"] += 1
-            identities.append(state)
-
-        t0 = time.monotonic()
-        lzc.local_replicate(
-            source=snap, dest=f"{dest_fs}@snap1",
-            progress_callback=cb,
-            progress_state=bag,
-        )
-        elapsed = time.monotonic() - t0
-
-        if elapsed < 1.0:
-            pytest.skip(f"transfer too fast ({elapsed:.2f}s) to test state")
-
-        assert bag["hits"] >= 1
-        assert all(s is bag for s in identities)
-        _destroy_recv(lz, dest_fs)
-
-    def test_state_default_is_none(self, progress_pool):
-        lz, pool, snap = progress_pool
-        dest_fs = f"{pool}/recv_prog3"
-        states_seen = []
-
-        def cb(_w, _t, state):
-            states_seen.append(state)
-
-        t0 = time.monotonic()
-        lzc.local_replicate(
-            source=snap, dest=f"{dest_fs}@snap1",
-            progress_callback=cb,
-        )
-        elapsed = time.monotonic() - t0
-
-        if elapsed < 1.0:
-            pytest.skip(f"transfer too fast ({elapsed:.2f}s)")
-
-        assert states_seen
-        assert all(s is None for s in states_seen)
-        _destroy_recv(lz, dest_fs)
+    """progress_callback wiring: kwarg shape, default behaviour when
+    omitted, callable check, and interval validation."""
 
     def test_callback_none_unchanged(self, snapped_pool):
         """Default behaviour with progress_callback=None matches the
@@ -1057,42 +1119,21 @@ class TestLocalReplicateProgress:
         assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
         _destroy_recv(lz, dest_fs)
 
-    def test_callback_exception_does_not_abort_transfer(self, progress_pool):
-        """A buggy progress callback must not turn a successful
-        replication into a failure.  The exception is routed through
-        sys.unraisablehook (matching signal handlers, thread targets,
-        and atexit hooks); the function returns None and the
-        destination dataset is fully received."""
-        lz, pool, snap = progress_pool
-        dest_fs = f"{pool}/recv_prog4"
-
-        unraised = []
-        prev_hook = sys.unraisablehook
-        sys.unraisablehook = lambda args: unraised.append(args)
-        try:
-            def cb(_w, _t, _s):
-                raise RuntimeError("boom")
-
-            t0 = time.monotonic()
-            # No exception expected.
-            lzc.local_replicate(
-                source=snap, dest=f"{dest_fs}@snap1",
-                progress_callback=cb,
-            )
-            elapsed = time.monotonic() - t0
-        finally:
-            sys.unraisablehook = prev_hook
-
-        # The receive completed, so the destination dataset exists.
-        assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
-
-        if elapsed >= 1.0:
-            # The callback got at least one chance to fire; assert the
-            # exception was handed to unraisablehook.
-            assert unraised, "callback raised but unraisablehook was not invoked"
-            assert any(isinstance(u.exc_value, RuntimeError) and
-                       str(u.exc_value) == "boom" for u in unraised)
-
+    def test_callback_omitted_does_not_spawn_thread(self, snapped_pool):
+        """Omitting the kwarg entirely (vs passing None) takes the same
+        no-poller path.  Companion to test_callback_none_unchanged --
+        guards against a refactor that defaults the kwarg to a stub
+        callable."""
+        lz, pool, snap = snapped_pool
+        dest_fs = f"{pool}/recv_no_cb"
+        before = threading.active_count()
+        lzc.local_replicate(source=snap, dest=f"{dest_fs}@snap1")
+        time.sleep(0.05)
+        after = threading.active_count()
+        assert after == before, (
+            f"thread count drifted without progress callback: "
+            f"{before} -> {after}"
+        )
         _destroy_recv(lz, dest_fs)
 
     def test_callback_not_callable_raises(self, snapped_pool):
@@ -1130,6 +1171,56 @@ class TestLocalReplicateProgress:
                 progress_callback=lambda *_: None,
                 progress_interval_seconds=1.5,  # type: ignore
             )
+
+    def test_callback_fires_with_correct_shape_and_unraisable(
+        self, random_data_snapped_pool
+    ):
+        """When the callback fires, it receives (written, total, state)
+        with the user-supplied state passed through, and exceptions
+        raised inside it route to sys.unraisablehook without aborting
+        the transfer.  May skip on fast runners (incl. the GH Actions
+        QEMU VM) where the transfer completes faster than the 1s
+        minimum poll interval (progress_interval_seconds is integer-
+        only at the API surface)."""
+        lz, pool, snap = random_data_snapped_pool
+        dest_fs = f"{pool}/recv_progress_fires"
+        sentinel = object()
+        calls = []
+
+        class CallbackError(RuntimeError):
+            pass
+
+        def cb(written, total, state):
+            calls.append((written, total, state))
+            raise CallbackError()
+
+        captured = []
+        orig_hook = sys.unraisablehook
+        sys.unraisablehook = lambda args: captured.append(args)
+        try:
+            lzc.local_replicate(
+                source=snap,
+                dest=f"{dest_fs}@snap1",
+                progress_callback=cb,
+                progress_state=sentinel,
+                progress_interval_seconds=1,
+            )
+        finally:
+            sys.unraisablehook = orig_hook
+
+        if not calls:
+            pytest.skip(
+                "progress callback did not fire: transfer completed "
+                "faster than the 1s minimum poll interval"
+            )
+
+        written, total, state = calls[0]
+        assert isinstance(written, int) and written >= 0
+        assert isinstance(total, int) and total >= 0
+        assert state is sentinel
+        assert any(isinstance(u.exc_value, CallbackError) for u in captured)
+        assert lz.open_resource(name=f"{dest_fs}@snap1") is not None
+        _destroy_recv(lz, dest_fs)
 
 
 # ===========================================================================
@@ -1224,3 +1315,81 @@ class TestLocalReplicateConcurrent:
         finally:
             for src_fs, _ in sources:
                 _destroy_recv(lz, src_fs)
+
+
+# ===========================================================================
+# 15. Resume (resumable= / resume_token=)
+# ===========================================================================
+
+
+def _get_resume_token(recv_fs):
+    """After an interrupted resumable receive the token lives on the
+    destination filesystem (or its hidden recv_fs%recv child if the
+    parent was newly created).  Returns "-" if no token is set or the
+    property value comes back as None."""
+    lz = truenas_pylibzfs.open_handle()
+    prop = truenas_pylibzfs.ZFSProperty.RECEIVE_RESUME_TOKEN
+    for name in (recv_fs, recv_fs + "%recv"):
+        try:
+            rsrc = lz.open_resource(name=name)
+            info = rsrc.asdict(properties={prop})
+            token = info["properties"]["receive_resume_token"]["value"]
+            if token and token != "-":
+                return token
+        except Exception:
+            pass
+    return "-"
+
+
+def _produce_partial_state(snap, recv_snap):
+    """Truncate-receive `snap` into `recv_snap` with resumable=True
+    so the kernel keeps the partial dataset and writes a resume
+    token.  Destination filesystem must not exist on entry."""
+    stream = tempfile.TemporaryFile()
+    lzc.send(snapname=snap, fd=stream.fileno())
+    full_bytes = stream.tell()
+    cut = full_bytes // 2
+    os.ftruncate(stream.fileno(), cut)
+    stream.seek(0)
+    with pytest.raises(lzc.ZFSCoreException):
+        lzc.receive(snapname=recv_snap, fd=stream.fileno(), resumable=True)
+    stream.close()
+
+
+class TestLocalReplicateResume:
+    """resumable= and resume_token= kwargs on lzc.local_replicate.
+
+    The "produce a partial state" half of the round trip uses lzc.send
+    + lzc.receive directly (mirroring tests/test_lzc_replication.py's
+    TestSendResume); local_replicate's own pipe is not interruptible
+    from Python, so we cannot generate the partial state through it.
+    The "complete from a token" half is what we are actually testing.
+    """
+
+    def test_resume_token_completes_partial_transfer(
+        self, random_data_snapped_pool
+    ):
+        """Resume an interrupted transfer via lzc.local_replicate.
+
+        Before final replicate:           After final replicate:
+          POOL/src_rand                     POOL/src_rand        (unchanged)
+          POOL/src_rand@snap1               POOL/src_rand@snap1
+          POOL/recv_resume   (partial,      POOL/recv_resume     (complete)
+                              receive_resume_token set)
+                                            POOL/recv_resume@snap1
+        """
+        lz, pool, snap = random_data_snapped_pool
+        recv_fs = f"{pool}/recv_resume"
+        recv_snap = f"{recv_fs}@snap1"
+
+        _produce_partial_state(snap, recv_snap)
+
+        token = _get_resume_token(recv_fs)
+        assert token != "-"
+
+        lzc.local_replicate(
+            source=snap, dest=recv_snap,
+            resumable=True, resume_token=token, force=True,
+        )
+        assert lz.open_resource(name=recv_snap) is not None
+        _destroy_recv(lz, recv_fs)

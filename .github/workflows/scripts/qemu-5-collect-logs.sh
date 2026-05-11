@@ -21,8 +21,8 @@ cp /tmp/test-exitcode.txt "$LOG_DIR/" 2>/dev/null || true
 
 # Collect system logs from VM
 ssh debian@$VM_IP "sudo journalctl -n 1000" > "$LOG_DIR/journalctl.log" 2>/dev/null || true
-ssh debian@$VM_IP "dmesg" > "$LOG_DIR/dmesg.log" 2>/dev/null || true
-ssh debian@$VM_IP "cat /var/log/auth.log" > "$LOG_DIR/auth.log" 2>/dev/null || true
+ssh debian@$VM_IP "sudo dmesg" > "$LOG_DIR/dmesg.log" 2>/dev/null || true
+ssh debian@$VM_IP "sudo cat /var/log/auth.log" > "$LOG_DIR/auth.log" 2>/dev/null || true
 
 # Collect core-dump backtraces produced by qemu-4-test.sh, plus a
 # listing of the raw cores (we do not pull the cores themselves
