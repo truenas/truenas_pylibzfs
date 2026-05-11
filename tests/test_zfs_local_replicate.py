@@ -16,8 +16,10 @@ Coverage:
   - raw=True with encrypted source
   - force=True on a dirty destination
   - Incremental (fromsnap)
+  - include_intermediates=True (zfs send -I) on filesystem and volume
   - Pre-flight failures: missing tosnap / fromsnap
-  - Argument validation (tosnap/dest required, RAW/SAVED rejected)
+  - Argument validation (tosnap/dest required, RAW/SAVED rejected,
+    include_intermediates requires fromsnap)
   - Audit event fires
 """
 
@@ -1012,3 +1014,118 @@ class TestClones:
                     lz.destroy_resource(name=ds)
                 except Exception:
                     pass
+
+
+# ===========================================================================
+# 12. include_intermediates (-I)
+# ===========================================================================
+
+class TestIncludeIntermediates:
+    """include_intermediates=True maps to sendflags_t.doall, equivalent
+    to `zfs send -I` (or `-RI` when combined with the implicit -R on
+    filesystems).  Verifies the dest receives every snapshot in the
+    range, that the default behavior stays `-i` (single delta), that
+    fromsnap is required, and that pool history records -I."""
+
+    def _build_three_snap_chain(self, lz, pool, src_rsrc):
+        """snap1 already exists from the fixture; add snap2 then snap3
+        with fresh data between each so they are distinct txgs."""
+        _write_data(f"/{pool}/src", DATA_SZ // 4, filename="b.dat")
+        _snap(f"{pool}/src@snap2")
+        _write_data(f"/{pool}/src", DATA_SZ // 4, filename="c.dat")
+        _snap(f"{pool}/src@snap3")
+
+    def test_include_intermediates_filesystem(self, snapped_dataset):
+        """Build snap1, snap2, snap3 on src.  Bootstrap the dest at
+        snap1, then incremental snap1 -> snap3 with
+        include_intermediates=True.  The dest must end up with all
+        three snapshots, including snap2 (which would be skipped under
+        the default -i behaviour).
+        """
+        lz, pool, src = snapped_dataset
+        dest = f"{pool}/recv_I"
+        self._build_three_snap_chain(lz, pool, src)
+        src.local_replicate(tosnap="snap1", dest=dest)
+        src.local_replicate(
+            tosnap="snap3", dest=dest, fromsnap="snap1",
+            include_intermediates=True,
+        )
+        try:
+            assert lz.open_resource(name=f"{dest}@snap1") is not None
+            assert lz.open_resource(name=f"{dest}@snap2") is not None
+            assert lz.open_resource(name=f"{dest}@snap3") is not None
+        finally:
+            _destroy_recv(lz, dest)
+
+    def test_default_is_single_delta(self, snapped_dataset):
+        """Regression check: without include_intermediates, the
+        incremental is a single delta (`zfs send -i`).  snap2 must NOT
+        appear on the dest after a snap1 -> snap3 replicate."""
+        lz, pool, src = snapped_dataset
+        dest = f"{pool}/recv_i"
+        self._build_three_snap_chain(lz, pool, src)
+        src.local_replicate(tosnap="snap1", dest=dest)
+        src.local_replicate(
+            tosnap="snap3", dest=dest, fromsnap="snap1",
+        )
+        try:
+            assert lz.open_resource(name=f"{dest}@snap1") is not None
+            assert lz.open_resource(name=f"{dest}@snap3") is not None
+            with pytest.raises(truenas_pylibzfs.ZFSException):
+                lz.open_resource(name=f"{dest}@snap2")
+        finally:
+            _destroy_recv(lz, dest)
+
+    def test_include_intermediates_without_fromsnap_raises(
+            self, snapped_dataset):
+        """include_intermediates without fromsnap has no base for the
+        range; validate_args rejects it with ValueError."""
+        _, pool, src = snapped_dataset
+        with pytest.raises(ValueError, match="fromsnap"):
+            src.local_replicate(
+                tosnap="snap1", dest=f"{pool}/recv_bad",
+                include_intermediates=True,
+            )
+
+    def test_history_records_dash_I(self, snapped_dataset):
+        """A successful include_intermediates replicate writes a
+        synthesized history line that contains ` -I `, not ` -i `."""
+        lz, pool, src = snapped_dataset
+        dest = f"{pool}/recv_I_hist"
+        self._build_three_snap_chain(lz, pool, src)
+        src.local_replicate(tosnap="snap1", dest=dest)
+        src.local_replicate(
+            tosnap="snap3", dest=dest, fromsnap="snap1",
+            include_intermediates=True,
+        )
+        try:
+            cmds = _history_lines(lz, pool)
+            matches = [c for c in cmds
+                       if "zfs receive" in c and dest in c]
+            assert matches, f"no history line found in {cmds[-5:]}"
+            line = matches[-1]
+            assert " -I " in line, f"missing -I in: {line}"
+            assert " -i " not in line, (
+                f"unexpected -i alongside -I in: {line}"
+            )
+        finally:
+            _destroy_recv(lz, dest)
+
+    def test_include_intermediates_volume(self, volume_dataset):
+        """Same shape as the filesystem case but on a zvol so the
+        non-recursive zfs-mode branch is exercised (no -R)."""
+        lz, pool, vol = volume_dataset
+        dest = f"{pool}/recv_vol_I"
+        _snap(f"{pool}/vol@snap2")
+        _snap(f"{pool}/vol@snap3")
+        vol.local_replicate(tosnap="snap1", dest=dest)
+        vol.local_replicate(
+            tosnap="snap3", dest=dest, fromsnap="snap1",
+            include_intermediates=True,
+        )
+        try:
+            assert lz.open_resource(name=f"{dest}@snap1") is not None
+            assert lz.open_resource(name=f"{dest}@snap2") is not None
+            assert lz.open_resource(name=f"{dest}@snap3") is not None
+        finally:
+            _destroy_recv(lz, dest)

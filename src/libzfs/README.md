@@ -63,7 +63,7 @@ namespace.
 | `py_zfs_resource.c` | Shared methods on `ZFSResource`: property get/set, rename, promote, mount/unmount, snapshot, clone, destroy, iter_filesystems/snapshots/bookmarks |
 | `py_zfs_dataset.c` | `ZFSDataset`-specific additions: `iter_userspace`, `set_userquotas`, `crypto` property accessor, `local_replicate` thin wrapper |
 | `py_zfs_volume.c` | `ZFSVolume`-specific additions: `crypto` property accessor, `promote`, `local_replicate` thin wrapper |
-| `py_zfs_local_replicate.c` | `local_replicate` for `ZFSDataset` and `ZFSVolume`. Filesystem path is `zfs send -Rp [-w]` (recursive); volume path is `zfs send -p [-w]` (single snapshot, non-recursive); both pipe into a co-resident `zfs receive`. Source properties always embedded; pass `props={...}` to override on the destination. |
+| `py_zfs_local_replicate.c` | `local_replicate` for `ZFSDataset` and `ZFSVolume`. Filesystem path is `zfs send -Rp [-w]` (recursive); volume path is `zfs send -p [-w]` (single snapshot, non-recursive); both pipe into a co-resident `zfs receive`. Source properties always embedded; pass `props={...}` to override on the destination. `fromsnap` requests `zfs send -i`; pair with `include_intermediates=True` for `zfs send -I` semantics (every intermediate snapshot included). |
 | `py_zfs_snapshot.c` | `ZFSSnapshot`-specific additions: `get_holds`, `get_clones`, `clone` |
 | `py_zfs_object.c` | `ZFSObject` base - `rename`; read-only properties `name`, `type`, `guid`, `createtxg`, `pool_name`, `encrypted` |
 | `py_zfs_common.c` | `py_zfs_promote()` shared helper used by dataset, volume, and resource |

@@ -206,6 +206,7 @@ zfs_send_op(const struct local_replicate_args *a, int outfd,
 	 */
 	flags = (sendflags_t){
 		.replicate = a->recursive,
+		.doall = a->include_intermediates,
 		.props = !a->recursive,
 		.largeblock = (a->send_flags_int & LZC_SEND_FLAG_LARGE_BLOCK) != 0,
 		.embed_data = (a->send_flags_int & LZC_SEND_FLAG_EMBED_DATA) != 0,
@@ -478,9 +479,11 @@ log_history(const struct local_replicate_args *a, bool has_props)
 
 	if (a->fromsnap) {
 		return py_log_history_impl(NULL, a->history_prefix,
-					   "zfs send%s -i %s %s | "
+					   "zfs send%s %s %s %s | "
 					   "zfs receive%s %s%s",
-					   send_opts, a->fromsnap, a->source,
+					   send_opts,
+					   a->include_intermediates ? "-I" : "-i",
+					   a->fromsnap, a->source,
 					   recv_opts, a->dest, props_marker);
 	}
 	return py_log_history_impl(NULL, a->history_prefix,
@@ -707,6 +710,22 @@ validate_args(const struct local_replicate_args *a)
 				"on lzc.local_replicate; recursive sends and "
 				"resume tokens do not compose");
 		return -1;
+	}
+	if (a->include_intermediates) {
+		if (a->mode == LOCAL_REPLICATE_LZC) {
+			PyErr_SetString(PyExc_ValueError,
+					"include_intermediates is only "
+					"supported on the resource-object "
+					"local_replicate methods; lzc_send "
+					"has no equivalent");
+			return -1;
+		}
+		if (a->fromsnap == NULL) {
+			PyErr_SetString(PyExc_ValueError,
+					"include_intermediates requires "
+					"fromsnap so the range has a base");
+			return -1;
+		}
 	}
 	if (a->progress_interval_seconds <= 0) {
 		PyErr_SetString(PyExc_ValueError,

@@ -24,6 +24,7 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 	char *kwnames[] = {
 		"tosnap", "dest", "fromsnap", "send_flags", "props",
 		"exclude_props", "force", "raw", "nomount",
+		"include_intermediates",
 		"progress_callback", "progress_state",
 		"progress_interval_seconds", NULL
 	};
@@ -36,6 +37,7 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 	int force_int = 0;
 	int raw_int = 0;
 	int nomount_int = 0;
+	int include_intermediates_int = 0;
 	PyObject *py_progress_cb = NULL;
 	PyObject *py_progress_state = NULL;
 	int progress_interval = 1;
@@ -48,12 +50,13 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 	int n = 0;
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$zzziOOpppOOi",
+					 "|$zzziOOppppOOi",
 					 kwnames,
 					 &tosnap, &dest, &fromsnap,
 					 &send_flags_int, &py_props,
 					 &py_exclude,
 					 &force_int, &raw_int, &nomount_int,
+					 &include_intermediates_int,
 					 &py_progress_cb, &py_progress_state,
 					 &progress_interval))
 		return NULL;
@@ -68,7 +71,7 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSResource.local_replicate",
-			"OssziOOOOO", obj->name,
+			"OssziOOOOOO", obj->name,
 			tosnap, dest,
 			fromsnap ? fromsnap : "",
 			send_flags_int,
@@ -76,7 +79,8 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 			raw_int ? Py_True : Py_False,
 			py_props ? py_props : Py_None,
 			py_exclude ? py_exclude : Py_None,
-			nomount_int ? Py_True : Py_False) < 0)
+			nomount_int ? Py_True : Py_False,
+			include_intermediates_int ? Py_True : Py_False) < 0)
 		return NULL;
 
 	/*
@@ -115,6 +119,7 @@ py_zfs_local_replicate(py_zfs_resource_t *res, PyObject *args_unused,
 		.raw = raw_int != 0,
 		.force = force_int != 0,
 		.recursive = obj->ctype == ZFS_TYPE_FILESYSTEM,
+		.include_intermediates = include_intermediates_int != 0,
 		.nomount = nomount_int != 0,
 		.py_exclude = py_exclude,
 		.skip_history = !obj->pylibzfsp->history,
