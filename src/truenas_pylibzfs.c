@@ -498,10 +498,71 @@ static struct PyModuleDef truenas_pylibzfs_constants = {
 };
 
 
+/*
+ * Compare the libzfs userland version string against the running ZFS
+ * kernel module version string. Returns B_TRUE if they match or if the
+ * ZFS kernel module side does not expose a version (e.g. module not
+ * loaded), B_FALSE if they differ. Sets *kver_out to the version string
+ * read from the ZFS kernel module (caller must free with free()), or
+ * NULL if it could not be read.
+ */
+static
+boolean_t py_zfs_versions_match(const char **uver_out, char **kver_out)
+{
+	const char *userland = zfs_version_userland();
+	char *kernel = zfs_version_kernel();
+
+	*uver_out = userland;
+	*kver_out = kernel;
+
+	if (kernel == NULL) {
+		/*
+		 * ZFS kernel module version unreadable (sysfs missing or
+		 * module not loaded). libzfs_init() below will surface the
+		 * real problem with a meaningful errno; do not treat this
+		 * as a mismatch.
+		 */
+		return B_TRUE;
+	}
+
+	/*
+	 * zfs_version_userland() returns ZFS_META_ALIAS, of the form
+	 * "zfs-<version>[-<release>]". zfs_version_kernel() reads
+	 * /sys/module/zfs/version, which carries the same shape. An
+	 * exact string match is the strongest signal that the property
+	 * table libzfs has just initialized matches what the running
+	 * ZFS kernel module advertises.
+	 */
+	return (strcmp(userland, kernel) == 0) ? B_TRUE : B_FALSE;
+}
+
 static
 int py_init_libzfs(void)
 {
 	libzfs_handle_t *tmplz = NULL;
+	const char *userland = NULL;
+	char *kernel = NULL;
+	boolean_t versions_ok;
+
+	/*
+	 * Reject loading when the libzfs userland and the running ZFS
+	 * kernel module versions disagree. _PYLIBZFS_ALLOW_VERSION_MISMATCH=1
+	 * overrides the check for read-mostly callers that accept reduced
+	 * functionality (unsupported properties expose as None).
+	 */
+	versions_ok = py_zfs_versions_match(&userland, &kernel);
+	if (!versions_ok && getenv("_PYLIBZFS_ALLOW_VERSION_MISMATCH") == NULL) {
+		PyErr_Format(PyExc_ImportError,
+			     "zfs userland %s does not match kernel %s; "
+			     "set _PYLIBZFS_ALLOW_VERSION_MISMATCH=1 to "
+			     "load anyway (unsupported properties will be "
+			     "exposed as None).",
+			     userland ? userland : "<unknown>",
+			     kernel ? kernel : "<unknown>");
+		free(kernel);
+		return B_FALSE;
+	}
+	free(kernel);
 
 	// We need to initialize libzfs handle temporarily so that
 	// zfs and zpool properties get properly initialized so that
