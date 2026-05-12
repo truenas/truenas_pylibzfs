@@ -506,11 +506,14 @@ static struct PyModuleDef truenas_pylibzfs_constants = {
  * read from the ZFS kernel module (caller must free with free()), or
  * NULL if it could not be read.
  */
+#define ZFS_USERLAND_VERSION_PREFIX "zfs-"
+
 static
 boolean_t py_zfs_versions_match(const char **uver_out, char **kver_out)
 {
 	const char *userland = zfs_version_userland();
 	char *kernel = zfs_version_kernel();
+	const size_t prefix_len = strlen(ZFS_USERLAND_VERSION_PREFIX);
 
 	*uver_out = userland;
 	*kver_out = kernel;
@@ -527,12 +530,14 @@ boolean_t py_zfs_versions_match(const char **uver_out, char **kver_out)
 
 	/*
 	 * zfs_version_userland() returns ZFS_META_ALIAS, of the form
-	 * "zfs-<version>[-<release>]". zfs_version_kernel() reads
-	 * /sys/module/zfs/version, which carries the same shape. An
-	 * exact string match is the strongest signal that the property
-	 * table libzfs has just initialized matches what the running
-	 * ZFS kernel module advertises.
+	 * "zfs-<version>". zfs_version_kernel() returns the contents
+	 * of /sys/module/zfs/version, which is just "<version>". Strip
+	 * the "zfs-" prefix from the userland string before comparing.
 	 */
+	if (strncmp(userland, ZFS_USERLAND_VERSION_PREFIX, prefix_len) == 0)
+		return (strcmp(userland + prefix_len, kernel) == 0)
+		    ? B_TRUE : B_FALSE;
+
 	return (strcmp(userland, kernel) == 0) ? B_TRUE : B_FALSE;
 }
 
