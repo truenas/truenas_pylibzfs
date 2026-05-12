@@ -132,23 +132,54 @@ void init_py_struct_prop_state(pylibzfs_state_t *state)
 {
 	size_t i;
 	PyTypeObject *obj;
+	char fallback_name[64];
+	char unsupported_doc[128];
 
 	for (i = 0; i < ARRAY_SIZE(zfs_prop_table); i++) {
-		const char *name = zfs_prop_to_name(zfs_prop_table[i].prop);
-		const char *doc = NULL;
 		zfs_prop_t prop = zfs_prop_table[i].prop;
+		const char *name = zfs_prop_to_name(prop);
+		const char *doc = NULL;
+		boolean_t supported;
 
 		/*
-		 * zfs_prop_table must only contain visible properties.
-		 * Hidden properties (zprop_register_hidden) are commented
-		 * out in the table.  CPython 3.13 structseq_repr() and
-		 * __replace__() do not support PyStructSequence_UnnamedField
-		 * in the visible sequence range.
+		 * A property in zfs_prop_table can be runtime invisible
+		 * for two reasons:
+		 *
+		 *   1. The loaded ZFS kernel module does not advertise it
+		 *      via sysfs, so libzfs marks pd_zfs_mod_supported
+		 *      false and zfs_prop_visible() returns false.
+		 *   2. The linked libzfs is older than the headers we
+		 *      compiled against and never registered the enum
+		 *      value, so zfs_prop_to_name() returns NULL.
+		 *
+		 * Degrade gracefully in both cases: synthesize a field
+		 * name (structseq_repr in CPython rejects NULL names)
+		 * and leave the runtime slot returning None, which
+		 * setup_zfs_prop_type already does whenever enum_obj is
+		 * NULL.
 		 */
-		PYZFS_ASSERT(zfs_prop_visible(prop),
-			     "Hidden property in zfs_prop_table.");
+		if (name == NULL) {
+			snprintf(fallback_name, sizeof(fallback_name),
+				 "unsupported_zfs_prop_%d", (int)prop);
+			name = fallback_name;
+			supported = B_FALSE;
+			snprintf(unsupported_doc, sizeof(unsupported_doc),
+				 "%s: property is not registered by the "
+				 "loaded libzfs.", name);
+		} else if (!zfs_prop_visible(prop)) {
+			supported = B_FALSE;
+			snprintf(unsupported_doc, sizeof(unsupported_doc),
+				 "%s: property is not supported by the "
+				 "running ZFS kernel module.", name);
+		} else {
+			supported = B_TRUE;
+		}
 
-		doc = py_create_prop_doc(name, prop);
+		if (supported) {
+			doc = py_create_prop_doc(name, prop);
+		} else {
+			doc = pymem_strdup(unsupported_doc);
+		}
 
 		state->struct_prop_fields[i].name = pymem_strdup(name);
 		PYZFS_ASSERT(state->struct_prop_fields[i].name,

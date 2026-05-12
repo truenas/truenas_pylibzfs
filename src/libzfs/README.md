@@ -138,3 +138,19 @@ All extension types set `.tp_new = py_no_new_impl`, blocking direct Python
 construction. Internal C factory functions allocate via `Type.tp_alloc(&Type, 0)`
 directly. When adding a new type, follow the same pattern - no `py_xxx_new` or
 `py_xxx_init` boilerplate.
+
+### ZFS version skew (ZFS kernel module / userland mismatch)
+
+`PyInit_truenas_pylibzfs` calls `zfs_version_userland()` and
+`zfs_version_kernel()` and raises `ImportError` if they disagree. Set
+`_PYLIBZFS_ALLOW_VERSION_MISMATCH=1` in the environment to bypass the check
+for read-only callers that accept reduced functionality.
+
+`init_py_struct_prop_state` (`py_zfs_prop.c`) and
+`init_py_struct_zpool_prop_state` (`py_zfs_pool_prop.c`) tolerate runtime
+property invisibility. Properties marked `pd_zfs_mod_supported = false` by
+the running ZFS kernel module, and properties whose `pd_name` is NULL
+because the linked libzfs does not register the enum value, are exposed as
+StructSequence slots that always return `None`. Field names are synthesized
+when libzfs has no name to offer, keeping the structseq shape stable across
+ZFS kernel module versions.
