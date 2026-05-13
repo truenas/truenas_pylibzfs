@@ -144,7 +144,10 @@ directly. When adding a new type, follow the same pattern - no `py_xxx_new` or
 `PyInit_truenas_pylibzfs` calls `zfs_version_userland()` and
 `zfs_version_kernel()` and raises `ImportError` if they disagree. Set
 `_PYLIBZFS_ALLOW_VERSION_MISMATCH=1` in the environment to bypass the check
-for read-only callers that accept reduced functionality.
+for read-only callers that accept reduced functionality; on bypass a
+`RuntimeWarning` is emitted naming both versions. The override is matched
+strictly against the literal value `"1"`; any other value (including empty)
+is treated as unset.
 
 `init_py_struct_prop_state` (`py_zfs_prop.c`) and
 `init_py_struct_zpool_prop_state` (`py_zfs_pool_prop.c`) tolerate runtime

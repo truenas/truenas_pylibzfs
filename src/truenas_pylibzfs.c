@@ -547,25 +547,42 @@ int py_init_libzfs(void)
 	libzfs_handle_t *tmplz = NULL;
 	const char *userland = NULL;
 	char *kernel = NULL;
+	const char *override = NULL;
 	boolean_t versions_ok;
 
 	/*
 	 * Reject loading when the libzfs userland and the running ZFS
 	 * kernel module versions disagree. _PYLIBZFS_ALLOW_VERSION_MISMATCH=1
 	 * overrides the check for read-mostly callers that accept reduced
-	 * functionality (unsupported properties expose as None).
+	 * functionality (unsupported properties expose as None); in that case
+	 * we still emit a RuntimeWarning so the mismatch is visible.
 	 */
 	versions_ok = py_zfs_versions_match(&userland, &kernel);
-	if (!versions_ok && getenv("_PYLIBZFS_ALLOW_VERSION_MISMATCH") == NULL) {
-		PyErr_Format(PyExc_ImportError,
-			     "zfs userland %s does not match kernel %s; "
-			     "set _PYLIBZFS_ALLOW_VERSION_MISMATCH=1 to "
-			     "load anyway (unsupported properties will be "
-			     "exposed as None).",
-			     userland ? userland : "<unknown>",
-			     kernel ? kernel : "<unknown>");
-		free(kernel);
-		return B_FALSE;
+	if (!versions_ok) {
+		override = getenv("_PYLIBZFS_ALLOW_VERSION_MISMATCH");
+		if (override == NULL || strcmp(override, "1") != 0) {
+			PyErr_Format(PyExc_ImportError,
+				     "zfs userland %s does not match kernel "
+				     "%s; set _PYLIBZFS_ALLOW_VERSION_MISMATCH"
+				     "=1 to load anyway (unsupported "
+				     "properties will be exposed as None).",
+				     userland ? userland : "<unknown>",
+				     kernel ? kernel : "<unknown>");
+			free(kernel);
+			return B_FALSE;
+		}
+
+		if (PyErr_WarnFormat(PyExc_RuntimeWarning, 1,
+				     "zfs userland %s does not match kernel "
+				     "%s; continuing because "
+				     "_PYLIBZFS_ALLOW_VERSION_MISMATCH=1 "
+				     "(unsupported properties will be exposed "
+				     "as None).",
+				     userland ? userland : "<unknown>",
+				     kernel ? kernel : "<unknown>") < 0) {
+			free(kernel);
+			return B_FALSE;
+		}
 	}
 	free(kernel);
 
