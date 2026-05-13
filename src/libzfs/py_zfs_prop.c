@@ -158,7 +158,7 @@ void init_py_struct_prop_state(pylibzfs_state_t *state)
 		 * setup_zfs_prop_type already does whenever enum_obj is
 		 * NULL.
 		 */
-		if (name == NULL) {
+		if (name == NULL || *name == '\0') {
 			snprintf(fallback_name, sizeof(fallback_name),
 				 "unsupported_zfs_prop_%d", (int)prop);
 			name = fallback_name;
