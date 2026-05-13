@@ -70,17 +70,33 @@ void init_py_struct_zpool_prop_state(pylibzfs_state_t *state)
 {
 	size_t i;
 	PyTypeObject *obj;
+	char fallback_name[64];
 
 	for (i = 0; i < ZPOOL_NUM_PROPS; i++) {
 		zpool_prop_t prop = (zpool_prop_t)i;
 		const char *name = zpool_prop_to_name(prop);
-		char *doc = py_create_zpool_prop_doc(name, prop);
-		char *heap_name = pymem_strdup(name);
+		char *doc = NULL;
+		char *heap_name = NULL;
 
 		/*
-		 * If either allocation failed, bail out hard — we can't
-		 * operate correctly without these fields.
+		 * zpool_prop_to_name returns NULL when the linked libzfs
+		 * is older than the headers we compiled against and never
+		 * registered the enum value. Synthesize a placeholder
+		 * name so PyStructSequence_NewType has a non-NULL field
+		 * name to work with.
 		 */
+		if (name == NULL || *name == '\0') {
+			snprintf(fallback_name, sizeof(fallback_name),
+				 "unsupported_zpool_prop_%d", (int)prop);
+			name = fallback_name;
+			doc = pymem_strdup("Pool property not supported by "
+					   "the linked libzfs.");
+		} else {
+			doc = py_create_zpool_prop_doc(name, prop);
+		}
+
+		heap_name = pymem_strdup(name);
+
 		PYZFS_ASSERT(heap_name, "Malloc failure in pool prop fields.");
 		PYZFS_ASSERT(doc, "Malloc failure in pool prop fields.");
 
