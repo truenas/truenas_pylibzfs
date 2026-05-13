@@ -345,6 +345,9 @@ PyDoc_STRVAR(arcstat_uncached_evictable_metadata__doc__,
 
 /* L2ARC (Level 2 ARC cache device) */
 
+PyDoc_STRVAR(arcstat_l2_ndev__doc__,
+"Number of L2ARC cache devices currently attached (l2arc_ndev).");
+
 PyDoc_STRVAR(arcstat_l2_hits__doc__,
 "L2ARC (Level 2 ARC cache device) read hits.");
 
@@ -686,6 +689,7 @@ static PyStructSequence_Field arcstats_fields[] = {
     {"uncached_metadata", arcstat_uncached_metadata__doc__},
     {"uncached_evictable_data", arcstat_uncached_evictable_data__doc__},
     {"uncached_evictable_metadata", arcstat_uncached_evictable_metadata__doc__},
+    {"l2_ndev", arcstat_l2_ndev__doc__},
     {"l2_hits", arcstat_l2_hits__doc__},
     {"l2_misses", arcstat_l2_misses__doc__},
     {"l2_prefetch_asize", arcstat_l2_prefetch_asize__doc__},

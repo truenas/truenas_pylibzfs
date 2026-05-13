@@ -20,7 +20,7 @@
  * This constant must stay in sync with ARCSTATS_PATH. The test
  * tests/test_kstat_arcstats.py enforces that invariant in CI.
  */
-#define ARCSTATS_N_FIELDS 147
+#define ARCSTATS_N_FIELDS 148
 
 /*
  * Path to the ZIL (ZFS Intent Log) kstat file exposed by the ZFS
