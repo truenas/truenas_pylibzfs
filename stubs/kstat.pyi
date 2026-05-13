@@ -247,6 +247,8 @@ class ArcStats:
     ARC_FLAG_UNCACHED (no outstanding holds on the buffer)."""
 
     # L2ARC (Level 2 ARC cache device)
+    l2_ndev: int
+    """Number of L2ARC cache devices currently attached (l2arc_ndev)."""
     l2_hits: int
     """L2ARC (Level 2 ARC cache device) read hits."""
     l2_misses: int
