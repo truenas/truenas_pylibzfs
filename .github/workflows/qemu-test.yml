@@ -1,6 +1,7 @@
 name: QEMU VM Tests
 
 on:
+  push:
   pull_request:
 
 concurrency:
