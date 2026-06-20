@@ -1068,7 +1068,10 @@ PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "follow_symlinks: bool, optional, default=False\n"
 "    Don't dereference mountpoint if it is a symbolic link.\n"
 "recursive: bool, optional, default=False\n"
-"    Unmount any children inheriting the mountpoint property.\n\n"
+"    Unmount the entire descendant filesystem tree, children before\n"
+"    parents, regardless of whether descendants inherit the mountpoint\n"
+"    property. When unload_encryption_key is set, encryption keys are\n"
+"    unloaded only after the whole subtree has been unmounted.\n\n"
 ""
 "Returns\n"
 "-------\n"
@@ -1136,6 +1139,37 @@ PyObject *py_zfs_resource_open_pool(PyObject *self, PyObject *args_unused)
 	return out;
 }
 
+/*
+ * zfs_iter_filesystems_v2 callback that unmounts a dataset subtree in
+ * dataset-hierarchy post-order (descendants before their parent).
+ *
+ * zfs_unmountall() unmounts in mountpoint order rather than dataset order, so a
+ * child with its own LOCAL mountpoint mounted outside the parent's tree can be
+ * left mounted -- and, when MS_CRYPT is set, the encryption-root key unload then
+ * fails with EBUSY because that child still holds the key. Walking the dataset
+ * tree post-order guarantees every descendant is unmounted before its parent,
+ * so the key unload at an encryption root always runs with the subtree gone.
+ *
+ * The MS_CRYPT flag is carried per node exactly as zfs_unmountall() does; it
+ * only triggers a key unload at encryption roots.
+ */
+static int
+py_zfs_recursive_unmount_cb(zfs_handle_t *zhp, void *data)
+{
+	int *flags = (int *)data;
+	int ret = 0;
+
+	if (zfs_get_type(zhp) == ZFS_TYPE_FILESYSTEM) {
+		ret = zfs_iter_filesystems_v2(zhp, 0,
+		    py_zfs_recursive_unmount_cb, data);
+		if (ret == 0 && zfs_unmount(zhp, NULL, *flags) != 0)
+			ret = -1;
+	}
+
+	zfs_close(zhp);
+	return ret;
+}
+
 static
 PyObject *py_zfs_resource_unmount(PyObject *self,
 				  PyObject *args_unused,
@@ -1188,7 +1222,17 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
 	if (recurse) {
-		err = zfs_unmountall(res->obj.zhp, flags);
+		err = zfs_iter_filesystems_v2(res->obj.zhp, 0,
+		    py_zfs_recursive_unmount_cb, &flags);
+		/*
+		 * Unmount the target itself last, after its whole subtree, so
+		 * any encryption-key unload (MS_CRYPT) runs with no descendant
+		 * still holding the key. The target handle is owned by this
+		 * object, so unlike the descendants it is not closed here.
+		 */
+		if (err == 0 &&
+		    zfs_get_type(res->obj.zhp) == ZFS_TYPE_FILESYSTEM)
+			err = zfs_unmount(res->obj.zhp, NULL, flags);
 	} else {
 		err = zfs_unmount(res->obj.zhp, mp, flags);
 	}
