@@ -93,8 +93,10 @@ fail:
  *
  * Member names are derived from zpool_prop_to_name() uppercased so that
  * ZPOOLProperty.FAILMODE.name.lower() == "failmode" (the struct field name).
- * INVAL (-1) is added as a special case since zpool_prop_to_name() returns
- * NULL for it.
+ * The ZPOOL_PROP_INVAL sentinel (-1) is handled explicitly as "INVAL": it must
+ * NOT be passed to zpool_prop_to_name(), which is an unchecked
+ * "return zpool_prop_table[prop].pd_name", so zpool_prop_to_name(-1) is an
+ * out-of-bounds read that can return a bogus name rather than NULL.
  */
 static
 PyObject *zpool_prop_table_to_dict(void)
@@ -111,11 +113,10 @@ PyObject *zpool_prop_table_to_dict(void)
 
 	for (i = 0; i < ARRAY_SIZE(zpool_prop_table); i++) {
 		zpool_prop_t prop = zpool_prop_table[i];
-		const char *name = zpool_prop_to_name(prop);
+		const char *name;
 		size_t j;
 
-		if (name == NULL) {
-			/* INVAL sentinel (-1) */
+		if (prop == ZPOOL_PROP_INVAL) {
 			val = PyLong_FromLong((long)prop);
 			if (val == NULL)
 				goto fail;
@@ -125,6 +126,8 @@ PyObject *zpool_prop_table_to_dict(void)
 				goto fail;
 			continue;
 		}
+
+		name = zpool_prop_to_name(prop);
 
 		for (j = 0; j < sizeof(upper_name) - 1 && name[j] != '\0'; j++)
 			upper_name[j] = toupper((unsigned char)name[j]);
