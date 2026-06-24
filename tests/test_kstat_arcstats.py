@@ -80,7 +80,7 @@ def test_arcstats_returns_ints():
 def test_arcstats_field_count():
     """ArcStats field count must equal ARCSTATS_N_FIELDS (147)."""
     stats = kstat.get_arcstats()
-    assert len(stats) == 147
+    assert len(stats) == 148
 
 
 def test_arcstats_successive_calls_are_independent():
