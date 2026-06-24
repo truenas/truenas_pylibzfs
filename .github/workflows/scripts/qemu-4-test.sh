@@ -152,7 +152,8 @@ import truenas_pylibzfs, sys
 for name in ('lzc', 'libzfs_types', 'property_sets', 'kstat'):
     sys.modules['truenas_pylibzfs.' + name] = getattr(truenas_pylibzfs, name)
 from mypy.stubtest import main
-sys.argv = ['stubtest', 'truenas_pylibzfs']
+sys.argv = ['stubtest', 'truenas_pylibzfs',
+            '--allowlist', 'tests/type_checks/stubtest_allowlist.txt']
 sys.exit(main())
 "
 STUBTEST_EXIT=$?

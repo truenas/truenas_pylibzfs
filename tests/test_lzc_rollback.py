@@ -2,7 +2,8 @@
 Tests for lzc.rollback():
   - rollback to most recent snapshot returns snap name (str)
   - rollback with explicit snapshot_name
-  - rollback to non-most-recent raises FileExistsError
+  - rollback to non-most-recent raises MoreRecentSnapshotsExist
+    (a subclass of ZFSException) carrying the conflicting snapshots
   - rollback on nonexistent resource raises
   - keyword-only enforcement
 """
@@ -89,9 +90,46 @@ def test_rollback_with_named_snapshot(dataset_with_two_snaps):
 
 def test_rollback_to_non_recent_raises(dataset_with_two_snaps):
     lz, ds_name, snap1, snap2 = dataset_with_two_snaps
-    # snap1 is not the most recent — must raise
+    # snap1 is not the most recent — must raise MoreRecentSnapshotsExist
     snap1_component = snap1.split('@')[1]
-    with pytest.raises((FileExistsError, lzc.ZFSCoreException)):
+    with pytest.raises(truenas_pylibzfs.MoreRecentSnapshotsExist) as exc_info:
+        lzc.rollback(resource_name=ds_name, snapshot_name=snap1_component)
+
+    exc = exc_info.value
+    # snap2 is more recent than snap1 and therefore blocks the rollback
+    assert snap2 in exc.snapshots
+    # it is a ZFSException carrying the EZFS_EXISTS code
+    assert isinstance(exc, truenas_pylibzfs.ZFSException)
+    assert exc.code == truenas_pylibzfs.ZFSError.EZFS_EXISTS
+
+
+def test_rollback_conflict_list_is_ordered(dataset_with_two_snaps):
+    lz, ds_name, snap1, snap2 = dataset_with_two_snaps
+    # add a third snapshot, more recent than snap2 (and snap1)
+    snap3 = f'{ds_name}@rb_snap_c'
+    lzc.create_snapshots(snapshot_names=[snap3])
+    try:
+        snap1_component = snap1.split('@')[1]
+        with pytest.raises(truenas_pylibzfs.MoreRecentSnapshotsExist) as exc_info:
+            lzc.rollback(resource_name=ds_name, snapshot_name=snap1_component)
+
+        # conflicting snapshots are returned in ascending creation order
+        assert exc_info.value.snapshots == [snap2, snap3]
+    finally:
+        try:
+            lzc.destroy_snapshots(snapshot_names=[snap3])
+        except Exception:
+            pass
+
+
+def test_more_recent_snapshots_exist_is_zfs_exception(dataset_with_two_snaps):
+    # MoreRecentSnapshotsExist belongs to the ZFS exception hierarchy, so it
+    # must be catchable as ZFSException
+    assert issubclass(truenas_pylibzfs.MoreRecentSnapshotsExist, truenas_pylibzfs.ZFSException)
+
+    lz, ds_name, snap1, snap2 = dataset_with_two_snaps
+    snap1_component = snap1.split('@')[1]
+    with pytest.raises(truenas_pylibzfs.ZFSException):
         lzc.rollback(resource_name=ds_name, snapshot_name=snap1_component)
 
 

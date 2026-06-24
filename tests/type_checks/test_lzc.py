@@ -6,6 +6,7 @@ A type error here means a stub signature is broken or a caller is using the API 
 """
 from collections.abc import Iterable
 
+import truenas_pylibzfs
 from truenas_pylibzfs import lzc
 
 
@@ -168,3 +169,11 @@ def check_exception_fields(exc: lzc.ZFSCoreException) -> None:
     name: str = exc.name
     errors: tuple[object, ...] | None = exc.errors
     _ = (code, msg, name, errors)
+
+
+def check_more_recent_snapshots_exc(
+    exc: truenas_pylibzfs.MoreRecentSnapshotsExist,
+) -> None:
+    snapshots: list[str] = exc.snapshots
+    code: int = exc.code
+    _ = (snapshots, code)

@@ -3,6 +3,9 @@
 static
 PyObject *PyExc_ZFSError;
 
+static
+PyObject *PyExc_MoreRecentSnapshots;
+
 PyDoc_STRVAR(py_zfs_exception__doc__,
 "ZFSException(exception)\n"
 "-----------------------\n\n"
@@ -55,6 +58,41 @@ PyObject *setup_zfs_exception(void)
 
 	Py_DECREF(dict);
 	return PyExc_ZFSError;
+}
+
+PyDoc_STRVAR(py_more_recent_snapshots_exc__doc__,
+"MoreRecentSnapshotsExist(snapshots)\n"
+"-----------------------------------\n\n"
+"Raised by lzc.rollback() when the target dataset cannot be rolled back to\n"
+"the requested snapshot because more recent snapshots or bookmarks exist.\n\n"
+"This is a subclass of ZFSException; its `code` is ZFSError.EZFS_EXISTS.\n\n"
+"attributes:\n"
+"-----------\n"
+"snapshots: list[str]\n"
+"    Names of the snapshots and bookmarks that are more recent than the\n"
+"    target snapshot and therefore block the rollback.\n"
+);
+PyObject *setup_more_recent_snapshots_exception(void)
+{
+	PyObject *dict = NULL;
+
+	dict = Py_BuildValue("{s:O}", "snapshots", Py_None);
+	if (dict == NULL)
+		return NULL;
+
+	PyExc_MoreRecentSnapshots = PyErr_NewExceptionWithDoc(
+		PYLIBZFS_MODULE_NAME ".MoreRecentSnapshotsExist",
+		py_more_recent_snapshots_exc__doc__,
+		PyExc_ZFSError,
+		dict);
+
+	Py_DECREF(dict);
+	return PyExc_MoreRecentSnapshots;
+}
+
+PyObject *get_more_recent_snapshots_exc_type(void)
+{
+	return PyExc_MoreRecentSnapshots;
 }
 
 const char *zfs_error_name(zfs_error_t error)

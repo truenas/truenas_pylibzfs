@@ -227,6 +227,8 @@ extern const char *zfs_error_name(zfs_error_t error);
 extern void py_get_zfs_error(libzfs_handle_t *lz, py_zfs_error_t *out);
 
 extern PyObject *setup_zfs_exception(void);
+extern PyObject *setup_more_recent_snapshots_exception(void);
+extern PyObject *get_more_recent_snapshots_exc_type(void);
 
 /*
  * @brief set a ZFSError exception based on given parameters

@@ -1,0 +1,9 @@
+# stubtest allowlist for truenas_pylibzfs
+#
+# Each line is a regular expression matching a fully-qualified name that
+# stubtest should not flag.
+
+# MoreRecentSnapshotsExist.snapshots is a required list[str] on every raised
+# instance; this is an instance-only attribute stubtest structurally cannot
+# verify.
+truenas_pylibzfs.MoreRecentSnapshotsExist.snapshots

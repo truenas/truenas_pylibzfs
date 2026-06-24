@@ -1504,6 +1504,232 @@ static PyObject *py_lzc_program(PyObject *self,
 	return py_out;
 }
 
+typedef struct {
+	uint64_t txg;
+	boolean_t is_bookmark;
+	char name[ZFS_MAX_DATASET_NAME_LEN];
+} rollback_entry_t;
+
+typedef struct {
+	uint64_t target_txg;
+	boolean_t is_bookmark;	/* category of the current iteration pass */
+	rollback_entry_t *entries;
+	size_t count;
+	size_t capacity;
+	boolean_t alloc_error;
+} rollback_conflict_t;
+
+/*
+ * zfs_iter_f callback used to collect the snapshots and bookmarks that block a
+ * rollback. This runs with the GIL released (see raise_more_recent_snapshots),
+ * so it must touch only plain C state, never the Python C API.
+ *
+ * Every snapshot or bookmark whose creation TXG (Transaction Group) is newer
+ * than the rollback target is recorded in a growable C array, tagged with its
+ * TXG and category so the caller can order them afterwards. The iterator
+ * transfers ownership of each handle to the callback, so we zfs_close() it here.
+ */
+static int
+rollback_conflict_cb(zfs_handle_t *zhp, void *data)
+{
+	rollback_conflict_t *cb = data;
+	uint64_t txg;
+
+	txg = zfs_prop_get_int(zhp, ZFS_PROP_CREATETXG);
+	if (txg > cb->target_txg) {
+		rollback_entry_t *entry;
+
+		if (cb->count == cb->capacity) {
+			size_t newcap = cb->capacity ? cb->capacity * 2 : 16;
+			rollback_entry_t *tmp = realloc(cb->entries,
+			    newcap * sizeof(*tmp));
+			if (tmp == NULL) {
+				cb->alloc_error = B_TRUE;
+				zfs_close(zhp);
+				return (-1);
+			}
+			cb->entries = tmp;
+			cb->capacity = newcap;
+		}
+
+		entry = &cb->entries[cb->count++];
+		entry->txg = txg;
+		entry->is_bookmark = cb->is_bookmark;
+		strlcpy(entry->name, zfs_get_name(zhp), sizeof(entry->name));
+	}
+
+	zfs_close(zhp);
+	return (0);
+}
+
+/*
+ * qsort comparator: order conflicting entries the way the zfs(8) CLI reports
+ * them - snapshots before bookmarks, each group by ascending creation TXG
+ * (ties broken by name for determinism).
+ */
+static int
+rollback_entry_cmp(const void *a, const void *b)
+{
+	const rollback_entry_t *ea = a;
+	const rollback_entry_t *eb = b;
+
+	if (ea->is_bookmark != eb->is_bookmark)
+		return (ea->is_bookmark - eb->is_bookmark);
+	if (ea->txg < eb->txg)
+		return (-1);
+	if (ea->txg > eb->txg)
+		return (1);
+	return (strcmp(ea->name, eb->name));
+}
+
+/*
+ * Populate the ZFSException attributes on a MoreRecentSnapshotsExist instance:
+ * the standard `code`/`name` (EZFS_EXISTS) plus the `snapshots` list. Returns 0
+ * on success or -1 with a Python exception set.
+ */
+static int
+rollback_set_exc_attrs(PyObject *exc, PyObject *snapshots)
+{
+	PyObject *code = NULL;
+	PyObject *name = NULL;
+	int err;
+
+	code = PyLong_FromLong(EZFS_EXISTS);
+	if (code == NULL)
+		return (-1);
+	err = PyObject_SetAttrString(exc, "code", code);
+	Py_DECREF(code);
+	if (err != 0)
+		return (-1);
+
+	name = PyUnicode_FromString(zfs_error_name(EZFS_EXISTS));
+	if (name == NULL)
+		return (-1);
+	err = PyObject_SetAttrString(exc, "name", name);
+	Py_DECREF(name);
+	if (err != 0)
+		return (-1);
+
+	return (PyObject_SetAttrString(exc, "snapshots", snapshots));
+}
+
+/*
+ * lzc_rollback_to() returns EEXIST when the requested snapshot is not the most
+ * recent one because newer snapshots or bookmarks still exist. Enumerate those
+ * conflicting snapshots and bookmarks (the ones "zfs rollback -r" would
+ * force-delete) and raise MoreRecentSnapshotsExist with the resulting list.
+ *
+ * The libzfs enumeration issues blocking ioctls, so it runs with the GIL
+ * released, collecting into a plain C array. The Python list and exception are
+ * built afterwards with the GIL held.
+ *
+ * Returns B_TRUE if a Python exception was set (either MoreRecentSnapshotsExist
+ * itself or an error encountered while building it). Returns B_FALSE if the
+ * conflicting snapshots could not be determined (e.g. the dataset could no
+ * longer be opened), in which case the caller should fall back to a generic
+ * error.
+ */
+static boolean_t
+raise_more_recent_snapshots(const char *resource,
+			    const char *snapfull)
+{
+	libzfs_handle_t *hdl = NULL;
+	zfs_handle_t *ds = NULL;
+	zfs_handle_t *snap = NULL;
+	rollback_conflict_t cb = { 0 };
+	PyObject *names = NULL;
+	PyObject *exc = NULL;
+	boolean_t gathered = B_FALSE;
+	boolean_t raised = B_FALSE;
+	size_t i;
+	int err = 0;
+
+	Py_BEGIN_ALLOW_THREADS
+	hdl = libzfs_init();
+	if (hdl != NULL) {
+		snap = zfs_open(hdl, snapfull, ZFS_TYPE_SNAPSHOT);
+		ds = zfs_open(hdl, resource,
+			      ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+		if (snap != NULL && ds != NULL) {
+			cb.target_txg = zfs_prop_get_int(snap,
+							 ZFS_PROP_CREATETXG);
+
+			cb.is_bookmark = B_FALSE;
+			err = zfs_iter_snapshots(ds, B_FALSE,
+						 rollback_conflict_cb, &cb,
+						 cb.target_txg, 0);
+			if (err == 0) {
+				cb.is_bookmark = B_TRUE;
+				err = zfs_iter_bookmarks(ds,
+							 rollback_conflict_cb,
+							 &cb);
+			}
+
+			if (err == 0 && !cb.alloc_error) {
+				qsort(cb.entries, cb.count,
+				      sizeof(*cb.entries), rollback_entry_cmp);
+				gathered = B_TRUE;
+			}
+		}
+	}
+	if (snap != NULL)
+		zfs_close(snap);
+	if (ds != NULL)
+		zfs_close(ds);
+	if (hdl != NULL)
+		libzfs_fini(hdl);
+	Py_END_ALLOW_THREADS
+
+	/* Could not determine the conflicting set; let the caller fall back. */
+	if (!gathered) {
+		free(cb.entries);
+		return (B_FALSE);
+	}
+
+	names = PyList_New(0);
+	if (names == NULL) {
+		raised = B_TRUE;  // MemoryError already set
+		goto out;
+	}
+
+	for (i = 0; i < cb.count; i++) {
+		PyObject *name = PyUnicode_FromString(cb.entries[i].name);
+		if (name == NULL) {
+			raised = B_TRUE;
+			goto out;
+		}
+		if (PyList_Append(names, name) != 0) {
+			Py_DECREF(name);
+			raised = B_TRUE;
+			goto out;
+		}
+		Py_DECREF(name);
+	}
+
+	/*
+	 * Build it as a normal ZFSException: a human-readable message argument
+	 * plus the conventional `code`/`name` attributes set to EZFS_EXISTS, and
+	 * the conflicting entries exposed via `snapshots`.
+	 */
+	exc = PyObject_CallFunction(get_more_recent_snapshots_exc_type(), "s",
+	    "more recent snapshots or bookmarks exist");
+	if (exc == NULL) {
+		raised = B_TRUE;  // python error already set
+		goto out;
+	}
+
+	raised = B_TRUE;
+	if (rollback_set_exc_attrs(exc, names) == 0)
+		PyErr_SetObject((PyObject *)Py_TYPE(exc), exc);
+
+	Py_DECREF(exc);
+
+out:
+	free(cb.entries);
+	Py_XDECREF(names);
+	return (raised);
+}
+
 PyDoc_STRVAR(py_zfs_core_rollback__doc__,
 "rollback(*, resource_name, snapshot_name=None) -> str\n"
 "------------------------------------------------------------------\n\n"
@@ -1533,9 +1759,12 @@ PyDoc_STRVAR(py_zfs_core_rollback__doc__,
 "FileNotFoundError:\n"
 "    Target resource or snapshot does not exist.\n"
 "\n"
-"FileExistsError:\n"
+"MoreRecentSnapshotsExist:\n"
 "    Rollback could not take place because the specified `snapshot_name` is\n"
-"    not the most recent snapshot.\n"
+"    not the most recent snapshot. The exception's `snapshots` attribute is a\n"
+"    list of the snapshots and bookmarks that are more recent than the target\n"
+"    and which therefore block the rollback. This is a subclass of\n"
+"    ZFSException with `code` set to ZFSError.EZFS_EXISTS.\n"
 "\n"
 "PermissionError:\n"
 "    User lacks permission to roll back dataset.\n"
@@ -1596,6 +1825,18 @@ static PyObject *py_lzc_rollback(PyObject *self,
 		 */
 		PyObject *errstr = NULL;
 		PyObject *etuple = NULL;
+
+		/*
+		 * lzc_rollback_to() reports EEXIST when the requested snapshot
+		 * is not the most recent one. Replace the bare OSError with
+		 * MoreRecentSnapshotsExist, which carries the list of snapshots
+		 * and bookmarks that block the rollback. snapret holds the fully
+		 * qualified target snapshot name in this (csnap != NULL) path.
+		 */
+		if (err == EEXIST && csnap != NULL &&
+		    raise_more_recent_snapshots(crsrc, snapret)) {
+			return NULL;
+		}
 
 		errstr = PyUnicode_FromFormat("Failed to rollback %s to %s: %s",
 		    crsrc, csnap ? csnap : "<LATEST>", strerror(err));

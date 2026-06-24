@@ -607,6 +607,7 @@ PyMODINIT_FUNC
 PyInit_truenas_pylibzfs(void)
 {
 	PyObject *zfs_exc;
+	PyObject *mre_exc;
 	PyObject *constants = NULL;
 	PyObject *libzfs_types = NULL;
 	PyObject *lzc = NULL;
@@ -639,17 +640,27 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
-	lzc = py_setup_lzc_module(mpylibzfs);
-	err = PyModule_AddObjectRef(mpylibzfs, "lzc", lzc);
-	Py_XDECREF(lzc);
+	zfs_exc = setup_zfs_exception();
+	err = PyModule_AddObjectRef(mpylibzfs, "ZFSException", zfs_exc);
+	Py_XDECREF(zfs_exc);
 	if (err) {
 		Py_DECREF(mpylibzfs);
 		return NULL;
 	}
 
-	zfs_exc = setup_zfs_exception();
-	err = PyModule_AddObjectRef(mpylibzfs, "ZFSException", zfs_exc);
-	Py_XDECREF(zfs_exc);
+	/* MoreRecentSnapshotsExist derives from ZFSException (set up above). */
+	mre_exc = setup_more_recent_snapshots_exception();
+	err = PyModule_AddObjectRef(mpylibzfs, "MoreRecentSnapshotsExist",
+				    mre_exc);
+	Py_XDECREF(mre_exc);
+	if (err) {
+		Py_DECREF(mpylibzfs);
+		return NULL;
+	}
+
+	lzc = py_setup_lzc_module(mpylibzfs);
+	err = PyModule_AddObjectRef(mpylibzfs, "lzc", lzc);
+	Py_XDECREF(lzc);
 	if (err) {
 		Py_DECREF(mpylibzfs);
 		return NULL;

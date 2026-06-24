@@ -26,6 +26,9 @@ class ZFSException(RuntimeError):
     location: ClassVar[str] = ...
     name: ClassVar[str] = ...
 
+class MoreRecentSnapshotsExist(ZFSException):
+    snapshots: list[str]
+
 
 def create_vdev_spec(
     *,

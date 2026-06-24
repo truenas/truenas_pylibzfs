@@ -34,7 +34,7 @@ The shared `local_replicate` implementation - pipe + worker threads, progress po
 | `destroy_snapshots` | `lzc_destroy_snaps` | yes |
 | `create_holds` | `lzc_hold` | yes |
 | `release_holds` | `lzc_release` | yes |
-| `rollback` | `lzc_rollback` | yes |
+| `rollback` | `lzc_rollback` / `lzc_rollback_to` | yes |
 | `run_channel_program` | `lzc_channel_program` | yes (unless readonly=True) |
 | `send` | `lzc_send` / `lzc_send_resume` | no (data transfer) |
 | `send_space` | `lzc_send_space` | no |
@@ -42,6 +42,13 @@ The shared `local_replicate` implementation - pipe + worker threads, progress po
 | `receive` | `lzc_receive` / `lzc_receive_resumable` | yes |
 | `local_replicate` | `lzc_send` + `lzc_receive` (paired in one call via an internal pipe and pthread) | yes |
 | `wait` | `lzc_wait` | no |
+
+## Exceptions
+
+| Python name | Base class | Raised by |
+|---|---|---|
+| `ZFSCoreException` | `RuntimeError` | most `lzc` methods (carries `code`, `msg`, `name`, `errors`) |
+| `truenas_pylibzfs.MoreRecentSnapshotsExist` | `ZFSException` | `rollback` when `snapshot_name` is not the most recent snapshot (`code` = `EZFS_EXISTS`); defined in the main package, not `lzc` |
 
 ## Developer notes
 
