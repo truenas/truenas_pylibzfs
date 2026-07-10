@@ -7,6 +7,8 @@ Python C extension providing bindings to libzfs and libzfs_core for TrueNAS, inc
 - **`truenas_pylibzfs.libzfs_types`** — all C extension types (`ZFSPool`, `ZFSDataset`, etc.) and enums (`ZFSType`, `ZPOOLProperty`, etc.); use for `isinstance` checks and enum access
 - **`truenas_pylibzfs.kstat`** — reads ZFS kernel statistics from `/proc/spl/kstat/zfs/` without linking to libzfs; currently provides `get_arcstats()`; ZIL statistics to follow
 
+The repository also ships **`truenas_bootenv`**, a pure-Python package built on these bindings that manages TrueNAS boot environments (create/activate/destroy, replacing zectl). TrueNAS middleware imports `truenas_bootenv.engine` directly; the package installs the `truenas-bootenv` command for interactive administration (see `truenas-bootenv(8)`, generated from the CLI's argparse definition at package build time).
+
 This README covers a minimal set of usage examples. Where it conflicts with the inline docstrings or type stubs, treat those as authoritative. Docstrings are accessible at runtime via `help()`:
 
 ```python
