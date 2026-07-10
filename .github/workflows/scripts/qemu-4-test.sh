@@ -63,6 +63,16 @@ echo "=========================================="
 echo "Verifying truenas_pylibzfs module..."
 python3 -c "import truenas_pylibzfs; print('Module imported successfully')"
 
+# Smoke-check the boot environment CLI shipped by the package: the
+# console script must exist and --help must work without touching ZFS,
+# and the generated manpage must have been installed by the deb.
+echo "Checking truenas-bootenv CLI..."
+which truenas-bootenv
+truenas-bootenv --help > /dev/null
+test -e /usr/share/man/man8/truenas-bootenv.8.gz \
+  || test -e /usr/share/man/man8/truenas-bootenv.8
+echo "truenas-bootenv CLI and manpage OK"
+
 # Check if tests directory exists and run pytest if it does
 if [ -d "tests" ]; then
     echo ""

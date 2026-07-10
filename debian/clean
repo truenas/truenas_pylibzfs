@@ -1,1 +1,4 @@
 build/*
+debian/truenas-bootenv.8
+truenas_pylibzfs.egg-info/*
+truenas_pylibzfs.cpython-*.so

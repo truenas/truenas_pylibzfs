@@ -3,12 +3,32 @@
 #export DH_VERBOSE = 1
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export PYBUILD_NAME=truenas-pylibzfs
+export PYBUILD_SYSTEM=pyproject
+# The test suite needs a loaded ZFS kernel module (importing the built
+# extension calls libzfs_init()), which the build chroot does not have.
+# Tests run in the qemu CI workflow after the VM reboots instead.
+export PYBUILD_DISABLE=test
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild
 
 override_dh_auto_configure:
 	dh_auto_configure
+
+override_dh_auto_build:
+	dh_auto_build
+	# Generate the manpage from the CLI's argparse definition so the
+	# documentation can never drift from --help. This imports
+	# truenas_bootenv.cli, which is deliberately free of any
+	# truenas_pylibzfs import (there is no ZFS kernel module in the
+	# build chroot and importing the binding calls libzfs_init()).
+	PYTHONPATH=. argparse-manpage \
+		--module truenas_bootenv.cli \
+		--function build_parser \
+		--project-name truenas_pylibzfs \
+		--manual-title "TrueNAS Boot Environments" \
+		--manual-section 8 \
+		--output debian/truenas-bootenv.8
 
 override_dh_install:
 	dh_install

@@ -61,6 +61,7 @@ sudo apt-get install -y \
   debhelper \
   dh-autoreconf \
   dh-python \
+  equivs \
   autoconf \
   automake \
   libtool \
@@ -84,6 +85,8 @@ sudo apt-get install -y \
   python3-pytest \
   python3-pytest-timeout \
   python3-mypy \
+  pybuild-plugin-pyproject \
+  python3-argparse-manpage \
   git \
   "linux-headers-$(uname -r)" \
   dkms \
@@ -156,8 +159,22 @@ echo "Building truenas_pylibzfs..."
 cd ~/truenas_pylibzfs
 dpkg-buildpackage -us -uc -b
 
-# Install truenas_pylibzfs package
+# Install truenas_pylibzfs package. python3-truenas-pyos is a
+# TrueNAS-internal package that does not exist in Debian; the engine
+# imports it lazily (running_dataset) and the test suite monkeypatches
+# it, so a dependency placeholder satisfies dpkg in this VM.
 echo "Installing truenas_pylibzfs..."
+cat > /tmp/pyos-placeholder.ctl <<'CTRL'
+Section: python
+Priority: optional
+Standards-Version: 4.4.1
+Package: python3-truenas-pyos
+Description: CI placeholder for the TrueNAS-internal python3-truenas-pyos
+ Satisfies the python3-truenas-pylibzfs dependency in the plain-Debian
+ test VM; the real package ships in TrueNAS images.
+CTRL
+(cd /tmp && equivs-build pyos-placeholder.ctl)
+sudo dpkg -i /tmp/python3-truenas-pyos_*.deb
 sudo dpkg -i ../python3-truenas-pylibzfs_*.deb
 
 # Note: We cannot verify the module import here because it requires

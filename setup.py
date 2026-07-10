@@ -51,13 +51,14 @@ truenas_pylibzfs = Extension(
     library_dirs = ['/usr/lib/x86_64-linux-gnu/'],
 )
 
-setup(name='truenas_pylibzfs',
-      version='0.1',
-      description='truenas_pylibzfs provides python bindings for libzfs for TrueNAS',
-      ext_modules=[truenas_pylibzfs],
-      packages=['truenas_pylibzfs'],
-      package_dir={'truenas_pylibzfs': 'stubs'},
+setup(ext_modules=[truenas_pylibzfs],
+      packages=['truenas_pylibzfs', 'truenas_bootenv'],
+      package_dir={
+          'truenas_pylibzfs': 'stubs',
+          'truenas_bootenv': 'truenas_bootenv',
+      },
       package_data={
           'truenas_pylibzfs': ['*.pyi', 'py.typed'],
+          'truenas_bootenv': ['py.typed'],
       })
 
