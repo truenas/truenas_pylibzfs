@@ -12,7 +12,7 @@ rsrc = z.open_resource(name='dozer/enc')
 assert rsrc.encrypted, str(rsrc)
 enc = rsrc.crypto()
 
-# unmount also unloads key
+# unmount unloads the encryption key by default
 rsrc.unmount()
 
 # Verify that our passkey works
