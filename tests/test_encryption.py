@@ -94,7 +94,7 @@ def test_asdict_crypto(enc_dataset):
 def test_check_key(enc_dataset):
     _, rsrc = enc_dataset
     enc = rsrc.crypto()
-    rsrc.unmount()  # also unloads the key
+    rsrc.unmount()  # unloads the key by default
 
     assert enc.check_key(key=PASSPHRASE) is True
     assert enc.check_key(key='wrongpassword') is False
@@ -106,10 +106,21 @@ def test_load_unload_key(enc_dataset):
     _, rsrc = enc_dataset
     enc = rsrc.crypto()
 
-    rsrc.unmount()  # also unloads the key
+    rsrc.unmount()  # unloads the key by default
     assert enc.info().key_is_loaded is False
 
     enc.load_key(key=PASSPHRASE)
+    assert enc.info().key_is_loaded is True
+
+    enc.unload_key()
+    assert enc.info().key_is_loaded is False
+
+
+def test_unmount_key_unload_opt_out(enc_dataset):
+    _, rsrc = enc_dataset
+    enc = rsrc.crypto()
+
+    rsrc.unmount(unload_encryption_key=False)
     assert enc.info().key_is_loaded is True
 
     enc.unload_key()
@@ -125,7 +136,7 @@ def test_change_key(enc_dataset):
     enc.change_key(info=new_crypto)
 
     # Unload and verify only the new key works
-    rsrc.unmount()  # also unloads the key
+    rsrc.unmount()  # unloads the key by default
     enc.load_key(key=PASSPHRASE2)
     assert enc.info().key_is_loaded is True
 
