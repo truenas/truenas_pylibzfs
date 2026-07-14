@@ -1040,12 +1040,12 @@ PyObject *py_zfs_resource_mount(PyObject *self,
 
 PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "unmount(*, mountpoint, force=False, lazy=False, "
-"        unload_encryption_key=False, follow_symlinks=False) -> None\n"
+"        unload_encryption_key=True, follow_symlinks=False) -> None\n"
 "-------------------------------------------------------------------\n\n"
 "Unmount the specified dataset with the specified flags.\n"
 "\n"
-"NOTE: unmounting an encrypted dataset will automatically unload its\n"
-"encryption key.\n"
+"NOTE: by default, unmounting an encrypted dataset also unloads its\n"
+"encryption key. Pass unload_encryption_key=False to keep it loaded.\n"
 ""
 "Parameters\n"
 "----------\n"
@@ -1060,7 +1060,7 @@ PyDoc_STRVAR(py_zfs_resource_unmount__doc__,
 "    immediately disconnect the filesystem and all filesystems mounted below \n"
 "    it from each other and from the mount table, and actually perform the \n"
 "    unmount when the mount ceases to be busy.\n\n"
-"unload_encryption_key: bool, optional, default=False\n"
+"unload_encryption_key: bool, optional, default=True\n"
 "    Unload keys for any encryption roots involved in this operation.\n"
 "    The unload will occur regardless of whether any work was done to actually\n"
 "    unmount the resource. The reason for this is to ensure that encryption\n"
@@ -1156,7 +1156,7 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 	int flags = 0;
 	py_zfs_error_t zfs_err;
 	boolean_t force = B_FALSE;
-	boolean_t unload = B_FALSE;
+	boolean_t unload = B_TRUE;
 	boolean_t lazy = B_FALSE;
 	boolean_t follow = B_FALSE;
 	boolean_t recurse = B_FALSE;
