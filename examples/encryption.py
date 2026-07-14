@@ -38,7 +38,7 @@ assert crypto_dict['key_is_loaded'] is True
 
 enc = rsrc.crypto()
 
-# unmount also unloads key
+# unmount unloads the encryption key by default
 rsrc.unmount()
 assert rsrc.get_mountpoint() is None
 crypto_dict = rsrc.asdict(get_crypto=True)['crypto']
