@@ -175,6 +175,49 @@ class TestSnapshotGetClones:
                 pass
             lzc.destroy_snapshots(snapshot_names=[snap_name])
 
+    def test_clones_property_none_on_fresh_snapshot(self, pool):
+        # Regression: reading the CLONES property of a snapshot with no
+        # clones must not raise. libzfs get_clones_string() returns -1
+        # (without setting errno) for an empty clones list, and that must
+        # be re-interpreted as None rather than a RuntimeError. This mirrors
+        # get_clones() returning an empty tuple in the same situation.
+        lz, _, root = pool
+        snap_name = f'{POOL_NAME}@clones_prop_fresh'
+        lzc.create_snapshots(snapshot_names=[snap_name])
+        try:
+            snap = lz.open_resource(name=snap_name)
+            props = snap.get_properties(
+                properties={truenas_pylibzfs.ZFSProperty.CLONES}
+            )
+            assert props.clones.value is None
+            assert props.clones.raw == 'none'
+        finally:
+            lzc.destroy_snapshots(snapshot_names=[snap_name])
+
+    def test_clones_property_returns_clone(self, pool):
+        # Positive case: when a clone exists the CLONES property still
+        # reports it as a string (guards the empty-list fix from breaking
+        # the populated path).
+        lz, _, root = pool
+        snap_name = f'{POOL_NAME}@clones_prop_src'
+        clone_name = f'{POOL_NAME}/clones_prop_clone'
+        lzc.create_snapshots(snapshot_names=[snap_name])
+        try:
+            snap = lz.open_resource(name=snap_name)
+            snap.clone(name=clone_name)
+            snap_fresh = lz.open_resource(name=snap_name)
+            props = snap_fresh.get_properties(
+                properties={truenas_pylibzfs.ZFSProperty.CLONES}
+            )
+            assert isinstance(props.clones.value, str)
+            assert clone_name in props.clones.value
+        finally:
+            try:
+                lz.destroy_resource(name=clone_name)
+            except Exception:
+                pass
+            lzc.destroy_snapshots(snapshot_names=[snap_name])
+
 
 # ---------------------------------------------------------------------------
 # ZFSSnapshot.clone
