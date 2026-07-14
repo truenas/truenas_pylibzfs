@@ -45,6 +45,11 @@ set -eu
 
 cd ~/truenas_pylibzfs
 
+# Single source of truth for which truenas/zfs branch to build (see
+# .github/zfs-branch).  Captured here while the repo is the working directory,
+# then used for the from-source clone below.
+ZFS_BRANCH="$(cat .github/zfs-branch)"
+
 # Update package lists
 sudo apt-get update
 
@@ -94,7 +99,7 @@ else
   # Build and install OpenZFS from source
   echo "Building OpenZFS from source..."
   cd /tmp
-  git clone --depth 1 --branch truenas/zfs-2.4-release https://github.com/truenas/zfs.git
+  git clone --depth 1 --branch "$ZFS_BRANCH" https://github.com/truenas/zfs.git
   cd zfs
   # Run autogen
   ./autogen.sh

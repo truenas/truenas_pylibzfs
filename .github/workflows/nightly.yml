@@ -1,0 +1,44 @@
+name: Nightly master tests
+
+# Run the full QEMU test suite once a day (and on demand) against the latest
+# truenas/zfs branch tip.  Scheduled workflows only fire from the default branch,
+# so this inherently exercises master.  The pipeline itself is the reusable
+# qemu-test.yml workflow, invoked via workflow_call.
+on:
+  schedule:
+    - cron: '0 7 * * *'  # 07:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  test:
+    uses: ./.github/workflows/qemu-test.yml
+
+  alert:
+    needs: test
+    if: failure()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/workflows/scripts/report-failure.sh
+
+  resolve:
+    needs: test
+    if: success()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Close resolved failure issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/workflows/scripts/resolve-failure.sh
