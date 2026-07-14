@@ -380,6 +380,7 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 	    (prop == ZFS_PROP_ENCRYPTION_ROOT) ||
 	    (prop == ZFS_PROP_KEYSTATUS) ||
 	    (prop == ZFS_PROP_ORIGIN) ||
+	    (prop == ZFS_PROP_CLONES) ||
 	    (prop == ZFS_PROP_REDACT_SNAPS) ||
 	    (prop == ZFS_PROP_RECEIVE_RESUME_TOKEN)
 	)) {
@@ -387,6 +388,12 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 		 * Serveral libzfs properties return failure if they
 		 * are unitialized and we should re-interpret as None
 		 * This avoids spurious RuntimeError being raised.
+		 *
+		 * For ZFS_PROP_CLONES the libzfs helper get_clones_string()
+		 * returns -1 (without setting errno) when the snapshot has no
+		 * clones, since the underlying clones nvlist is empty. That is
+		 * an empty relationship, not an error, so map it to None to
+		 * match get_clones() returning an empty tuple in the same case.
 		 */
 
 		/* set value to "none" to ensure it's parsed to None type */
