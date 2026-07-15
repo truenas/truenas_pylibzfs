@@ -2,6 +2,8 @@ name: QEMU VM Tests
 
 on:
   pull_request:
+  workflow_call:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
@@ -22,7 +24,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        ref: ${{ github.event.pull_request.head.sha }}
+        # PR runs check out the PR head; schedule / workflow_dispatch /
+        # workflow_call runs (nightly, zfs-watch) have no PR event, so fall back
+        # to the triggering commit (master for scheduled runs).
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
     - name: Setup QEMU
       timeout-minutes: 10
@@ -31,13 +36,20 @@ jobs:
     - name: Get OpenZFS commit hash
       id: zfs-hash
       run: |
-        ZFS_COMMIT=$(git ls-remote https://github.com/truenas/zfs.git refs/heads/truenas/zfs-2.4-release | cut -f1)
+        ZFS_BRANCH=$(cat .github/zfs-branch)
+        ZFS_COMMIT=$(git ls-remote https://github.com/truenas/zfs.git "refs/heads/$ZFS_BRANCH" | cut -f1)
         echo "hash=$ZFS_COMMIT" >> $GITHUB_OUTPUT
+        echo "OpenZFS branch: $ZFS_BRANCH"
         echo "OpenZFS commit: $ZFS_COMMIT"
 
-    - name: Cache OpenZFS packages
+    # Restore-only here; the matching save runs after "Build and install" (before
+    # the tests) so freshly built ZFS debs are cached even if the tests later fail
+    # -- a ZFS commit that breaks pylibzfs still warms the cache for the fix PR and
+    # for nightly / other runs.  Because nightly and zfs-watch run on the default
+    # branch, the caches they create are consumable by every PR and scheduled run.
+    - name: Restore OpenZFS packages
       id: cache-zfs
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: /tmp/zfs-debs
         key: zfs-debs-debian-trixie-${{ env.IMAGE_VERSION }}-${{ steps.zfs-hash.outputs.hash }}
@@ -58,6 +70,16 @@ jobs:
       env:
         ZFS_CACHE_HIT: ${{ steps.cache-zfs.outputs.cache-hit }}
       run: bash .github/workflows/scripts/qemu-3-build.sh
+
+    # Persist the freshly built ZFS debs as soon as the build succeeds and before
+    # the test step runs.  Reaching this step means the build passed (no always()
+    # needed); the cache-miss guard avoids re-saving an existing immutable key.
+    - name: Save OpenZFS packages
+      if: steps.cache-zfs.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: /tmp/zfs-debs
+        key: zfs-debs-debian-trixie-${{ env.IMAGE_VERSION }}-${{ steps.zfs-hash.outputs.hash }}
 
     - name: Restart VM to load kernel modules
       timeout-minutes: 10

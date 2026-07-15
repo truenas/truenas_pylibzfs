@@ -1,0 +1,89 @@
+name: ZFS branch watch
+
+# Poll the associated truenas/zfs branch tip hourly and rerun the full suite when
+# it advances to a commit we have not tested yet.  This gives fast drift detection
+# for ZFS-side breakage, and (because this runs on the default branch) it warms the
+# shared ZFS deb cache that PR and nightly runs consume.  The branch to watch lives
+# in .github/zfs-branch so the build and the watcher always agree.
+on:
+  schedule:
+    - cron: '17 * * * *'  # hourly, offset off :00 to dodge scheduler backlog
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.decide.outputs.changed }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve ZFS branch tip
+        id: sha
+        run: |
+          ZFS_BRANCH=$(cat .github/zfs-branch)
+          ZFS_SHA=$(git ls-remote https://github.com/truenas/zfs.git "refs/heads/$ZFS_BRANCH" | cut -f1)
+          if [ -z "$ZFS_SHA" ]; then
+            echo "::error::Could not resolve tip of $ZFS_BRANCH"
+            exit 1
+          fi
+          echo "sha=$ZFS_SHA" >> "$GITHUB_OUTPUT"
+          echo "$ZFS_BRANCH -> $ZFS_SHA"
+
+      - name: Look up test marker for this commit
+        id: marker
+        uses: actions/cache/restore@v4
+        with:
+          path: .zfs-tested
+          key: zfs-tested-${{ steps.sha.outputs.sha }}
+          lookup-only: true
+
+      - name: Decide whether to run
+        id: decide
+        run: |
+          if [ "${{ steps.marker.outputs.cache-hit }}" = "true" ]; then
+            echo "Commit ${{ steps.sha.outputs.sha }} already tested; skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New commit ${{ steps.sha.outputs.sha }}; running tests."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    uses: ./.github/workflows/qemu-test.yml
+
+  mark:
+    needs: [check, test]
+    # Record the commit as tested once the suite actually ran (pass OR fail), so we
+    # exercise each ZFS commit exactly once and do not re-run a broken commit every
+    # hour.  The nightly job is the daily backstop / re-alert.
+    if: always() && needs.test.result != 'skipped' && needs.test.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Write marker file
+        run: echo "${{ needs.check.outputs.sha }}" > .zfs-tested
+      - name: Save marker
+        uses: actions/cache/save@v4
+        with:
+          path: .zfs-tested
+          key: zfs-tested-${{ needs.check.outputs.sha }}
+
+  alert:
+    needs: [check, test]
+    if: failure()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/workflows/scripts/report-failure.sh
