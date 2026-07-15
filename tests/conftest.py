@@ -1,7 +1,11 @@
+import contextlib
 import os
+import re
 import pytest
 import shutil
+import subprocess
 import tempfile
+import time
 import truenas_pylibzfs
 
 FAKE_DISK_DIR = '/tmp/truenas_pylibzfs_disks'
@@ -142,3 +146,148 @@ def dataset(root_dataset):
 
     finally:
         lz.destroy_resource(name=rsrc_name)
+
+
+# ---------------------------------------------------------------------------
+# Fault injection (zinject) helpers, exposed as fixtures so the import chain
+# stays inside pytest's fixture machinery. zinject(8) absence is reported on
+# first use rather than at conftest import, so test files that don't touch
+# fault injection are unaffected.
+# ---------------------------------------------------------------------------
+
+_ZINJECT_BIN = shutil.which("zinject")
+_HANDLER_ID_RE = re.compile(r"^\s*(\d+)\b")
+
+
+def _require_zinject():
+    if _ZINJECT_BIN is None:
+        raise RuntimeError(
+            "zinject(8) was not found on PATH; the fault-injection test "
+            "suite requires it. Install the ZFS userland on this host."
+        )
+    return _ZINJECT_BIN
+
+
+def _list_handler_ids():
+    bin_ = _require_zinject()
+    result = subprocess.run(
+        [bin_], capture_output=True, text=True, check=True,
+    )
+    ids = set()
+    for line in result.stdout.splitlines():
+        match = _HANDLER_ID_RE.match(line)
+        if match:
+            ids.add(int(match.group(1)))
+    return ids
+
+
+def _clear_handlers(ids):
+    bin_ = _require_zinject()
+    for handler_id in ids:
+        subprocess.run(
+            [bin_, "-c", str(handler_id)],
+            capture_output=True, text=True, check=True,
+        )
+
+
+@contextlib.contextmanager
+def _inject(*args):
+    bin_ = _require_zinject()
+    before = _list_handler_ids()
+    subprocess.run(
+        [bin_, *map(str, args)],
+        capture_output=True, text=True, check=True,
+    )
+    after = _list_handler_ids()
+    new_ids = after - before
+    if not new_ids:
+        raise RuntimeError(
+            f"zinject {' '.join(map(str, args))} reported success but "
+            "no new handler appeared"
+        )
+    try:
+        yield new_ids
+    finally:
+        _clear_handlers(new_ids)
+
+
+def _zinject_action(*args):
+    """Run a one-shot zinject action (e.g. -d dev -A fault pool).
+
+    Unlike error injection, actions do not register a handler, so there
+    is nothing to list or clear afterwards; recovery is the caller's
+    responsibility (zpool clear, or destroying the pool).
+    """
+    bin_ = _require_zinject()
+    subprocess.run(
+        [bin_, *map(str, args)],
+        capture_output=True, text=True, check=True,
+    )
+
+
+def _walk_vdevs(top_vdev):
+    yield top_vdev
+    if top_vdev.children:
+        for child in top_vdev.children:
+            yield from _walk_vdevs(child)
+
+
+def _refreshed_status(pool):
+    pool.refresh_stats()
+    return pool.status(get_stats=True)
+
+
+def _wait_for_error_count(pool, kind, minimum=1, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    last_total = 0
+    while time.monotonic() < deadline:
+        status = _refreshed_status(pool)
+        total = 0
+        for top in status.storage_vdevs:
+            for vdev in _walk_vdevs(top):
+                if vdev.stats is not None:
+                    total += getattr(vdev.stats, kind)
+        if total >= minimum:
+            return total
+        last_total = total
+        time.sleep(0.1)
+    raise AssertionError(
+        f"timed out waiting for {kind} >= {minimum} "
+        f"(last observed total: {last_total})"
+    )
+
+
+def _wait_for_vdev_state(pool, predicate, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status = _refreshed_status(pool)
+        for top in status.storage_vdevs:
+            for vdev in _walk_vdevs(top):
+                if predicate(vdev):
+                    return vdev
+        time.sleep(0.1)
+    raise AssertionError("timed out waiting for vdev state predicate")
+
+
+@pytest.fixture
+def inject():
+    """Context manager wrapping zinject; clears only the handlers it installs."""
+    return _inject
+
+
+@pytest.fixture
+def zinject_action():
+    """Run a one-shot zinject action that registers no handler."""
+    return _zinject_action
+
+
+@pytest.fixture
+def wait_for_error_count():
+    """Poll pool.status() until sum(vdev.stats.<kind>) >= minimum."""
+    return _wait_for_error_count
+
+
+@pytest.fixture
+def wait_for_vdev_state():
+    """Poll pool.status() until any vdev satisfies the predicate."""
+    return _wait_for_vdev_state
