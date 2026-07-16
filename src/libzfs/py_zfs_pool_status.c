@@ -33,8 +33,10 @@
  * │       │       ├── state:     ONLINE                     │
  * │       │       ├── stats:     struct_vdev_stats          │
  * │       │       ├── children:  None                       │
- * │       │       └── top_guid:  None                       │
- * │       └── top_guid:  None                               │
+ * │       │       ├── top_guid:  None                       │
+ * │       │       └── path:      "/dev/sda1"                │
+ * │       ├── top_guid:  None                               │
+ * │       └── path:      None                               │
  * ├── support_vdevs:                                        │
  * │   ├── cache:   ()                                       │
  * │   ├── log:     ()                                       │
@@ -48,7 +50,8 @@
  * │       ├── state:     AVAIL                              │
  * │       ├── stats:     struct_vdev_stats                  │
  * │       ├── children:  None                               │
- * │       └── top_guid:  0xAAAA  ─────────────────────────────┘
+ * │       ├── top_guid:  0xAAAA  ─────────────────────────────┘
+ * │       └── path:      None
  * ├── name:    "pool"
  * └── guid:    0x1234567890ABCDEF
  *
@@ -73,7 +76,8 @@
  * │   │   ├── state:     ONLINE
  * │   │   ├── stats:     struct_vdev_stats
  * │   │   ├── children:  (struct_vdev × 4)  [sda..sdd, vdev_type="disk"]
- * │   │   └── top_guid:  None
+ * │   │   ├── top_guid:  None
+ * │   │   └── path:      None
  * │   └── struct_vdev  [second raidz2]
  * │       ├── name:      "raidz2-1"
  * │       ├── vdev_type: "raidz2"
@@ -81,7 +85,8 @@
  * │       ├── state:     ONLINE
  * │       ├── stats:     struct_vdev_stats
  * │       ├── children:  (struct_vdev × 4)  [sde..sdh, vdev_type="disk"]
- * │       └── top_guid:  None
+ * │       ├── top_guid:  None
+ * │       └── path:      None
  * ├── support_vdevs:
  * │   ├── cache:   (struct_vdev,)  [sdi, vdev_type="disk", top_guid=None]
  * │   ├── log:     (struct_vdev,)  [sdj, vdev_type="disk", top_guid=None]
@@ -275,17 +280,23 @@ PyStructSequence_Field struct_vdev_status_prop [] = {
 	             "that owns this distributed spare (matches the guid field "
 	             "of the originating draid entry in storage_vdevs). "
 	             "None for all other vdev types."},
+	{"path", "Device path stored in the vdev config (ZPOOL_CONFIG_PATH), "
+	         "e.g. /dev/disk/by-partuuid/<uuid>. Unlike the name field, "
+	         "this is preserved for devices that were missing at pool "
+	         "import time. None for vdevs that have no device path "
+	         "(mirror, raidz, draid, dspare)."},
 	{0},
 };
 #define STATS_IDX    4
 #define CHILDREN_IDX 5
 #define TOP_GUID_IDX 6
+#define PATH_IDX     7
 
 PyStructSequence_Desc struct_vdev_status_desc = {
 	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev",
 	.fields = struct_vdev_status_prop,
 	.doc = "Python pool vdev status structure",
-	.n_in_sequence = 7
+	.n_in_sequence = 8
 };
 
 /*
@@ -557,6 +568,7 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	nvlist_t **child;
 	uint_t vsc, children;
 	const char *type;
+	const char *cfg_path = NULL;
 	uint64_t guid, nparity;
 	char *vname = NULL;
 	char type_buf[VDEV_TYPE_NAME_BUF_SIZE];
@@ -571,6 +583,7 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	verify(nvlist_lookup_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
 	    (uint64_t **)&vs, &vsc) == 0);
 	verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type) == 0);
+	(void) nvlist_lookup_string(nv, ZPOOL_CONFIG_PATH, &cfg_path);
 
 	/*
 	 * For raidz vdevs the raw ZPOOL_CONFIG_TYPE is always "raidz"
@@ -688,6 +701,22 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 		PyStructSequence_SetItem(out, TOP_GUID_IDX, val);
 	} else {
 		PyStructSequence_SetItem(out, TOP_GUID_IDX, Py_NewRef(Py_None));
+	}
+
+	/*
+	 * path: raw ZPOOL_CONFIG_PATH from the vdev config. The name field
+	 * degrades to the bare guid for devices that were missing at pool
+	 * import time (ZPOOL_CONFIG_NOT_PRESENT), but the stored path is
+	 * retained in the config, so expose it separately.
+	 */
+	if (cfg_path != NULL) {
+		PyObject *val = PyUnicode_FromString(cfg_path);
+		if (val == NULL)
+			goto fail;
+
+		PyStructSequence_SetItem(out, PATH_IDX, val);
+	} else {
+		PyStructSequence_SetItem(out, PATH_IDX, Py_NewRef(Py_None));
 	}
 
 	return out;
