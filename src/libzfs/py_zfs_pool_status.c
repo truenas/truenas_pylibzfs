@@ -51,7 +51,7 @@
  * │       ├── stats:     struct_vdev_stats                  │
  * │       ├── children:  None                               │
  * │       ├── top_guid:  0xAAAA  ─────────────────────────────┘
- * │       └── path:      None
+ * │       └── path:      "draid1-0-0"
  * ├── name:    "pool"
  * └── guid:    0x1234567890ABCDEF
  *
@@ -283,8 +283,10 @@ PyStructSequence_Field struct_vdev_status_prop [] = {
 	{"path", "Device path stored in the vdev config (ZPOOL_CONFIG_PATH), "
 	         "e.g. /dev/disk/by-partuuid/<uuid>. Unlike the name field, "
 	         "this is preserved for devices that were missing at pool "
-	         "import time. None for vdevs that have no device path "
-	         "(mirror, raidz, draid, dspare)."},
+	         "import time. dRAID distributed spares store their synthetic "
+	         "spare name (e.g. draid1-0-0) as the config path. None for "
+	         "interior vdevs (mirror, raidz, draid) that have no config "
+	         "path."},
 	{0},
 };
 #define STATS_IDX    4

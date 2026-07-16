@@ -936,8 +936,9 @@ def test_draid1_with_spare_topology(pool_draid1_with_spare):
     # top_guid must link back to the originating draid vdev
     assert isinstance(spare.top_guid, int)
     assert spare.top_guid == vdev.guid
-    # distributed spares are virtual devices with no config path
-    assert spare.path is None
+    # dspares store their synthetic spare name as the config path — it is
+    # the spare's identity in the vdev config (vdev_draid_generate_config)
+    assert spare.path == spare.name
 
 
 def test_draid1_with_spare_asdict(pool_draid1_with_spare):
