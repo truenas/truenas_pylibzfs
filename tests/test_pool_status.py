@@ -394,7 +394,7 @@ def test_status_asdict_keys(pool_stripe):
     for vdev in d['storage_vdevs']:
         assert isinstance(vdev, dict)
         for vkey in ('name', 'vdev_type', 'guid', 'state', 'stats',
-                     'children', 'top_guid'):
+                     'children', 'top_guid', 'path'):
             assert vkey in vdev, f'vdev missing key: {vkey}'
 
     # support_vdevs should be a dict with the four categories
@@ -476,6 +476,8 @@ def test_stripe_topology(pool_stripe):
     vdev = status.storage_vdevs[0]
     assert vdev.vdev_type == 'file'
     assert vdev.children is None
+    # for a healthy file vdev the display name is the config path
+    assert vdev.path == vdev.name
 
 
 def test_mirror_topology(pool_mirror):
@@ -486,6 +488,10 @@ def test_mirror_topology(pool_mirror):
     assert vdev.vdev_type == 'mirror'
     assert vdev.children is not None
     assert len(vdev.children) == 2
+    # interior vdevs have no config path; leaves report theirs
+    assert vdev.path is None
+    for child in vdev.children:
+        assert child.path == child.name
 
 
 def test_raidz1_topology(pool_raidz1):
@@ -886,6 +892,7 @@ def test_spares_single(pool_with_spare):
     spares = pool.status().spares
     assert len(spares) == 1
     assert spares[0].vdev_type == 'file'
+    assert spares[0].path == spares[0].name
 
 
 # ---------------------------------------------------------------------------
@@ -929,6 +936,9 @@ def test_draid1_with_spare_topology(pool_draid1_with_spare):
     # top_guid must link back to the originating draid vdev
     assert isinstance(spare.top_guid, int)
     assert spare.top_guid == vdev.guid
+    # dspares store their synthetic spare name as the config path — it is
+    # the spare's identity in the vdev config (vdev_draid_generate_config)
+    assert spare.path == spare.name
 
 
 def test_draid1_with_spare_asdict(pool_draid1_with_spare):
@@ -941,7 +951,7 @@ def test_draid1_with_spare_asdict(pool_draid1_with_spare):
     assert isinstance(spare, dict), \
         f'expected spare to be dict, got {type(spare)}'
     for key in ('name', 'vdev_type', 'guid', 'state', 'stats',
-                'children', 'top_guid'):
+                'children', 'top_guid', 'path'):
         assert key in spare, f'spare missing key: {key}'
     assert spare['vdev_type'] == 'dspare'
     assert isinstance(spare['state'], VDevState)
