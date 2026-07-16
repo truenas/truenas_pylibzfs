@@ -524,9 +524,10 @@ class struct_vdev:
     stats: struct_vdev_stats | None
     children: tuple[struct_vdev, ...] | None
     top_guid: int | None
+    path: str | None
     __match_args__: ClassVar[tuple[str, ...]]
-    n_fields: ClassVar[int]          # = 7
-    n_sequence_fields: ClassVar[int] # = 7
+    n_fields: ClassVar[int]          # = 8
+    n_sequence_fields: ClassVar[int] # = 8
     n_unnamed_fields: ClassVar[int]  # = 0
     def __replace__(self, **changes: Any) -> Self: ...
 
