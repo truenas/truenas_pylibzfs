@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   check:
@@ -63,7 +62,7 @@ jobs:
     needs: [check, test]
     # Record the commit as tested once the suite actually ran (pass OR fail), so we
     # exercise each ZFS commit exactly once and do not re-run a broken commit every
-    # hour.  The nightly job is the daily backstop / re-alert.
+    # hour.  The nightly job is the daily backstop.
     if: always() && needs.test.result != 'skipped' && needs.test.result != 'cancelled'
     runs-on: ubuntu-24.04
     steps:
@@ -74,16 +73,3 @@ jobs:
         with:
           path: .zfs-tested
           key: zfs-tested-${{ needs.check.outputs.sha }}
-
-  alert:
-    needs: [check, test]
-    if: failure()
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Report failure
-        env:
-          GH_TOKEN: ${{ github.token }}
-          WORKFLOW_NAME: ${{ github.workflow }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash .github/workflows/scripts/report-failure.sh
