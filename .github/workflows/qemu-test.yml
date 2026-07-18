@@ -3,6 +3,19 @@ name: QEMU VM Tests
 on:
   pull_request:
   workflow_call:
+    inputs:
+      zfs_sha:
+        # Exact truenas/zfs commit to build against.  A caller that already
+        # resolved the branch tip (zfs-watch) passes it here so the build, the
+        # deb cache key and the caller's own bookkeeping all name the same
+        # commit -- otherwise each would re-resolve the tip independently and a
+        # push landing mid-run would leave them disagreeing.  Empty (the
+        # default, and what nightly / PR runs use) means resolve the tip of
+        # .github/zfs-branch at build time.
+        description: 'truenas/zfs commit to pin the build to (default: branch tip)'
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
 
 concurrency:
@@ -35,9 +48,20 @@ jobs:
 
     - name: Get OpenZFS commit hash
       id: zfs-hash
+      env:
+        ZFS_SHA_IN: ${{ inputs.zfs_sha }}
       run: |
         ZFS_BRANCH=$(cat .github/zfs-branch)
-        ZFS_COMMIT=$(git ls-remote https://github.com/truenas/zfs.git "refs/heads/$ZFS_BRANCH" | cut -f1)
+        if [ -n "$ZFS_SHA_IN" ]; then
+          ZFS_COMMIT="$ZFS_SHA_IN"
+          echo "OpenZFS commit pinned by caller"
+        else
+          ZFS_COMMIT=$(git ls-remote https://github.com/truenas/zfs.git "refs/heads/$ZFS_BRANCH" | cut -f1)
+        fi
+        if [ -z "$ZFS_COMMIT" ]; then
+          echo "::error::Could not resolve tip of $ZFS_BRANCH"
+          exit 1
+        fi
         echo "hash=$ZFS_COMMIT" >> $GITHUB_OUTPUT
         echo "OpenZFS branch: $ZFS_BRANCH"
         echo "OpenZFS commit: $ZFS_COMMIT"
@@ -69,6 +93,11 @@ jobs:
       timeout-minutes: 30
       env:
         ZFS_CACHE_HIT: ${{ steps.cache-zfs.outputs.cache-hit }}
+        # Always the commit resolved above, never a fresh branch lookup: the
+        # from-source clone must build exactly the commit the deb cache key
+        # names, or a push landing between the two would cache debs under the
+        # wrong sha.
+        ZFS_SHA: ${{ steps.zfs-hash.outputs.hash }}
       run: bash .github/workflows/scripts/qemu-3-build.sh
 
     # Persist the freshly built ZFS debs as soon as the build succeeds and before
