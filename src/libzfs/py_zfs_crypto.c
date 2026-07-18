@@ -134,7 +134,8 @@ boolean_t parse_key_format(const char *key_format, zfs_keyformat_t *format_out)
 	else {
 		PyErr_Format(PyExc_ValueError,
 			     "%s: not a valid key format. Choices are: "
-			     "\"raw\", \"hex\", and \"passphrase\".");
+			     "\"raw\", \"hex\", and \"passphrase\".",
+			     key_format);
 		return B_FALSE;
 	}
 
@@ -153,10 +154,14 @@ boolean_t validate_keylocation(PyObject *py_keyloc, zfs_crypto_change_info_t *in
 	// Check that key_location is prefixed by file:// or https://
 	// Technically, libzfs supports reading key material over http,
 	// but I don't consider this a reasonable feature to expose
+	//
+	// NOTE: the length must exclude the NUL terminator of the prefix
+	// literal, otherwise strncmp() also compares that NUL against the
+	// first character of the path and only the bare prefix matches.
 	if ((strncmp(key_location_uri, ZFS_URI_PREFIX_FILE,
-	     sizeof(ZFS_URI_PREFIX_FILE)) != 0) &&
+	     sizeof(ZFS_URI_PREFIX_FILE) - 1) != 0) &&
 	    (strncmp(key_location_uri, ZFS_URI_PREFIX_HTTPS,
-	     sizeof(ZFS_URI_PREFIX_HTTPS)) != 0)) {
+	     sizeof(ZFS_URI_PREFIX_HTTPS) - 1) != 0)) {
 		PyErr_SetString(PyExc_ValueError,
 				"Encryption key location URI must "
 				"be prefixed with either file:// or "
@@ -721,7 +726,9 @@ PyObject *py_load_key_impl(py_zfs_obj_t *obj,
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(obj->pylibzfsp);
-	err = zfs_crypto_load_key(obj->zhp, test, NULL);
+	// A NULL alt_keylocation makes libzfs fall back to the dataset's own
+	// keylocation property, silently discarding the caller's override.
+	err = zfs_crypto_load_key(obj->zhp, test, key_location);
 	if (err) {
 		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
 	} else {
