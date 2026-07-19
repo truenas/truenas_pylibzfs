@@ -39,11 +39,17 @@ rsync -az --exclude='.git' --exclude='debian/.debhelper' \
 
 # Install dependencies and build
 echo "Installing dependencies in VM..."
-ssh debian@$VM_IP bash -s "$CACHED_ZFS" <<'REMOTE_SCRIPT'
+ssh debian@$VM_IP bash -s "$CACHED_ZFS" "${ZFS_SHA:-}" <<'REMOTE_SCRIPT'
 CACHED_ZFS="$1"
+ZFS_SHA="${2:-}"
 set -eu
 
 cd ~/truenas_pylibzfs
+
+# Single source of truth for which truenas/zfs branch to build (see
+# .github/zfs-branch).  Captured here while the repo is the working directory,
+# then used for the from-source clone below.
+ZFS_BRANCH="$(cat .github/zfs-branch)"
 
 # Update package lists
 sudo apt-get update
@@ -94,8 +100,21 @@ else
   # Build and install OpenZFS from source
   echo "Building OpenZFS from source..."
   cd /tmp
-  git clone --depth 1 --branch truenas/zfs-2.4-release https://github.com/truenas/zfs.git
-  cd zfs
+  if [ -n "$ZFS_SHA" ]; then
+    # Fetch the exact commit the caller resolved rather than re-reading the
+    # branch tip, which may have advanced since.  github.com permits fetching
+    # a bare sha, so this stays a single shallow object transfer.
+    echo "Cloning $ZFS_BRANCH at $ZFS_SHA"
+    mkdir zfs
+    cd zfs
+    git init -q
+    git remote add origin https://github.com/truenas/zfs.git
+    git fetch -q --depth 1 origin "$ZFS_SHA"
+    git checkout -q FETCH_HEAD
+  else
+    git clone --depth 1 --branch "$ZFS_BRANCH" https://github.com/truenas/zfs.git
+    cd zfs
+  fi
   # Run autogen
   ./autogen.sh
   # Configure
