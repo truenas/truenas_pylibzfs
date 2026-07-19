@@ -334,6 +334,13 @@ typedef struct {
 extern PyObject *py_zfs_do_add_vdevs(py_zfs_pool_t *pool,
     py_zfs_add_vdevs_args_t *ava);
 extern nvlist_t *py_zfs_build_single_vdev_nvroot(PyObject *spec);
+/*
+ * Validate a struct_vdev_create_spec (recursing into children) before it is
+ * handed to any of the nvlist builders, which index it without type checks.
+ * Returns B_TRUE if valid, B_FALSE with a Python exception set if not.
+ */
+extern boolean_t py_zfs_validate_vdev_spec(pylibzfs_state_t *state,
+    PyObject *spec, const char *context);
 
 /*
  * Policy limits for vdev widths.  Mirror and raidz vdevs wider than these
