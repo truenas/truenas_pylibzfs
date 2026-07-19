@@ -1401,10 +1401,15 @@ static boolean_t pyzfs_zfs_create_crypto_history(py_zfs_t *self,
 	return err ? B_FALSE : B_TRUE;
 }
 
+/*
+ * props is passed by reference because the caller may not have supplied any
+ * properties.  In that case we hand our crypto nvlist back through *props so
+ * that pyzfs_create_crypto(), which owns the property list, frees it.
+ */
 static boolean_t pyzfs_create_crypto_key(py_zfs_t *self,
 					 const char *name,
 					 zfs_type_t ztype,
-					 nvlist_t *props,
+					 nvlist_t **props,
 					 zfs_crypto_change_info_t *info)
 {
 	boolean_t success;
@@ -1426,15 +1431,15 @@ static boolean_t pyzfs_create_crypto_key(py_zfs_t *self,
 		crypto_props = get_change_key_params(info);
 		fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION), "on");
 		info->key_location_uri = NULL;
-		if (props) {
-			fnvlist_merge(props, crypto_props);
+		if (*props) {
+			fnvlist_merge(*props, crypto_props);
 			fnvlist_free(crypto_props);
 		} else {
-			props = crypto_props;
+			*props = crypto_props;
 		}
 
 		PY_ZFS_LOCK(self);
-		err = zfs_create(self->lzh, name, ztype, props);
+		err = zfs_create(self->lzh, name, ztype, *props);
 		if (err) {
 			py_get_zfs_error(self->lzh, &zfs_err);
 		} else {
@@ -1471,15 +1476,16 @@ static boolean_t pyzfs_create_crypto_key(py_zfs_t *self,
 	}
 
 	// remove our procfd path from properties for ZFS history commit
-	fnvlist_remove(props, zfs_prop_to_name(ZFS_PROP_KEYLOCATION));
+	fnvlist_remove(*props, zfs_prop_to_name(ZFS_PROP_KEYLOCATION));
 
-	return pyzfs_zfs_create_crypto_history(self, name, props);
+	return pyzfs_zfs_create_crypto_history(self, name, *props);
 }
 
+/* See the comment on pyzfs_create_crypto_key() for why props is by reference. */
 static boolean_t pyzfs_create_crypto_loc(py_zfs_t *self,
 					 const char *name,
 					 zfs_type_t ztype,
-					 nvlist_t *props,
+					 nvlist_t **props,
 					 zfs_crypto_change_info_t *info)
 {
 	nvlist_t *crypto_props = NULL;
@@ -1494,10 +1500,17 @@ static boolean_t pyzfs_create_crypto_loc(py_zfs_t *self,
 
 	Py_BEGIN_ALLOW_THREADS
 	fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION), "on");
-	fnvlist_merge(props, crypto_props);
-	fnvlist_free(crypto_props);
+	// nvlist_merge() returns EINVAL for a NULL destination and fnvlist_merge()
+	// turns that into an abort(), so adopt the crypto nvlist outright when the
+	// caller supplied no properties rather than merging into nothing.
+	if (*props) {
+		fnvlist_merge(*props, crypto_props);
+		fnvlist_free(crypto_props);
+	} else {
+		*props = crypto_props;
+	}
 	PY_ZFS_LOCK(self);
-	err = zfs_create(self->lzh, name, ztype, props);
+	err = zfs_create(self->lzh, name, ztype, *props);
 	if (err) {
 		py_get_zfs_error(self->lzh, &zfs_err);
 	}
@@ -1509,7 +1522,7 @@ static boolean_t pyzfs_create_crypto_loc(py_zfs_t *self,
 		return B_FALSE;
 	}
 
-	return pyzfs_zfs_create_crypto_history(self, name, props);
+	return pyzfs_zfs_create_crypto_history(self, name, *props);
 }
 
 boolean_t pyzfs_create_crypto(py_zfs_t *pyzfs,
@@ -1528,9 +1541,9 @@ boolean_t pyzfs_create_crypto(py_zfs_t *pyzfs,
 	}
 
 	if (info.key_len) {
-		ok = pyzfs_create_crypto_key(pyzfs, name, ztype, props, &info);
+		ok = pyzfs_create_crypto_key(pyzfs, name, ztype, &props, &info);
 	} else {
-		ok = pyzfs_create_crypto_loc(pyzfs, name, ztype, props, &info);
+		ok = pyzfs_create_crypto_loc(pyzfs, name, ztype, &props, &info);
 	}
 
 	fnvlist_free(props);
