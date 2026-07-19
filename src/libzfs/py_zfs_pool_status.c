@@ -1309,19 +1309,18 @@ PyObject *populate_status_struct(py_zfs_pool_t *pypool,
 	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
 
 	/*
-	 * If config or pool_name were not provided by the caller (imported
-	 * pool path), retrieve them from the open pool handle.
+	 * Callers own the config and must keep it alive for the duration of
+	 * this call. It is never the handle's own config, which another
+	 * thread can free as soon as the libzfs lock is dropped.
 	 */
-	if (config == NULL) {
-		PYZFS_ASSERT((pypool->zhp != NULL),
-		    "config must be provided when pool handle is NULL");
-		Py_BEGIN_ALLOW_THREADS
-		PY_ZFS_LOCK(pypool->pylibzfsp);
-		config = zpool_get_config(pypool->zhp, NULL);
-		PYZFS_ASSERT((config != NULL), "Unexpected NULL zpool config");
-		PY_ZFS_UNLOCK(pypool->pylibzfsp);
-		Py_END_ALLOW_THREADS
-	}
+	PYZFS_ASSERT((config != NULL), "config must be provided");
+
+	/*
+	 * pool_name may be omitted (imported pool path); retrieve it from the
+	 * open pool handle. zpool_get_name() returns an array embedded in the
+	 * handle rather than a separately allocated buffer, so it stays valid
+	 * for as long as the handle is open.
+	 */
 	if (pool_name == NULL) {
 		PYZFS_ASSERT((pypool->zhp != NULL),
 		    "pool_name must be provided when pool handle is NULL");
@@ -1772,15 +1771,27 @@ PyObject *py_get_pool_status(py_zfs_pool_t *pypool, boolean_t get_stats,
 	zpool_status_t reason;
 	zpool_errata_t errata;
 	const char *msgid;
+	nvlist_t *config = NULL;
+	nvlist_t *config_copy = NULL;
+	PyObject *out = NULL;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(pypool->pylibzfsp);
 	reason = zpool_get_status(pypool->zhp, &msgid, &errata);
+	// zpool_get_config() borrows the handle's config. Another thread
+	// refreshing pool stats frees it once the lock is dropped, so take a
+	// copy while we still hold the lock (see py_zfs_pool_config()).
+	config = zpool_get_config(pypool->zhp, NULL);
+	PYZFS_ASSERT((config != NULL), "Unexpected NULL zpool config");
+	config_copy = fnvlist_dup(config);
 	PY_ZFS_UNLOCK(pypool->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	return populate_status_struct(pypool, NULL, NULL, reason, errata, msgid,
-	    get_stats, follow_links, full_path);
+	out = populate_status_struct(pypool, config_copy, NULL, reason, errata,
+	    msgid, get_stats, follow_links, full_path);
+
+	fnvlist_free(config_copy);
+	return out;
 }
 
 PyObject *py_get_pool_status_from_config(py_zfs_t *plz, nvlist_t *config)
