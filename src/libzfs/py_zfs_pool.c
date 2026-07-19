@@ -1453,6 +1453,9 @@ py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		    "attach_vdev() requires 'new_device' argument");
 		return (NULL);
 	}
+	if (!py_zfs_validate_vdev_spec(py_get_module_state(p->pylibzfsp),
+	    new_device, "attach_vdev"))
+		return (NULL);
 
 	nvroot = py_zfs_build_single_vdev_nvroot(new_device);
 	if (nvroot == NULL)
@@ -1626,6 +1629,11 @@ py_zfs_pool_replace_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 	self_replace = (new_device == NULL || new_device == Py_None);
 
 	if (!self_replace) {
+		if (!py_zfs_validate_vdev_spec(
+		    py_get_module_state(p->pylibzfsp), new_device,
+		    "replace_vdev"))
+			return (NULL);
+
 		nvroot = py_zfs_build_single_vdev_nvroot(new_device);
 		if (nvroot == NULL)
 			return (NULL);

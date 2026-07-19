@@ -122,6 +122,57 @@ class TestVdevOpsArgValidation:
         finally:
             _destroy(lz)
 
+    @pytest.mark.parametrize("bad_spec", [
+        "/dev/sdb",                 # bare string, not a spec
+        42,
+        ("/dev/sdb", None, None),   # plain tuple of the right length
+        (None, None, None),         # spec-shaped but vdev_type is not a str
+    ])
+    def test_attach_bad_new_device_raises(self, make_disks, bad_spec):
+        """new_device must be a validated spec, not any indexable object."""
+        disks = make_disks(2)
+        lz = truenas_pylibzfs.open_handle()
+        pool = _create_stripe_pool(lz, disks[0])
+        try:
+            with pytest.raises((TypeError, ValueError)):
+                pool.attach_vdev(device=disks[0], new_device=bad_spec)
+        finally:
+            _destroy(lz)
+
+    @pytest.mark.parametrize("bad_spec", [
+        "/dev/sdb",
+        42,
+        ("/dev/sdb", None, None),
+        (None, None, None),
+    ])
+    def test_replace_bad_new_device_raises(self, make_disks, bad_spec):
+        """replace_vdev() validates new_device the same way."""
+        disks = make_disks(2)
+        lz = truenas_pylibzfs.open_handle()
+        pool = _create_mirror_pool(lz, disks[0], disks[1])
+        try:
+            with pytest.raises((TypeError, ValueError)):
+                pool.replace_vdev(device=disks[0], new_device=bad_spec)
+        finally:
+            _destroy(lz)
+
+    def test_attach_real_spec_with_bad_fields_raises(self, make_disks):
+        """
+        A genuine struct_vdev_create_spec whose fields hold the wrong types.
+        Passes any bare type check, so only per-field validation catches it.
+        """
+        spec_type = truenas_pylibzfs.libzfs_types.struct_vdev_create_spec
+        bad = spec_type((None, None, None))
+
+        disks = make_disks(2)
+        lz = truenas_pylibzfs.open_handle()
+        pool = _create_stripe_pool(lz, disks[0])
+        try:
+            with pytest.raises((TypeError, ValueError)):
+                pool.attach_vdev(device=disks[0], new_device=bad)
+        finally:
+            _destroy(lz)
+
     def test_detach_missing_device_raises(self, make_disks):
         """detach_vdev() without device must raise ValueError."""
         disks = make_disks(2)
