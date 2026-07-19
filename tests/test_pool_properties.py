@@ -191,6 +191,55 @@ def test_set_multiple_properties(pool):
 
 
 # ---------------------------------------------------------------------------
+# set_properties — failures raised by libzfs rather than by argument checks
+#
+# The cases below get past every Python-side check and fail inside
+# zpool_set_prop(), which is the only path that reports libzfs error state.
+# ---------------------------------------------------------------------------
+
+def test_set_invalid_index_value_reports_zfs_error(pool):
+    """A value libzfs rejects must surface as that libzfs error."""
+    _, p = pool
+    with pytest.raises(truenas_pylibzfs.ZFSException) as exc:
+        p.set_properties(
+            properties={truenas_pylibzfs.ZPOOLProperty.AUTOTRIM: "sometimes"}
+        )
+
+    assert exc.value.code == truenas_pylibzfs.ZFSError.EZFS_BADPROP
+
+
+def test_set_invalid_value_after_valid_reports_zfs_error(pool):
+    """
+    The failing property is not the first one set.  The error reported must
+    describe that failure rather than state left over from the properties
+    that succeeded before it.
+    """
+    _, p = pool
+    with pytest.raises(truenas_pylibzfs.ZFSException) as exc:
+        p.set_properties(properties={
+            truenas_pylibzfs.ZPOOLProperty.COMMENT: "set before the failure",
+            truenas_pylibzfs.ZPOOLProperty.AUTOTRIM: "sometimes",
+        })
+
+    assert exc.value.code == truenas_pylibzfs.ZFSError.EZFS_BADPROP
+
+
+def test_set_properties_usable_after_failure(pool):
+    """A failed set must leave the handle usable for subsequent calls."""
+    _, p = pool
+    with pytest.raises(truenas_pylibzfs.ZFSException):
+        p.set_properties(
+            properties={truenas_pylibzfs.ZPOOLProperty.AUTOTRIM: "sometimes"}
+        )
+
+    p.set_properties(properties={truenas_pylibzfs.ZPOOLProperty.COMMENT: "after"})
+    props = p.get_properties(
+        properties={truenas_pylibzfs.ZPOOLProperty.COMMENT}
+    )
+    assert props.comment.value == "after"
+
+
+# ---------------------------------------------------------------------------
 # set_properties — readonly and setonce rejection
 # ---------------------------------------------------------------------------
 
