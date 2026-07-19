@@ -34,40 +34,63 @@ jobs:
           echo "sha=$ZFS_SHA" >> "$GITHUB_OUTPUT"
           echo "$ZFS_BRANCH -> $ZFS_SHA"
 
+      # Full restore rather than lookup-only: the marker body carries the
+      # pass/fail verdict that the "Decide" step below re-reports.
       - name: Look up test marker for this commit
         id: marker
         uses: actions/cache/restore@v4
         with:
           path: .zfs-tested
           key: zfs-tested-${{ steps.sha.outputs.sha }}
-          lookup-only: true
 
       - name: Decide whether to run
         id: decide
         run: |
-          if [ "${{ steps.marker.outputs.cache-hit }}" = "true" ]; then
-            echo "Commit ${{ steps.sha.outputs.sha }} already tested; skipping."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
+          if [ "${{ steps.marker.outputs.cache-hit }}" != "true" ]; then
             echo "New commit ${{ steps.sha.outputs.sha }}; running tests."
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          # Markers predating the verdict field have a single column; treat
+          # those as passing so pre-existing caches do not start failing runs.
+          RESULT=$(awk '{print $2}' .zfs-tested 2>/dev/null || true)
+          if [ "$RESULT" = "fail" ]; then
+            echo "::error::ZFS $(cat .github/zfs-branch) tip ${{ steps.sha.outputs.sha }} failed the suite when it was tested.  Not re-testing it; this run stays red until the branch advances or the marker cache is evicted."
+            exit 1
+          fi
+          echo "Commit ${{ steps.sha.outputs.sha }} already tested and passing; skipping."
 
   test:
     needs: check
     if: needs.check.outputs.changed == 'true'
     uses: ./.github/workflows/qemu-test.yml
+    # Pin the build to the tip this run resolved.  Without this the reusable
+    # workflow re-resolves the branch itself, and a push landing during the
+    # (up to 10 minute) QEMU setup would have us test one commit while marking
+    # another as done.
+    with:
+      zfs_sha: ${{ needs.check.outputs.sha }}
 
   mark:
     needs: [check, test]
     # Record the commit as tested once the suite actually ran (pass OR fail), so we
     # exercise each ZFS commit exactly once and do not re-run a broken commit every
-    # hour.  The nightly job is the daily backstop.
+    # hour.  A failing verdict is not dropped on the floor: it is stored in the
+    # marker, and the check job above re-reports it every hour, so the watcher
+    # stays red for as long as the broken commit is the branch tip.
     if: always() && needs.test.result != 'skipped' && needs.test.result != 'cancelled'
     runs-on: ubuntu-24.04
     steps:
       - name: Write marker file
-        run: echo "${{ needs.check.outputs.sha }}" > .zfs-tested
+        run: |
+          if [ "${{ needs.test.result }}" = "success" ]; then
+            VERDICT=pass
+          else
+            VERDICT=fail
+          fi
+          echo "${{ needs.check.outputs.sha }} $VERDICT" > .zfs-tested
+          echo "Marking ${{ needs.check.outputs.sha }} as $VERDICT"
       - name: Save marker
         uses: actions/cache/save@v4
         with:
