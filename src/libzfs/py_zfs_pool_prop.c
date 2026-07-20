@@ -406,6 +406,7 @@ PyObject *py_zpool_set_properties(py_zfs_pool_t *p, PyObject *propsdict)
 	idx = 0;
 eintr_retry:
 	async_err = 0;
+	ret = 0;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(p->pylibzfsp);
@@ -414,8 +415,10 @@ eintr_retry:
 				     pairs[idx].name,
 				     pairs[idx].val);
 
-		if ((ret == 0) && (errno != EINTR)) {
+		if (ret) {
 			py_get_zfs_error(p->pylibzfsp->lzh, &zfs_err);
+			/* keep idx on the failed property so a retry resumes there */
+			break;
 		}
 	}
 	PY_ZFS_UNLOCK(p->pylibzfsp);
