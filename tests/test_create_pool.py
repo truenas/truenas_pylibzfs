@@ -1155,3 +1155,10 @@ def test_create_pool_force_valid_topology(make_disks):
         assert pool.status().status == ZPOOLStatus.ZPOOL_STATUS_OK
     finally:
         _destroy()
+
+
+def test_destroy_pool_requires_name():
+    """destroy_pool() with no name must raise, not reach zpool_open(NULL)."""
+    lz = truenas_pylibzfs.open_handle()
+    with pytest.raises(ValueError, match="name"):
+        lz.destroy_pool()

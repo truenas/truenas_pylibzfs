@@ -358,6 +358,21 @@ nvlist_t *py_zfsprops_struct_to_nvlist(pylibzfs_state_t *state,
 			return NULL;
 		}
 
+		/*
+		 * Slots of a struct sequence hold arbitrary objects, so a
+		 * hand-rolled struct can carry anything here. Check before
+		 * py_prop_struct_to_nvlist() indexes it.
+		 */
+		if (!PyObject_TypeCheck(value, state->struct_zfs_prop_type)) {
+			PyErr_Format(PyExc_TypeError,
+				     "%s: expected a "
+				     PYLIBZFS_TYPES_MODULE_NAME
+				     ".struct_zfs_property_data instance",
+				     name);
+			fnvlist_free(nvl);
+			return NULL;
+		}
+
 		if (!py_prop_struct_to_nvlist(value, zprop, nvl)) {
 			fnvlist_free(nvl);
 			return NULL;

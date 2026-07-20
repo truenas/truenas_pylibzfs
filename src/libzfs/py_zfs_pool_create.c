@@ -194,8 +194,8 @@ parse_draid_config(const char *str, draid_config_t *out)
  * Recurses into children.
  * Returns B_TRUE if valid, B_FALSE with exception set if not.
  */
-static boolean_t
-validate_single_spec(pylibzfs_state_t *state, PyObject *spec,
+boolean_t
+py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
     const char *context)
 {
 	PyObject *py_name = NULL;
@@ -334,7 +334,7 @@ validate_single_spec(pylibzfs_state_t *state, PyObject *spec,
 		/* Recursively validate children */
 		for (i = 0; i < n; i++) {
 			child = PyTuple_GET_ITEM(py_children, i);
-			if (!validate_single_spec(state, child, context))
+			if (!py_zfs_validate_vdev_spec(state, child, context))
 				return B_FALSE;
 		}
 
@@ -778,6 +778,15 @@ build_vdev_spec_nvlist(PyObject *spec)
 
 	/* For all virtual vdevs, get the child count now */
 	n = PyTuple_Size(py_children);
+	if (n < 0) {
+		/*
+		 * Not a tuple. Callers are expected to have validated the
+		 * spec, but -1 here would be cast to a huge unsigned child
+		 * count by the dRAID group calculation below.
+		 */
+		fnvlist_free(nvl);
+		return NULL;
+	}
 
 	/* ---- mirror ---- */
 	if (is_mirror_type(py_type)) {
@@ -809,7 +818,7 @@ build_vdev_spec_nvlist(PyObject *spec)
 		 * Calculate the minimum number of groups required to fill a
 		 * slice.  This is the LCM of the stripe width (ndata + parity)
 		 * and the number of data drives (children - nspares).
-		 * Validation in validate_single_spec() guarantees
+		 * Validation in py_zfs_validate_vdev_spec() guarantees
 		 * children > nspares, so data_drives > 0 and the loop
 		 * terminates.
 		 */
@@ -1037,7 +1046,7 @@ validate_vdev_list(pylibzfs_state_t *state, PyObject *pyobj,
 	}
 
 	while ((item = PyIter_Next(iterator))) {
-		boolean_t ok = validate_single_spec(state, item, argname);
+		boolean_t ok = py_zfs_validate_vdev_spec(state, item, argname);
 		Py_DECREF(item);
 		if (!ok) {
 			Py_DECREF(iterator);
@@ -1128,7 +1137,7 @@ py_zfs_pool_create_vdev_spec(pylibzfs_state_t *state,
 	PyStructSequence_SetItem(out, VCSPEC_CHILDREN_IDX, children_tuple);
 
 	/* Full validation of the constructed spec */
-	if (!validate_single_spec(state, out, "create_vdev_spec")) {
+	if (!py_zfs_validate_vdev_spec(state, out, "create_vdev_spec")) {
 		Py_DECREF(out);
 		return NULL;
 	}

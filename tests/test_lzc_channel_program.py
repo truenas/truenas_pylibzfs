@@ -115,3 +115,115 @@ def test_nonexistent_pool_raises(pool):
 def test_keyword_only(pool):
     with pytest.raises(TypeError):
         lzc.run_channel_program(POOL_NAME, 'return {}')
+
+
+# ---------------------------------------------------------------------------
+# script_arguments — argv is built from the items actually yielded
+#
+# The argv array used to be sized from len() but filled from a separate
+# iterator, and each item was released before its UTF-8 buffer was used.
+# ---------------------------------------------------------------------------
+
+class LyingLength:
+    """Reports one item but yields many."""
+
+    COUNT = 256
+
+    def __len__(self):
+        return 1
+
+    def __iter__(self):
+        return iter([f'arg{i}' for i in range(self.COUNT)])
+
+
+def test_script_arguments_len_shorter_than_iteration(pool):
+    """
+    argv must hold every item yielded. Sizing it from __len__ wrote
+    COUNT - 1 pointers past an allocation with room for one.
+    """
+    script = ('local args = ... '
+              'return {["count"] = #args.argv, ["last"] = args.argv[256]}')
+    out = lzc.run_channel_program(
+        pool_name=POOL_NAME,
+        script=script,
+        script_arguments=LyingLength(),
+    )
+    assert out.get('return', {}).get('count') == LyingLength.COUNT
+    assert out.get('return', {}).get('last') == f'arg{LyingLength.COUNT - 1}'
+
+
+class UnretainedItems:
+    """
+    __len__ agrees with the item count, but each string is built by the
+    generator and referenced only by the iteration itself. Releasing an item
+    before its UTF-8 buffer is read leaves argv pointing into freed memory,
+    which the next allocation in the loop reuses.
+    """
+
+    COUNT = 8
+
+    def __len__(self):
+        return self.COUNT
+
+    def __iter__(self):
+        for i in range(self.COUNT):
+            # built here and not interned, so the iteration holds the only
+            # reference to it
+            yield f'unretained-{i}'
+
+
+def test_script_arguments_items_released_during_iteration(pool):
+    script = ('local args = ... '
+              'return {["count"] = #args.argv, ["first"] = args.argv[1], '
+              '["last"] = args.argv[8]}')
+    out = lzc.run_channel_program(
+        pool_name=POOL_NAME,
+        script=script,
+        script_arguments=UnretainedItems(),
+    )
+    ret = out.get('return', {})
+    assert ret.get('count') == UnretainedItems.COUNT
+    assert ret.get('first') == 'unretained-0'
+    assert ret.get('last') == f'unretained-{UnretainedItems.COUNT - 1}'
+
+
+def test_script_arguments_generator(pool):
+    """A bare generator has no __len__ and used to be rejected outright."""
+    script = 'local args = ... return {["second"] = args.argv[2]}'
+    out = lzc.run_channel_program(
+        pool_name=POOL_NAME,
+        script=script,
+        script_arguments=(f'arg{i}' for i in range(3)),
+    )
+    assert out.get('return', {}).get('second') == 'arg1'
+
+
+def test_script_arguments_empty(pool):
+    """An empty list contributes no argv entry at all, so args.argv is nil."""
+    script = ('local args = ... '
+              'if args.argv == nil then return {["argv"] = "absent"} end '
+              'return {["argv"] = "present"}')
+    out = lzc.run_channel_program(
+        pool_name=POOL_NAME,
+        script=script,
+        script_arguments=[],
+    )
+    assert out.get('return', {}).get('argv') == 'absent'
+
+
+def test_script_arguments_non_string_raises(pool):
+    with pytest.raises(TypeError):
+        lzc.run_channel_program(
+            pool_name=POOL_NAME,
+            script='return {}',
+            script_arguments=['ok', 42],
+        )
+
+
+def test_script_arguments_not_iterable_raises(pool):
+    with pytest.raises(TypeError):
+        lzc.run_channel_program(
+            pool_name=POOL_NAME,
+            script='return {}',
+            script_arguments=42,
+        )

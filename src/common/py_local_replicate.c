@@ -738,6 +738,11 @@ validate_args(const struct local_replicate_args *a)
 				"progress_callback must be callable or None");
 		return -1;
 	}
+	if (!NULL_OR_NONE(a->py_props) && !PyDict_Check(a->py_props)) {
+		// PyDict_Contains() below does not type check its argument
+		PyErr_SetString(PyExc_TypeError, "props must be a dict");
+		return -1;
+	}
 	if (a->mode == LOCAL_REPLICATE_LZC &&
 	    (a->nomount || !NULL_OR_NONE(a->py_exclude))) {
 		PyErr_SetString(PyExc_ValueError,
