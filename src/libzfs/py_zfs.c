@@ -548,6 +548,12 @@ PyObject *py_zfs_pool_destroy(PyObject *self, PyObject *args, PyObject *kwargs)
 		return NULL;
 	}
 
+	if (pool_name == NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"destroy_pool() requires 'name' argument");
+		return NULL;
+	}
+
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".destroy_pool", "sO",
 		pool_name, kwargs ? kwargs : Py_None) < 0) {
 		return NULL;

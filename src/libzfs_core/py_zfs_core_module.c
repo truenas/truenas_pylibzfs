@@ -1238,49 +1238,55 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 {
 	nvlist_t *nvl = NULL;
-	PyObject *item = NULL;
-	PyObject *iterator = NULL;
-	Py_ssize_t iter_len = PyObject_Length(pycmds);
+	PyObject *seq = NULL;
 	const char **arglist = NULL;
-	uint cnt = 0;
+	Py_ssize_t cnt, i;
 
-	iterator = PyObject_GetIter(pycmds);
-	if (iterator == NULL || iter_len == -1)
+	/*
+	 * Materialise the iterable up front. Sizing the array from
+	 * PyObject_Length() and filling it from a separate iterator trusts the
+	 * two to agree, which an object defining __len__ and __iter__
+	 * independently need not do. This also keeps a reference to every item
+	 * until the array has been consumed: the UTF-8 buffers below belong to
+	 * the string objects, not to us.
+	 */
+	seq = PySequence_Fast(pycmds, "script_arguments must be iterable");
+	if (seq == NULL)
 		return NULL;
+
+	cnt = PySequence_Fast_GET_SIZE(seq);
 
 	// we basically need to simulate argv, argc for
 	// compatiblity with usage of zfs-program(8)
-	arglist = PyMem_Calloc(iter_len, sizeof(char *));
-	if (arglist == NULL) {
-		Py_DECREF(iterator);
-		return NULL;
+	if (cnt > 0) {
+		arglist = PyMem_Calloc(cnt, sizeof(char *));
+		if (arglist == NULL) {
+			Py_DECREF(seq);
+			PyErr_NoMemory();
+			return NULL;
+		}
+	}
+
+	for (i = 0; i < cnt; i++) {
+		/* borrowed reference, kept alive by seq */
+		PyObject *item = PySequence_Fast_GET_ITEM(seq, i);
+
+		arglist[i] = PyUnicode_AsUTF8(item);
+		if (arglist[i] == NULL) {
+			PyMem_Free(arglist);
+			Py_DECREF(seq);
+			return NULL;
+		}
 	}
 
 	nvl = fnvlist_alloc();
-
-	while ((item = PyIter_Next(iterator))) {
-		const char *arg;
-
-		arg = PyUnicode_AsUTF8(item);
-		// We don't need to worry about UAF here because
-		// pycmds object still holds reference to the item
-		Py_DECREF(item);
-		if (arg == NULL) {
-			fnvlist_free(nvl);
-			PyMem_Free(arglist);
-			Py_DECREF(iterator);
-			return NULL;
-		}
-		arglist[cnt] = arg;
-		cnt++;
-	}
-
-	Py_DECREF(iterator);
-	if (cnt) {
-		fnvlist_add_string_array(nvl, ZCP_ARG_CLIARGV, arglist, cnt);
+	if (cnt > 0) {
+		fnvlist_add_string_array(nvl, ZCP_ARG_CLIARGV, arglist,
+					 (uint)cnt);
 	}
 
 	PyMem_Free(arglist);
+	Py_DECREF(seq);
 
 	return nvl;
 }

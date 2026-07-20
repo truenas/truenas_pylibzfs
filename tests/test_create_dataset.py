@@ -1,5 +1,6 @@
 # This code example shows how to create a ZFS dataset
 
+import pytest
 import truenas_pylibzfs
 
 props = {
@@ -61,3 +62,21 @@ def test_create_dataset_with_user_properties(root_dataset):
     user_props = rsrc.get_user_properties()
     assert user_props['org.truenas:canary'] == 'test'
     lz.destroy_resource(name=rsrc_name)
+
+
+def test_create_dataset_properties_struct_bad_slot(dataset):
+    """
+    A struct_zfs_property slot holds an arbitrary object. A hand-rolled
+    struct carrying something other than struct_zfs_property_data must be
+    rejected rather than indexed as one.
+    """
+    lz, root, ds = dataset
+    props = ds.get_properties(properties={truenas_pylibzfs.ZFSProperty.ATIME})
+    bad = props.__replace__(atime=42)
+
+    with pytest.raises(TypeError):
+        lz.create_resource(
+            name=f'{root.name}/bad_prop_struct',
+            type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+            properties=bad,
+        )
