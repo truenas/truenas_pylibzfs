@@ -39,17 +39,34 @@ PyObject *py_zfs_snapshot_get_clones(PyObject *self, PyObject *args_unused)
 {
 	py_zfs_snapshot_t *ds = (py_zfs_snapshot_t *)self;
 	nvlist_t *clones = NULL;
+	nvlist_t *clones_copy = NULL;
+	PyObject *out = NULL;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(ds->rsrc.obj.pylibzfsp);
+
+	// zfs_get_clones_nvl() reads the handle's cached properties, which a
+	// simple handle does not have, so refresh them first.
+	if (ds->rsrc.is_simple) {
+		zfs_refresh_properties(ds->rsrc.obj.zhp);
+		ds->rsrc.is_simple = B_FALSE;
+	}
+
+	// The result is looked up out of the handle's property nvlist, which
+	// refreshing properties frees, so copy it while the lock is held.
 	clones = zfs_get_clones_nvl(ds->rsrc.obj.zhp);
+	if (clones != NULL)
+		clones_copy = fnvlist_dup(clones);
+
 	PY_ZFS_UNLOCK(ds->rsrc.obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	if (clones == NULL)
+	if (clones_copy == NULL)
 		return PyTuple_New(0);
 
-	return py_nvlist_names_tuple(clones);
+	out = py_nvlist_names_tuple(clones_copy);
+	fnvlist_free(clones_copy);
+	return out;
 }
 
 PyDoc_STRVAR(py_zfs_snapshot_get_holds__doc__,

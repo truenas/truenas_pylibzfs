@@ -118,10 +118,8 @@ def test_keyword_only(pool):
 
 
 # ---------------------------------------------------------------------------
-# script_arguments — argv is built from the items actually yielded
-#
-# The argv array used to be sized from len() but filled from a separate
-# iterator, and each item was released before its UTF-8 buffer was used.
+# script_arguments — argv is built from the items actually yielded, and each
+# string outlives the argv entry that points into its UTF-8 buffer
 # ---------------------------------------------------------------------------
 
 class LyingLength:
@@ -188,7 +186,7 @@ def test_script_arguments_items_released_during_iteration(pool):
 
 
 def test_script_arguments_generator(pool):
-    """A bare generator has no __len__ and used to be rejected outright."""
+    """A bare generator (no __len__) is accepted."""
     script = 'local args = ... return {["second"] = args.argv[2]}'
     out = lzc.run_channel_program(
         pool_name=POOL_NAME,
