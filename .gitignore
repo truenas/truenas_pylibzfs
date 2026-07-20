@@ -4,3 +4,9 @@
 __pycache__
 /build/
 /dist/
+.venv/
+*.so
+.coverage
+src/.cproject
+src/.project
+src/.settings/

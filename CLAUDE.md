@@ -87,6 +87,34 @@ tests/                      — pytest test suite
 examples/                   — usage examples
 ```
 
+## truenas_bootenv (pure Python)
+
+Boot environment management consumed by TrueNAS middleware and the
+truenas-bootenv(8) CLI:
+
+- `truenas_bootenv/engine.py` — activate/create/destroy plus listing,
+  bootfs, grub-marker and keep helpers; the only module in the package
+  that may import truenas_pylibzfs at module level
+- `truenas_bootenv/cli.py` — the argparse CLI. argparse-manpage imports
+  it at deb build time in a chroot without zfs.ko, so cli.py, naming.py
+  and __init__.py must never import truenas_pylibzfs (or anything that
+  pulls it in) at module level; ZFS work is imported lazily inside the
+  command handlers
+- `truenas_bootenv/naming.py` — pure string validation and path
+  composition (no ZFS imports allowed)
+- `truenas_bootenv/errors.py` — the BEError hierarchy callers map onto
+  their own error models
+- `tests/test_bootenv_*.py` — naming/errors/cli tests are pure Python;
+  engine tests need root + zfs.ko (conftest scratch pools)
+
+Style differs from the C sources: fully type-annotated runtime code
+(the package ships a py.typed marker so mypy checks consumers against
+it), plain-prose docstrings with the summary on the opening-quote line,
+one alphabetized import block, f-strings, `{x!r}` for names in
+messages, ASCII-only. list_environments returns BootEnvironment
+dataclasses, not dicts. Full rules: TRUENAS_BOOTENV_STYLE_CONTRACT.md
+(currently kept outside the repo).
+
 ## C Code Style
 
 - Comments, docstrings, and README files must be ASCII only — no Unicode punctuation (em dashes, curly quotes, ellipsis, box-drawing characters, etc.).

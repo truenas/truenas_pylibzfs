@@ -10,7 +10,11 @@ from truenas_pylibzfs import lzc
 
 
 # ---------------------------------------------------------------------------
-# create_holds — accepts Iterable[tuple[str, str]], not dict
+# create_holds — accepts Collection[tuple[str, str]], not dict
+#
+# Sized, not just iterable: the pool history message takes len() of this
+# object after lzc_hold() has already committed, so a generator would raise
+# with the hold on disk.
 # ---------------------------------------------------------------------------
 
 def check_create_holds_list() -> None:
@@ -18,13 +22,14 @@ def check_create_holds_list() -> None:
     lzc.create_holds(holds=holds)
 
 
-def check_create_holds_iterable() -> None:
+def check_create_holds_rejects_iterator() -> None:
     holds: Iterable[tuple[str, str]] = iter([("pool/fs@snap", "my-tag")])
-    lzc.create_holds(holds=holds)
+    lzc.create_holds(holds=holds)  # type: ignore[arg-type]
 
 
-def check_create_holds_generator() -> None:
-    lzc.create_holds(holds=(("pool/fs@snap", t) for t in ["tag1", "tag2"]))
+def check_create_holds_rejects_generator() -> None:
+    holds = (("pool/fs@snap", t) for t in ["tag1", "tag2"])
+    lzc.create_holds(holds=holds)  # type: ignore[arg-type]
 
 
 def check_create_holds_with_cleanup_fd_int() -> None:
@@ -43,9 +48,10 @@ def check_release_holds_returns_none() -> None:
     lzc.release_holds(holds=[("pool/fs@snap", "my-tag")])
 
 
-def check_release_holds_iterable() -> None:
+def check_release_holds_rejects_iterator() -> None:
+    # same post-commit len() as create_holds, via lzc_release()
     holds: Iterable[tuple[str, str]] = iter([("pool/fs@snap", "tag")])
-    lzc.release_holds(holds=holds)
+    lzc.release_holds(holds=holds)  # type: ignore[arg-type]
 
 
 def check_release_holds_set() -> None:

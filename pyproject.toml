@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "truenas_pylibzfs"
+version = "0.1"
+description = "truenas_pylibzfs provides python bindings for libzfs for TrueNAS"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "TrueNAS Engineering", email = "dev@truenas.com"},
+]
+
+[project.scripts]
+truenas-bootenv = "truenas_bootenv.cli:main"
