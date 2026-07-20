@@ -37,18 +37,19 @@
         __PYZFS_ASSERT_IMPL(test, message, __location__);
 
 /*
- * Compatibility shim: use PyMutex on Python 3.13+ (1 byte, zero-initialized,
- * no destroy needed), fall back to pthread_mutex_t on older versions.
+ * The handle lock is a PyMutex, which requires Python 3.13. PyMutex_Lock
+ * detaches the thread state (releases the GIL) while it waits, so a thread
+ * that blocks on the lock while holding the GIL does not deadlock against a
+ * thread that holds the lock and wants the GIL. The iterator callback path
+ * takes the lock in both orders and depends on this.
  */
-#if PY_VERSION_HEX >= 0x030d0000
+#if PY_VERSION_HEX < 0x030d0000
+#error "truenas_pylibzfs requires Python 3.13 or later"
+#endif
+
 typedef PyMutex py_zfs_lock_t;
 #define PY_ZFS_LOCK_INIT(lockp)    (0)
 #define PY_ZFS_LOCK_DESTROY(lockp) /* no-op */
-#else
-typedef pthread_mutex_t py_zfs_lock_t;
-#define PY_ZFS_LOCK_INIT(lockp)    pthread_mutex_init(lockp, NULL)
-#define PY_ZFS_LOCK_DESTROY(lockp) pthread_mutex_destroy(lockp)
-#endif
 
 /*
  * Wrapper around libzfs_handle_t
@@ -74,7 +75,6 @@ typedef struct {
  * The following macros are to simplify code that locks and unlocks
  * py_zfs_t objects for operations using libzfs_handle_t.
  */
-#if PY_VERSION_HEX >= 0x030d0000
 #define PY_ZFS_LOCK(obj) do { \
 	PyMutex_Lock(&obj->zfs_lock); \
 } while (0);
@@ -82,15 +82,6 @@ typedef struct {
 #define PY_ZFS_UNLOCK(obj) do { \
 	PyMutex_Unlock(&obj->zfs_lock); \
 } while (0);
-#else
-#define PY_ZFS_LOCK(obj) do { \
-	pthread_mutex_lock(&obj->zfs_lock); \
-} while (0);
-
-#define PY_ZFS_UNLOCK(obj) do { \
-	pthread_mutex_unlock(&obj->zfs_lock); \
-} while (0);
-#endif
 
 /*
  * Common struct for resource objects and bookmarks.
