@@ -173,3 +173,31 @@ def test_set_userquotas_used_type_raises(dataset):
             'xid': 0,
             'value': 1024,
         }])
+
+
+def test_set_userquotas_iterable_raises_midway_applies_nothing(dataset):
+    """
+    If the quotas iterable raises after yielding a valid entry, the method
+    must propagate that error and apply nothing rather than commit the
+    entries seen before the exception.
+    """
+    lz, ds = dataset
+    quota_size = 100 * 1024 * 1024
+
+    class Boom(Exception):
+        pass
+
+    def quotas():
+        yield {
+            'quota_type': truenas_pylibzfs.ZFSUserQuota.USER_QUOTA,
+            'xid': 0,
+            'value': quota_size,
+        }
+        raise Boom('midway')
+
+    with pytest.raises(Boom):
+        ds.set_userquotas(quotas=quotas())
+
+    # The valid first entry must not have been committed.
+    entries = _collect_userspace(ds, truenas_pylibzfs.ZFSUserQuota.USER_QUOTA)
+    assert [e for e in entries if e['xid'] == 0] == []

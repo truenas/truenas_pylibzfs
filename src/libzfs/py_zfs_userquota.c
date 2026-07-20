@@ -208,5 +208,12 @@ nvlist_t *py_userquotas_to_nvlist(pylibzfs_state_t *state, PyObject *uquotas)
 	}
 	Py_DECREF(iterator);
 
+	// PyIter_Next returns NULL on both exhaustion and error; an iterable
+	// that raises mid-loop leaves a partial nvlist that must not be applied.
+	if (PyErr_Occurred()) {
+		fnvlist_free(out);
+		return NULL;
+	}
+
 	return out;
 }
