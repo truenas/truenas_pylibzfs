@@ -664,6 +664,7 @@ PyObject *py_get_userprops(py_zfs_resource_t *res)
 {
 	PyObject *out = NULL;
 	nvlist_t *nvl = NULL;
+	nvlist_t *nvl_copy = NULL;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
@@ -673,12 +674,18 @@ PyObject *py_get_userprops(py_zfs_resource_t *res)
 		res->is_simple = B_FALSE;
 	}
 
+	// zfs_get_user_props() borrows the handle's nvlist, and refreshing
+	// properties on that handle frees it. Copy it while the lock is held
+	// rather than walking it afterwards.
 	nvl = zfs_get_user_props(res->obj.zhp);
+	if (nvl != NULL)
+		nvl_copy = fnvlist_dup(nvl);
 
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
-	out = user_props_nvlist_to_py_dict(nvl);
+	out = user_props_nvlist_to_py_dict(nvl_copy);
+	fnvlist_free(nvl_copy);
 	return out;
 }
 
