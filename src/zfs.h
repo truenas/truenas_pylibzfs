@@ -15,9 +15,6 @@
 #include <libzutil.h>
 #include <zfeature_common.h>
 #include <Python.h>
-#if PY_VERSION_HEX < 0x030d0000
-#include <pthread.h>
-#endif
 #include <sys/mman.h>
 
 #endif /* _ZFS_H */

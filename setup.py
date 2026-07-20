@@ -52,6 +52,7 @@ truenas_pylibzfs = Extension(
 )
 
 setup(ext_modules=[truenas_pylibzfs],
+      python_requires='>=3.13',
       packages=['truenas_pylibzfs', 'truenas_bootenv'],
       package_dir={
           'truenas_pylibzfs': 'stubs',
