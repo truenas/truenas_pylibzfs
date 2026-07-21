@@ -238,8 +238,11 @@ void set_zfscore_exc(PyObject *module,
 		v = PyObject_CallFunction(state->zc_exc, "sO",
 					  msg, errors_tuple);
 	}
-	if (v == NULL)
+	if (v == NULL) {
+		Py_DECREF(pycode);
+		Py_DECREF(error_name);
 		return;
+	}
 
 	/* This steals references to pycode and error_name */
 	attrs = Py_BuildValue(
@@ -251,9 +254,9 @@ void set_zfscore_exc(PyObject *module,
         );
 
 	if (attrs == NULL) {
+		// Py_BuildValue consumes its 'N' arguments (pycode, error_name)
+		// even on failure, so they must not be released again here.
 		Py_DECREF(v);
-		Py_XDECREF(pycode);
-		Py_XDECREF(error_name);
 		return;
 	}
 
@@ -663,6 +666,7 @@ PyObject *nvlist_errors_to_err_tuple(nvlist_t *errors, int error)
 			Py_XDECREF(err);
 			return NULL;
 		}
+		Py_XDECREF(entry);
 	}
 
 	out = PyList_AsTuple(err);
@@ -848,6 +852,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 			return NULL;
 
 		set_zfscore_exc(self, "lzc_hold() failed", err, py_errors);
+		Py_DECREF(py_errors);
 		return NULL;
 	}
 
@@ -968,6 +973,7 @@ static PyObject *py_lzc_release_holds(PyObject *self,
 			return NULL;
 
 		set_zfscore_exc(self, "lzc_release() failed", err, py_errors);
+		Py_DECREF(py_errors);
 		return NULL;
 	}
 
@@ -1096,6 +1102,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 			return NULL;
 
 		set_zfscore_exc(self, "lzc_snapshot() failed", rv, py_errors);
+		Py_DECREF(py_errors);
 		return NULL;
 	}
 
@@ -1215,6 +1222,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 			return NULL;
 
 		set_zfscore_exc(self, "lzc_destroy_snaps() failed", err, py_errors);
+		Py_DECREF(py_errors);
 		return NULL;
 	}
 
@@ -1331,6 +1339,7 @@ PyObject *lzc_program_impl(PyObject *self,
 			return NULL;
 
 		set_zfscore_exc(self, "lzc_channel_program() failed", err, py_err);
+		Py_DECREF(py_err);
 		return NULL;
 	}
 
