@@ -56,7 +56,7 @@ def run_channel_program(
     script_arguments_dict: dict[str, Any] | None = None,
     instruction_limit: int = 10000000,
     memory_limit: int = 10485760,
-    readonly: bool = False,
+    readonly: bool = True,
 ) -> dict[str, Any]: ...
 def wait(*, pool_name: str, activity: ZpoolWaitActivity | int, tag: int | None = None) -> bool: ...
 def send(
