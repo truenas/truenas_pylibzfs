@@ -175,6 +175,37 @@ class TestSnapshotGetClones:
                 pass
             lzc.destroy_snapshots(snapshot_names=[snap_name])
 
+    def test_clones_returned_for_simple_handle(self, pool):
+        """
+        A snapshot handle from a fast iterator carries no cached properties,
+        which is what zfs_get_clones_nvl() reads. The clone must still be
+        reported rather than the snapshot looking clone-less.
+        """
+        lz, _, root = pool
+        snap_name = f'{POOL_NAME}@simple_clone_src'
+        clone_name = f'{POOL_NAME}/simple_theclone'
+        lzc.create_snapshots(snapshot_names=[snap_name])
+        try:
+            lz.open_resource(name=snap_name).clone(name=clone_name)
+
+            seen = []
+
+            def cb(snap, state):
+                if snap.name == snap_name:
+                    state.append(snap.get_clones())
+                return True
+
+            root.iter_snapshots(callback=cb, state=seen, fast=True)
+
+            assert seen, 'snapshot was not visited by the iterator'
+            assert clone_name in seen[0]
+        finally:
+            try:
+                lz.destroy_resource(name=clone_name)
+            except Exception:
+                pass
+            lzc.destroy_snapshots(snapshot_names=[snap_name])
+
     def test_clones_property_none_on_fresh_snapshot(self, pool):
         # Regression: reading the CLONES property of a snapshot with no
         # clones must not raise. libzfs get_clones_string() returns -1

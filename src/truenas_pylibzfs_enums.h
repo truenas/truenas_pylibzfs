@@ -198,7 +198,7 @@ static const struct {
 	{ ZFS_APPENDONLY, "ZFS_APPENDONLY" },
 	{ ZFS_NODUMP, "ZFS_NODUMP" },
 	{ ZFS_SPARSE, "ZFS_SPARSE" },
-	{ ZFS_OFFLINE, "ZFS_SPARSE" },
+	{ ZFS_OFFLINE, "ZFS_OFFLINE" },
 };
 
 /* vdev_aux_t enum */

@@ -159,6 +159,24 @@ py_lzc_send(PyObject *self, PyObject *args_unused, PyObject *kwargs)
 			return NULL;
 		}
 
+		/*
+		 * The token records which feature flags the interrupted send
+		 * was using. Resuming without them yields a stream that does
+		 * not match what the receiver already has, so fold them in
+		 * alongside the caller's flags, as libzfs does in
+		 * zfs_send_resume_impl_cb_impl().
+		 */
+		if (nvlist_exists(nvl, "largeblockok"))
+			flags |= LZC_SEND_FLAG_LARGE_BLOCK;
+		if (nvlist_exists(nvl, "embedok"))
+			flags |= LZC_SEND_FLAG_EMBED_DATA;
+		if (nvlist_exists(nvl, "compressok"))
+			flags |= LZC_SEND_FLAG_COMPRESS;
+		if (nvlist_exists(nvl, "rawok"))
+			flags |= LZC_SEND_FLAG_RAW;
+		if (nvlist_exists(nvl, "savedok"))
+			flags |= LZC_SEND_FLAG_SAVED;
+
 		fnvlist_free(nvl);
 
 		Py_BEGIN_ALLOW_THREADS

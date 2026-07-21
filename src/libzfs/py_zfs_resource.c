@@ -648,6 +648,11 @@ PyObject *py_zfs_resource_inherit_property(PyObject *self,
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
+	if (err) {
+		set_exc_from_libzfs(&zfs_err, "zfs_prop_inherit() failed");
+		return NULL;
+	}
+
 	err = py_log_history_fmt(res->obj.pylibzfsp,
 				 "zfs inherit %s%s %s",
 				 received ? "-S" : "",

@@ -490,3 +490,23 @@ def test_iter_history_multiple_pools(pool_a, pool_b):
         assert POOL_A not in cmd, (
             f"pool A name found in pool B history: {cmd!r}"
         )
+
+
+def test_dataset_inherit_property_failure_raises(pool_a):
+    """
+    A failure inside zfs_prop_inherit() must surface. quota passes the
+    checks pylibzfs makes first (writable, valid for a filesystem) and is
+    then rejected by libzfs as non-inheritable.
+    """
+    lz, p = pool_a
+    ds_name = f"{POOL_A}/testds_inherit_fail"
+    lz.create_resource(
+        name=ds_name,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+    )
+    try:
+        ds = lz.open_resource(name=ds_name)
+        with pytest.raises(truenas_pylibzfs.ZFSException):
+            ds.inherit_property(property=truenas_pylibzfs.ZFSProperty.QUOTA)
+    finally:
+        lz.destroy_resource(name=ds_name)
