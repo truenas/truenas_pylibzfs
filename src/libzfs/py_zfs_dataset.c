@@ -249,7 +249,8 @@ PyDoc_STRVAR(py_zfs_dataset_crypto__doc__,
 static
 PyObject *py_zfs_dataset_crypto(PyObject *self, PyObject *args_unused)
 {
-	py_zfs_obj_t *obj = RSRC_TO_ZFS(((py_zfs_dataset_t *)self));
+	py_zfs_resource_t *res = &((py_zfs_dataset_t *)self)->rsrc;
+	py_zfs_obj_t *obj = &res->obj;
 	uint64_t keyformat = ZFS_KEYFORMAT_NONE;
 
 	if (obj->encrypted == Py_False)
@@ -258,6 +259,14 @@ PyObject *py_zfs_dataset_crypto(PyObject *self, PyObject *args_unused)
 	// PY_ZFS_LOCK needs held due to interaction with libzfs mnttab
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(obj->pylibzfsp);
+	// A simple handle from a fast iterator carries no property nvlist, so
+	// KEYFORMAT would read back as its default. Populate it first. Only
+	// encrypted datasets reach here (see the check above), so the common
+	// unencrypted case never pays for this.
+	if (res->is_simple) {
+		zfs_refresh_properties(obj->zhp);
+		res->is_simple = B_FALSE;
+	}
 	keyformat = zfs_prop_get_int(obj->zhp, ZFS_PROP_KEYFORMAT);
 	PY_ZFS_UNLOCK(obj->pylibzfsp);
 	Py_END_ALLOW_THREADS

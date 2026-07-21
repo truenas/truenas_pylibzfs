@@ -76,6 +76,34 @@ def test_crypto_info(enc_dataset):
     assert info.key_is_loaded is True
 
 
+def test_crypto_on_simple_handle(enc_dataset):
+    """
+    crypto() must resolve encryption details for an encrypted dataset even
+    when the handle comes from a fast iterator, which carries no property
+    nvlist for KEYFORMAT to be read from.
+    """
+    lz, rsrc = enc_dataset
+    pool_name = rsrc.name.split('/')[0]
+    parent = lz.open_resource(name=pool_name)
+
+    found = {}
+
+    def cb(child, state):
+        state[child.name] = child
+        return True
+
+    parent.iter_filesystems(callback=cb, state=found, fast=True)
+
+    simple = found.get(rsrc.name)
+    assert simple is not None, (
+        f'{rsrc.name} not yielded by fast iterator: {list(found)}'
+    )
+
+    enc = simple.crypto()
+    assert enc is not None
+    assert enc.info().is_root is True
+
+
 def test_asdict_crypto(enc_dataset):
     lz, rsrc = enc_dataset
     result = rsrc.asdict(
