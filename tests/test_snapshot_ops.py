@@ -54,6 +54,40 @@ class TestCreateSnapshots:
                 except Exception:
                     pass
 
+    def test_generator_snapshot_names(self, pool):
+        """snapshot_names is documented as an iterable; a generator has no
+        __len__ and must work end to end, including history logging.
+
+        One call may only carry one snapshot per dataset, so snapshot
+        three datasets rather than one dataset three times."""
+        lz, _, root = pool
+        datasets = [f'{POOL_NAME}/gen{i}' for i in range(3)]
+        snaps = [f'{ds}@cs_gen' for ds in datasets]
+        for ds in datasets:
+            lz.create_resource(
+                name=ds,
+                type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+            )
+        try:
+            lzc.create_snapshots(snapshot_names=(s for s in snaps))
+            for s in snaps:
+                assert lz.open_resource(name=s).name == s
+            lzc.destroy_snapshots(snapshot_names=(s for s in snaps))
+            for s in snaps:
+                with pytest.raises(truenas_pylibzfs.ZFSException):
+                    lz.open_resource(name=s)
+        finally:
+            for s in snaps:
+                try:
+                    lzc.destroy_snapshots(snapshot_names=[s])
+                except Exception:
+                    pass
+            for ds in datasets:
+                try:
+                    lz.destroy_resource(name=ds)
+                except Exception:
+                    pass
+
     def test_with_user_properties(self, pool):
         lz, _, root = pool
         snap = f'{POOL_NAME}@cs_userprop'
