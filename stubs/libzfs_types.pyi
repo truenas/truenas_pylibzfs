@@ -979,7 +979,7 @@ class ZFSResource(ZFSObject):
     def mount(
         self,
         *,
-        mountpoint: str,
+        mountpoint: str = ...,
         mount_options: str | None = ...,
         force: bool = ...,
         load_encryption_key: bool = ...,
@@ -987,7 +987,7 @@ class ZFSResource(ZFSObject):
     def unmount(
         self,
         *,
-        mountpoint: str,
+        mountpoint: str = ...,
         force: bool = ...,
         lazy: bool = ...,
         unload_encryption_key: bool = ...,
@@ -1253,7 +1253,7 @@ class ZFS:
     def iter_pools(self, *, callback: Any, state: Any) -> bool: ...
     def iter_root_filesystems(self, *, callback: Any, state: Any) -> bool: ...
     def resource_cryptography_config(self, *, keyformat: str | None = None, keylocation: str | None = None, pbkdf2iters: int | None = None, key: str | bytes | None = None) -> Any: ...
-    def zpool_events(self, *, blocking: bool = False, skip_existing_events: bool = True) -> Iterator[dict[str, Any]]: ...
+    def zpool_events(self, *, blocking: bool = False, skip_existing_events: bool = False) -> Iterator[dict[str, Any]]: ...
     def import_pool_find(self, *, cache_file: str | None = None, device: str | None = None) -> list[struct_zpool_status]: ...
     def import_pool(self, *, name: str | None = None, guid: int | None = None,
                     allow_missing_log: bool = False, altroot: str | None = None,
