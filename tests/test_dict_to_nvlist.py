@@ -198,3 +198,39 @@ class TestErrorCases:
                 script='return {}',
                 script_arguments={42: "value"}
             )
+
+    def test_none_value_raises_value_error(self, pool):
+        """None dict value must raise ValueError."""
+        with pytest.raises(ValueError, match="unsupported"):
+            lzc.run_channel_program(
+                pool_name=POOL_NAME,
+                script='return {}',
+                script_arguments_dict={"k": None}
+            )
+
+
+class TestUint64Fallback:
+    """ints above INT64_MAX convert to DATA_TYPE_UINT64.
+
+    ZCP itself accepts only int64 scalars (zcp_nvpair_value_to_lua), so
+    the kernel rejects these arguments with EINVAL; reaching that error
+    shows the dict-to-nvlist conversion succeeded. Values above
+    UINT64_MAX are not representable and fail in the conversion.
+    """
+
+    @pytest.mark.parametrize("value", [2**63, 2**64 - 1])
+    def test_uint64_scalar_reaches_kernel(self, pool, value):
+        with pytest.raises(lzc.ZFSCoreException):
+            lzc.run_channel_program(
+                pool_name=POOL_NAME,
+                script='return {}',
+                script_arguments_dict={"k": value}
+            )
+
+    def test_above_uint64_raises_overflow_error(self, pool):
+        with pytest.raises(OverflowError):
+            lzc.run_channel_program(
+                pool_name=POOL_NAME,
+                script='return {}',
+                script_arguments_dict={"k": 2**64}
+            )

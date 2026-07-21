@@ -51,10 +51,10 @@ boolean_t nvlist_add_py_float(nvlist_t *nvl, const char *key, PyObject *val)
 static
 boolean_t nvlist_add_py_int_unsigned(nvlist_t *nvl, const char *key, PyObject *val)
 {
-	Py_ssize_t cval;
+	unsigned long long cval;
 
-	cval = PyLong_AsSsize_t(val);
-	if ((cval == -1) && PyErr_Occurred())
+	cval = PyLong_AsUnsignedLongLong(val);
+	if ((cval == (unsigned long long)-1) && PyErr_Occurred())
 		return B_FALSE;
 
 	fnvlist_add_uint64(nvl, key, cval);
@@ -413,6 +413,7 @@ nvlist_t *py_dict_to_nvlist(PyObject *dict_in)
 		} else {
 			PyErr_Format(PyExc_ValueError, "%s: unsupported type for key",
 				     ckey);
+			fnvlist_free(nvl);
 			return NULL;
 		}
 	}
