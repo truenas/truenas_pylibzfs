@@ -22,68 +22,33 @@ pylibzfs_core_state_t *get_lzc_mod_state(PyObject *module)
 }
 
 
-static
-PyObject *py_snap_history_msg(const char *op,
-			      const char *target,
-			      PyObject *snaps,
-			      const char *user_props)
-{
-	PyObject *out = NULL;
-	Py_ssize_t sz = PyObject_Length(snaps);
-
-	if (sz == -1)
-		return NULL;
-
-	if (user_props) {
-		out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
-					   "of datasets within pool \"%s\" "
-					   "with user properties: %s",
-					   op, sz, target, user_props);
-	} else {
-		out = PyUnicode_FromFormat("truenas_pylibzfs: %s %zi snapshots "
-					   "of datasets within pool \"%s\"",
-					   op, sz, target);
-	}
-
-	return out;
-}
-
+/*
+ * Log a history entry for a completed lzc operation. These ioctls are
+ * registered with allow_log, so one follow-up ZFS_IOC_LOG_HISTORY entry
+ * is permitted once the operation has succeeded. py_log_history_impl()
+ * raises if logging fails.
+ */
 static
 boolean_t py_zfs_core_log_snap_history(const char *op,
 				       const char *target,
-				       PyObject *snaplist,
+				       size_t nsnaps,
 				       const char *user_props)
 {
-	libzfs_handle_t *lz = NULL;
-	PyObject *logmsg;
-	const char *msg;
 	int err;
 
-	logmsg = py_snap_history_msg(op, target, snaplist, user_props);
-	if (logmsg == NULL)
-		return B_FALSE;
-
-	Py_BEGIN_ALLOW_THREADS
-	lz = libzfs_init();
-	Py_END_ALLOW_THREADS
-	if (lz == NULL) {
-		Py_DECREF(logmsg);
-		return B_FALSE;
+	if (user_props) {
+		err = py_log_history_impl(NULL, "truenas_pylibzfs: ",
+					  "%s %zu snapshots of datasets "
+					  "within pool \"%s\" with user "
+					  "properties: %s",
+					  op, nsnaps, target, user_props);
+	} else {
+		err = py_log_history_impl(NULL, "truenas_pylibzfs: ",
+					  "%s %zu snapshots of datasets "
+					  "within pool \"%s\"",
+					  op, nsnaps, target);
 	}
 
-	msg = PyUnicode_AsUTF8(logmsg);
-	if (msg == NULL) {
-		libzfs_fini(lz);
-		Py_DECREF(logmsg);
-		return B_FALSE;
-	}
-
-	Py_BEGIN_ALLOW_THREADS
-	err = zpool_log_history(lz, msg);
-	libzfs_fini(lz);
-	Py_END_ALLOW_THREADS
-
-	Py_DECREF(logmsg);
 	return err ? B_FALSE : B_TRUE;
 }
 
@@ -715,7 +680,7 @@ PyObject *zcp_nvlist_errs_to_err_tuple(nvlist_t *errors, int error)
 			errstr = "Permission denied. Must run as root.";
 			break;
 		default:
-			errstr = strerror(errno);
+			errstr = strerror(error);
 		}
 	}
 
@@ -807,6 +772,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 	int err;
 	int cleanup_fd = -1;
+	size_t nsnaps;
 
 	char *kwnames [] = { "holds", "cleanup_fd", NULL };
 
@@ -837,6 +803,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 
 	/* For now we're not exposing nvlist of properties to set */
 	Py_BEGIN_ALLOW_THREADS
+	nsnaps = fnvlist_num_pairs(holds);
 	err = lzc_hold(holds, cleanup_fd, &errors);
 	fnvlist_free(holds);
 	Py_END_ALLOW_THREADS
@@ -866,7 +833,7 @@ static PyObject *py_lzc_create_holds(PyObject *self,
 	fnvlist_free(errors);
 	Py_END_ALLOW_THREADS
 
-	if (!py_zfs_core_log_snap_history("lzc_hold()", pool, py_holds, NULL))
+	if (!py_zfs_core_log_snap_history("lzc_hold()", pool, nsnaps, NULL))
 		return NULL;
 
 	return py_errors;
@@ -929,6 +896,7 @@ static PyObject *py_lzc_release_holds(PyObject *self,
 	nvlist_t *errors = NULL;
 	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 	int err;
+	size_t nsnaps;
 
 	char *kwnames [] = { "holds", NULL };
 
@@ -958,6 +926,7 @@ static PyObject *py_lzc_release_holds(PyObject *self,
 
 	/* For now we're not exposing nvlist of properties to set */
 	Py_BEGIN_ALLOW_THREADS
+	nsnaps = fnvlist_num_pairs(holds);
 	err = lzc_release(holds, &errors);
 	fnvlist_free(holds);
 	Py_END_ALLOW_THREADS
@@ -981,7 +950,7 @@ static PyObject *py_lzc_release_holds(PyObject *self,
 	fnvlist_free(errors);
 	Py_END_ALLOW_THREADS
 
-	if (!py_zfs_core_log_snap_history("lzc_release()", pool, py_holds, NULL))
+	if (!py_zfs_core_log_snap_history("lzc_release()", pool, nsnaps, NULL))
 		return NULL;
 
 	Py_RETURN_NONE;
@@ -1036,6 +1005,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	nvlist_t *user_props = NULL;
 	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 	int rv;
+	size_t nsnaps;
 
 	char *kwnames [] = {
 		"snapshot_names",
@@ -1079,6 +1049,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 
 	/* For now we're not exposing nvlist of properties to set */
 	Py_BEGIN_ALLOW_THREADS
+	nsnaps = fnvlist_num_pairs(snaps);
 	rv = lzc_snapshot(snaps, user_props, &errors);
 	fnvlist_free(snaps);
 	Py_END_ALLOW_THREADS
@@ -1115,7 +1086,7 @@ static PyObject *py_lzc_create_snaps(PyObject *self,
 	Py_END_ALLOW_THREADS
 
 	rv = py_zfs_core_log_snap_history("lzc_snapshot()",
-					  pool, py_snaps,
+					  pool, nsnaps,
 					  user_props_json);
 	PyMem_RawFree(user_props_json);
 
@@ -1170,6 +1141,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 	boolean_t defer = B_FALSE;
 	char pool[ZFS_MAX_DATASET_NAME_LEN] = { 0 }; // must be zero-initialized
 	int err;
+	size_t nsnaps;
 
 	char *kwnames [] = {"snapshot_names", "defer_destroy", NULL};
 
@@ -1200,6 +1172,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 
 	/* For now we're not exposing nvlist of properties to set */
 	Py_BEGIN_ALLOW_THREADS
+	nsnaps = fnvlist_num_pairs(snaps);
 	err = lzc_destroy_snaps(snaps, defer, &errors);
 	fnvlist_free(snaps);
 	Py_END_ALLOW_THREADS
@@ -1230,7 +1203,7 @@ static PyObject *py_lzc_destroy_snaps(PyObject *self,
 	fnvlist_free(errors);
 	Py_END_ALLOW_THREADS
 
-	if (!py_zfs_core_log_snap_history("lzc_destroy_snaps()", pool, py_snaps, NULL))
+	if (!py_zfs_core_log_snap_history("lzc_destroy_snaps()", pool, nsnaps, NULL))
 		return NULL;
 
 	Py_RETURN_NONE;
