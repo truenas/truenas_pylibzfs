@@ -54,6 +54,27 @@ class TestCreateSnapshots:
                 except Exception:
                     pass
 
+    def test_generator_snapshot_names(self, pool):
+        """snapshot_names is documented as an iterable; a generator has no
+        __len__ and must work end to end, including history logging."""
+        lz, _, root = pool
+        snaps = [f'{POOL_NAME}@cs_gen{i}' for i in range(3)]
+        try:
+            lzc.create_snapshots(snapshot_names=(s for s in snaps))
+            names = _snap_names(root)
+            for s in snaps:
+                assert s in names
+            lzc.destroy_snapshots(snapshot_names=(s for s in snaps))
+            names = _snap_names(root)
+            for s in snaps:
+                assert s not in names
+        finally:
+            for s in snaps:
+                try:
+                    lzc.destroy_snapshots(snapshot_names=[s])
+                except Exception:
+                    pass
+
     def test_with_user_properties(self, pool):
         lz, _, root = pool
         snap = f'{POOL_NAME}@cs_userprop'
