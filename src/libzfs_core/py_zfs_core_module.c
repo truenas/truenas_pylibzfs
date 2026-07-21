@@ -1329,7 +1329,7 @@ PyDoc_STRVAR(py_lzc_program__doc__,
 "run_channel_program(*, pool_name, script, script_arguments=None,\n"
 "                script_arguments_dict=None,\n"
 "                instruction_limit=10000000, memory_limit=10485760,\n"
-"                readonly=False) -> None\n"
+"                readonly=True) -> dict\n"
 "---------------------------------------\n\n"
 "Run a provided ZFS channel program Lua script. The entire script is executed\n"
 "atomically, with no other administrative operations taking effect\n"
