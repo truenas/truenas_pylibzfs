@@ -1243,12 +1243,9 @@ static nvlist_t *py_to_nvlist_commands(PyObject *pycmds)
 	Py_ssize_t cnt, i;
 
 	/*
-	 * Materialise the iterable up front. Sizing the array from
-	 * PyObject_Length() and filling it from a separate iterator trusts the
-	 * two to agree, which an object defining __len__ and __iter__
-	 * independently need not do. This also keeps a reference to every item
-	 * until the array has been consumed: the UTF-8 buffers below belong to
-	 * the string objects, not to us.
+	 * PySequence_Fast() materialises the iterable, so its size matches the
+	 * items indexed below and it holds a reference to each string while we
+	 * use the UTF-8 buffer that the string owns.
 	 */
 	seq = PySequence_Fast(pycmds, "script_arguments must be iterable");
 	if (seq == NULL)
