@@ -527,6 +527,7 @@ PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
 		PyErr_Format(PyExc_FileNotFoundError,
 			     "Attempt to refresh pool stats. Pool state "
 			     "is currently unavailable.");
+		return NULL;
 	}
 
 	Py_RETURN_NONE;
