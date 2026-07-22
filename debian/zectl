@@ -1,0 +1,9 @@
+#!/bin/sh
+# zectl was replaced by the truenas_bootenv engine and its truenas-bootenv
+# command. This stub stays behind so an operator or a script that still calls
+# zectl is told where the functionality went instead of getting "command not
+# found". It writes to stderr and exits non-zero so callers that parse the
+# output fail loudly rather than treating the notice as data.
+echo "zectl has been replaced by truenas-bootenv(8)." >&2
+echo "Run 'truenas-bootenv --help', or 'truenas-bootenv $*' for this command." >&2
+exit 1
