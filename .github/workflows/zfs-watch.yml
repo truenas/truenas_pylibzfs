@@ -1,10 +1,10 @@
-name: ZFS branch watch
+name: ZFS release watch
 
-# Poll the associated truenas/zfs branch tip hourly and rerun the full suite when
-# it advances to a commit we have not tested yet.  This gives fast drift detection
-# for ZFS-side breakage, and (because this runs on the default branch) it warms the
-# shared ZFS deb cache that PR and nightly runs consume.  The branch to watch lives
-# in .github/zfs-branch so the build and the watcher always agree.
+# Poll the OpenZFS <train>-nightly release this repo tests against and rerun the
+# full suite when the published debs advance to a commit we have not tested yet.
+# This gives fast drift detection for ZFS-side breakage.  Because this runs on
+# the default branch, a rerun exercises master.  The branch -> train mapping
+# lives in .github/workflows/scripts/train-for-ref.sh.
 on:
   schedule:
     - cron: '17 * * * *'  # hourly, offset off :00 to dodge scheduler backlog
@@ -18,36 +18,46 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       changed: ${{ steps.decide.outputs.changed }}
-      sha: ${{ steps.sha.outputs.sha }}
+      commit: ${{ steps.state.outputs.commit }}
+      train: ${{ steps.state.outputs.train }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve ZFS branch tip
-        id: sha
+      - name: Resolve published OpenZFS release state
+        id: state
         run: |
-          ZFS_BRANCH=$(cat .github/zfs-branch)
-          ZFS_SHA=$(git ls-remote https://github.com/truenas/zfs.git "refs/heads/$ZFS_BRANCH" | cut -f1)
-          if [ -z "$ZFS_SHA" ]; then
-            echo "::error::Could not resolve tip of $ZFS_BRANCH"
+          TRAIN="$(.github/workflows/scripts/train-for-ref.sh "$GITHUB_REF_NAME")"
+          URL="https://github.com/truenas/zfs/releases/download/${TRAIN}-nightly"
+          # The rolling release replaces manifest.json on every publish; its
+          # .commit identifies the exact OpenZFS source the current debs came
+          # from (fall back to .date if commit is ever absent).
+          if ! curl --fail -LSs -o manifest.json "$URL/manifest.json"; then
+            echo "::error::No ${TRAIN}-nightly OpenZFS release published at $URL yet"
             exit 1
           fi
-          echo "sha=$ZFS_SHA" >> "$GITHUB_OUTPUT"
-          echo "$ZFS_BRANCH -> $ZFS_SHA"
+          COMMIT="$(jq -r '.commit // .date' manifest.json)"
+          if [ -z "$COMMIT" ] || [ "$COMMIT" = "null" ]; then
+            echo "::error::Could not read commit/date from the OpenZFS manifest"
+            exit 1
+          fi
+          echo "train=$TRAIN" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "$TRAIN-nightly OpenZFS is at $COMMIT"
 
       # Full restore rather than lookup-only: the marker body carries the
       # pass/fail verdict that the "Decide" step below re-reports.
-      - name: Look up test marker for this commit
+      - name: Look up test marker for this build
         id: marker
         uses: actions/cache/restore@v4
         with:
           path: .zfs-tested
-          key: zfs-tested-${{ steps.sha.outputs.sha }}
+          key: zfs-tested-${{ steps.state.outputs.commit }}
 
       - name: Decide whether to run
         id: decide
         run: |
           if [ "${{ steps.marker.outputs.cache-hit }}" != "true" ]; then
-            echo "New commit ${{ steps.sha.outputs.sha }}; running tests."
+            echo "New OpenZFS build ${{ steps.state.outputs.commit }}; running tests."
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -56,29 +66,26 @@ jobs:
           # those as passing so pre-existing caches do not start failing runs.
           RESULT=$(awk '{print $2}' .zfs-tested 2>/dev/null || true)
           if [ "$RESULT" = "fail" ]; then
-            echo "::error::ZFS $(cat .github/zfs-branch) tip ${{ steps.sha.outputs.sha }} failed the suite when it was tested.  Not re-testing it; this run stays red until the branch advances or the marker cache is evicted."
+            echo "::error::OpenZFS ${{ steps.state.outputs.train }}-nightly build ${{ steps.state.outputs.commit }} failed the suite when it was tested.  Not re-testing it; this run stays red until the release advances or the marker cache is evicted."
             exit 1
           fi
-          echo "Commit ${{ steps.sha.outputs.sha }} already tested and passing; skipping."
+          echo "Build ${{ steps.state.outputs.commit }} already tested and passing; skipping."
 
   test:
     needs: check
     if: needs.check.outputs.changed == 'true'
     uses: ./.github/workflows/qemu-test.yml
-    # Pin the build to the tip this run resolved.  Without this the reusable
-    # workflow re-resolves the branch itself, and a push landing during the
-    # (up to 10 minute) QEMU setup would have us test one commit while marking
-    # another as done.
+    # Pin the run to the train the check job resolved.
     with:
-      zfs_sha: ${{ needs.check.outputs.sha }}
+      train: ${{ needs.check.outputs.train }}
 
   mark:
     needs: [check, test]
-    # Record the commit as tested once the suite actually ran (pass OR fail), so we
-    # exercise each ZFS commit exactly once and do not re-run a broken commit every
-    # hour.  A failing verdict is not dropped on the floor: it is stored in the
-    # marker, and the check job above re-reports it every hour, so the watcher
-    # stays red for as long as the broken commit is the branch tip.
+    # Record the build as tested once the suite actually ran (pass OR fail), so we
+    # exercise each OpenZFS build exactly once and do not re-run a broken build
+    # every hour.  A failing verdict is not dropped on the floor: it is stored in
+    # the marker, and the check job above re-reports it every hour, so the watcher
+    # stays red for as long as the broken build is the published tip.
     if: always() && needs.test.result != 'skipped' && needs.test.result != 'cancelled'
     runs-on: ubuntu-24.04
     steps:
@@ -89,10 +96,10 @@ jobs:
           else
             VERDICT=fail
           fi
-          echo "${{ needs.check.outputs.sha }} $VERDICT" > .zfs-tested
-          echo "Marking ${{ needs.check.outputs.sha }} as $VERDICT"
+          echo "${{ needs.check.outputs.commit }} $VERDICT" > .zfs-tested
+          echo "Marking ${{ needs.check.outputs.commit }} as $VERDICT"
       - name: Save marker
         uses: actions/cache/save@v4
         with:
           path: .zfs-tested
-          key: zfs-tested-${{ needs.check.outputs.sha }}
+          key: zfs-tested-${{ needs.check.outputs.commit }}
