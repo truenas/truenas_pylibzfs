@@ -13,12 +13,21 @@ name: Publish debs
 # There is intentionally no cancelling workflow-level concurrency: the
 # publish job (below) serialises release writes with a non-cancelling
 # group so a rapid second push can never tear a half-written release.
-on: [push, pull_request]
+#
+# The push trigger is limited to the mapped (publishable) branches: a PR
+# from a same-repo branch would otherwise fire both push and pull_request
+# and run this workflow twice.  Feature-branch pushes now run only via the
+# pull_request event (build-deb validates; publish is skipped); pushes to
+# master/stable/26 run via push (build-deb + publish).
+on:
+  push:
+    branches: [master, stable/26]
+  pull_request:
 
 jobs:
   build-deb:
     name: Build deb
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     # The Debian release TrueNAS is based on.
     container:
       image: debian:trixie
@@ -113,7 +122,7 @@ jobs:
   publish:
     needs: build-deb
     if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/stable/26') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     concurrency:
