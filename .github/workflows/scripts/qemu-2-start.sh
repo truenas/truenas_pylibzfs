@@ -34,7 +34,7 @@ qemu-img create -f qcow2 -F qcow2 -b "$WORK_DIR/debian-trixie.qcow2" "$WORK_DIR/
 # Get SSH public key
 PUBKEY=$(cat ~/.ssh/id_ed25519.pub)
 
-# Create cloud-init user-data (in /tmp like ZFS does)
+# Create cloud-init user-data
 cat <<EOF > /tmp/user-data
 #cloud-config
 
@@ -63,8 +63,8 @@ EOF
 sudo virsh net-update default add ip-dhcp-host \
   "<host mac='$VM_MAC' ip='$VM_IP'/>" --live --config || true
 
-# Start the VM (using --cloud-init like ZFS does)
-# Note: Debian Trixie requires UEFI boot (like ZFS workflow does for debian13)
+# Start the VM.  Debian Trixie boots UEFI; secure-boot is off because the
+# TrueNAS kernel installed in the build step is unsigned.
 echo "Starting VM..."
 sudo virt-install \
   --name "$VM_NAME" \
