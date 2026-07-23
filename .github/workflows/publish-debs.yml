@@ -1,0 +1,198 @@
+name: Publish debs
+
+# Build the python3-truenas-pylibzfs deb against the prebuilt OpenZFS
+# release debs and, on pushes to a mapped branch, republish it as a
+# rolling <train>-nightly GitHub release on this repo.
+#
+# This is deliberately decoupled from the QEMU functional tests
+# (qemu-test.yml): a pull request's QEMU run gates the merge, so a push to
+# master publishes the already-validated deb directly.  A flaky QEMU
+# runner must never be able to block shipping debs that already passed on
+# the branch.
+#
+# There is intentionally no cancelling workflow-level concurrency: the
+# publish job (below) serialises release writes with a non-cancelling
+# group so a rapid second push can never tear a half-written release.
+on: [push, pull_request]
+
+jobs:
+  build-deb:
+    name: Build deb
+    runs-on: ubuntu-22.04
+    # The Debian release TrueNAS is based on.
+    container:
+      image: debian:trixie
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # Install deps (including git) before checkout: the base debian:trixie
+      # image has no git, which actions/checkout prefers.
+      - name: Install dependencies
+        run: |
+          apt-get update > /dev/null
+          # ca-certificates/curl/jq: fetch and verify the OpenZFS release.
+          # git: for actions/checkout.  The rest are this package's non-ZFS
+          # Build-Depends plus the tooling to build and version the deb.  The
+          # ZFS Build-Depends (libzfs7-devel etc.) are satisfied by the
+          # openzfs-* debs installed below via their Provides.
+          apt-get install -y \
+            ca-certificates curl jq git \
+            build-essential debhelper devscripts dh-python \
+            pybuild-plugin-pyproject \
+            python3-all-dev \
+            python3-argparse-manpage \
+            python3-setuptools > /dev/null
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Map branch to TrueNAS train
+        run: |
+          # PRs build against their base branch's train; pushes use the
+          # pushed branch.  train-for-ref.sh is the single source of truth.
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            ref="$GITHUB_BASE_REF"
+          else
+            ref="$GITHUB_REF_NAME"
+          fi
+          train="$(.github/workflows/scripts/train-for-ref.sh "$ref")"
+          echo "TRAIN=$train" >> "$GITHUB_ENV"
+          echo "Building against the $train train"
+
+      - name: Fetch and install OpenZFS release debs
+        run: |
+          # Only the libraries and headers are needed to build the C
+          # extension; the kmod (openzfs-zfs-modules-*) and zfsutils are
+          # not.  openzfs-libzfs-dev pulls in the other openzfs-lib* debs.
+          manifest="$(.github/workflows/scripts/tn-fetch-debs.sh \
+            truenas/zfs "$TRAIN" /tmp/zfs-debs 'openzfs-lib*')"
+          apt-get install -y /tmp/zfs-debs/openzfs-lib*.deb
+          echo "ZFS_VERSION=$(jq -r '.zfs_version' "$manifest")" >> "$GITHUB_ENV"
+
+      - name: Build deb package
+        env:
+          DEBEMAIL: dev@truenas.com
+          DEBFULLNAME: TrueNAS Engineering
+        run: |
+          # Version the rolling deb above the changelog release it is based
+          # on so consecutive builds stay upgradeable, mirroring how
+          # truenas/zfs versions its own rolling debs.
+          dch -b -M \
+            -v "$(dpkg-parsechangelog -S Version)+truenas.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" \
+            --force-distribution --distribution "${TRAIN}-nightly" \
+            "Rolling build of $GITHUB_REF_NAME at ${GITHUB_SHA::12}"
+          dpkg-buildpackage -us -uc -b
+
+      - name: Assemble artifacts
+        if: success()
+        run: |
+          mkdir artifacts
+          mv ../python3-truenas-pylibzfs_*.deb artifacts
+          jq -n \
+            --arg train "$TRAIN" \
+            --arg pylibzfs_version "$(dpkg-parsechangelog -S Version)" \
+            --arg zfs_version "$ZFS_VERSION" \
+            '{train: $train, pylibzfs_version: $pylibzfs_version, zfs_version: $zfs_version}' \
+            > artifacts/buildinfo.json
+          cat artifacts/buildinfo.json
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: pylibzfs-native
+          path: artifacts
+
+  # On every push to a mapped branch, republish the deb built above as the
+  # single asset set of a per-train rolling prerelease (master-nightly /
+  # 26-nightly).  Release assets never expire and are downloadable
+  # anonymously at stable URLs:
+  #   https://github.com/truenas/truenas_pylibzfs/releases/download/master-nightly/<file>
+  # Consumers fetch manifest.json first, then verify against SHA256SUMS.
+  publish:
+    needs: build-deb
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/stable/26') }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-debs-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Download deb
+        uses: actions/download-artifact@v4
+        with:
+          name: pylibzfs-native
+          path: pylibzfs-native
+
+      - name: Assemble release assets
+        run: |
+          mkdir release-assets
+          cp pylibzfs-native/*.deb release-assets/
+          echo "TRAIN=$(jq -r '.train' pylibzfs-native/buildinfo.json)" >> "$GITHUB_ENV"
+          echo "PYLIBZFS_VERSION=$(jq -r '.pylibzfs_version' pylibzfs-native/buildinfo.json)" >> "$GITHUB_ENV"
+          echo "ZFS_VERSION=$(jq -r '.zfs_version' pylibzfs-native/buildinfo.json)" >> "$GITHUB_ENV"
+
+      - name: Generate checksums and manifest
+        run: |
+          cd release-assets
+          sha256sum *.deb > SHA256SUMS
+          ls *.deb | jq -R . | jq -s \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg pylibzfs_version "$PYLIBZFS_VERSION" \
+            --arg zfs_version "$ZFS_VERSION" \
+            '{
+              branch: $branch,
+              commit: $commit,
+              date: $date,
+              run_url: $run_url,
+              pylibzfs_version: $pylibzfs_version,
+              zfs_version: $zfs_version,
+              debs: .
+            }' > manifest.json
+          cat manifest.json
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # If the branch has already moved past this commit, let the run
+          # building the new tip publish instead - the release must never
+          # go back to an older deb.
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          if [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "$GITHUB_REF_NAME is now at $tip, not publishing $GITHUB_SHA"
+            exit 0
+          fi
+
+          tag="${TRAIN}-nightly"
+
+          {
+            echo "Rolling build of \`$GITHUB_REF_NAME\` at $GITHUB_SHA."
+            echo
+            echo "- python3-truenas-pylibzfs version: \`$PYLIBZFS_VERSION\`"
+            echo "- Built against OpenZFS: \`$ZFS_VERSION\`"
+            echo "  from https://github.com/truenas/zfs/releases/tag/$tag"
+            echo "- Build: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo "The tag and all assets are replaced on every push to"
+            echo "\`$GITHUB_REF_NAME\`. Fetch \`manifest.json\` to see what is"
+            echo "currently published and verify downloads against \`SHA256SUMS\`."
+          } > release-notes.md
+
+          gh release delete "$tag" --cleanup-tag --yes || true
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" 2>/dev/null || true
+          gh release create "$tag" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "TrueNAS $TRAIN truenas_pylibzfs debs (nightly)" \
+            --notes-file release-notes.md \
+            release-assets/*.deb \
+            release-assets/SHA256SUMS \
+            release-assets/manifest.json
