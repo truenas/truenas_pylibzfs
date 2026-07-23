@@ -49,26 +49,27 @@ cd ~/truenas_pylibzfs
 # Update package lists
 sudo apt-get update
 
-# Build/test dependencies for truenas_pylibzfs (the OpenZFS build-deps
-# such as libzfs7-devel are satisfied by the openzfs-* debs installed
-# below via their Provides).  curl/jq fetch and verify the releases.
+# Packages the VM needs, in three groups.  The OpenZFS build-deps
+# (libzfs7-devel etc.) are not listed here: they come from the openzfs-*
+# debs installed below via their Provides.
+#  - build the deb: build-essential (compiler + dpkg-buildpackage),
+#    debhelper + dh-python, python3-all-dev, python3-setuptools,
+#    pybuild-plugin-pyproject, python3-argparse-manpage (manpage gen),
+#    equivs (builds the pyos dependency placeholder).
+#  - run the tests: python3-pytest(-timeout), python3-mypy, gdb (cores).
+#  - fetch+verify the releases: curl, jq, ca-certificates.
 sudo apt-get install -y \
   build-essential \
-  devscripts \
   debhelper \
   dh-python \
   equivs \
-  pkg-config \
-  python3-dev \
   python3-all-dev \
-  python3-cffi \
   python3-setuptools \
-  python3-sphinx \
+  pybuild-plugin-pyproject \
+  python3-argparse-manpage \
   python3-pytest \
   python3-pytest-timeout \
   python3-mypy \
-  pybuild-plugin-pyproject \
-  python3-argparse-manpage \
   gdb \
   curl \
   jq \
@@ -105,15 +106,10 @@ echo "Installing TrueNAS kernel image..."
 sudo -E apt-get install -y /tmp/tn-kernel/linux-image-*.deb
 
 # Install the OpenZFS userland + kmod debs (the release already excludes
-# dkms/dracut).
+# dkms/dracut).  The kernel is installed first, so the modules deb's
+# linux-image-$RELEASE dependency resolves.
 echo "Installing OpenZFS debs..."
-if ! sudo -E apt-get install -y /tmp/zfs-debs/openzfs-*.deb; then
-  # Fall back to dpkg if apt refuses over the modules deb's kernel
-  # dependency name: the kernel is installed, so the files land correctly
-  # under /lib/modules/$RELEASE and the dependency is nominal.
-  echo "apt declined the OpenZFS debs; installing directly with dpkg..."
-  sudo dpkg -i /tmp/zfs-debs/openzfs-*.deb
-fi
+sudo -E apt-get install -y /tmp/zfs-debs/openzfs-*.deb
 sudo depmod -a "$RELEASE"
 
 # The prebuilt zfs.ko must have landed under the TrueNAS kernel's modules
