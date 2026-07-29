@@ -966,8 +966,8 @@ PyObject *py_zfs_iter_events(PyObject *self,
 PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "create_pool(*, name, storage_vdevs, cache_vdevs=None, log_vdevs=None,\n"
 "            special_vdevs=None, dedup_vdevs=None, spare_vdevs=None,\n"
-"            properties=None, filesystem_properties=None,"
-" force=False) -> None\n"
+"            properties=None, filesystem_properties=None,\n"
+"            feature_properties=None, crypto=None, force=False) -> None\n"
 "--------------------------------------------------------------------\n\n"
 "Create a new ZFS storage pool.  All arguments are keyword-only.\n"
 "Vdev specifications must be built with create_vdev_spec() first.\n\n"
@@ -994,9 +994,9 @@ PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "properties: dict | None, optional\n"
 "    Pool properties to set at creation time.  Keys may be\n"
 "    " PYLIBZFS_MODULE_NAME ".ZPOOLProperty members or their string\n"
-"    equivalents.  Caller-supplied values are merged on top of the\n"
-"    default feature set; individual features may be disabled by\n"
-"    passing \"disabled\" as the value.\n\n"
+"    equivalents, and are merged on top of the defaults.  \"feature@\"\n"
+"    names are not pool properties and are rejected here; use\n"
+"    feature_properties to disable individual features.\n\n"
 "filesystem_properties: dict | None, optional\n"
 "    Properties to set on the pool's root filesystem at creation time.\n"
 "    Keys must be " PYLIBZFS_MODULE_NAME ".ZFSProperty members or their\n"
@@ -1006,6 +1006,14 @@ PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "    values are booleans (True = enabled, False = disabled).  By default\n"
 "    all supported features are enabled; use this to selectively disable\n"
 "    specific features at pool creation time.\n\n"
+"crypto: " PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_crypto_config | None,"
+" optional\n"
+"    Encryption configuration for the pool's root filesystem, making it an\n"
+"    encryption root. Build one with resource_cryptography_config().  When\n"
+"    omitted the root filesystem is unencrypted.  Requires the \"encryption\"\n"
+"    feature, so it may not be combined with disabling that feature through\n"
+"    feature_properties.  A configuration carrying key material rather than\n"
+"    a key location leaves the root filesystem with keylocation \"prompt\".\n\n"
 "force: bool, optional, default=False\n"
 "    Skip Python-level topology validation, including storage vdev width\n"
 "    limits (mirror: max 4 members, raidz: max 15 drives).  Equivalent\n"
@@ -1033,16 +1041,16 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 		"name", "storage_vdevs", "cache_vdevs", "log_vdevs",
 		"special_vdevs", "dedup_vdevs", "spare_vdevs",
 		"properties", "filesystem_properties",
-		"feature_properties", "force",
+		"feature_properties", "crypto", "force",
 		NULL
 	};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOOp",
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOOOp",
 	    kwnames,
 	    &cpa.name, &cpa.storage_vdevs, &cpa.cache_vdevs, &cpa.log_vdevs,
 	    &cpa.special_vdevs, &cpa.dedup_vdevs, &cpa.spare_vdevs,
 	    &cpa.properties, &cpa.filesystem_properties,
-	    &cpa.feature_properties, &cpa.force))
+	    &cpa.feature_properties, &cpa.crypto, &cpa.force))
 		return NULL;
 
 	if (cpa.name == NULL) {

@@ -1466,6 +1466,7 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	nvlist_t *root_nvl = NULL;
 	nvlist_t *props_nvl = NULL;
 	nvlist_t *fsprops_nvl = NULL;
+	FILE *keyfile = NULL;
 
 	py_zfs_error_t zfs_err;
 	int err;
@@ -1543,18 +1544,52 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 			goto fail;
 	}
 
+	if (!NULL_OR_NONE(cpa->crypto)) {
+		/*
+		 * zpool_create() only consults the crypto configuration when
+		 * the pool props carry feature@encryption, and quietly
+		 * creates an unencrypted pool when they do not. Refuse
+		 * rather than hand back a pool that is not encrypted as
+		 * requested. Only feature_properties can remove the entry;
+		 * py_zpoolprops_to_nvlist() rejects "feature@" keys.
+		 */
+		if (!nvlist_exists(props_nvl, "feature@encryption")) {
+			PyErr_SetString(PyExc_ValueError,
+			    "crypto: an encrypted pool requires the "
+			    "\"encryption\" ZFS feature, which has been "
+			    "disabled through feature_properties");
+			goto fail;
+		}
+
+		if (!pyzfs_crypto_pool_fsprops(state, cpa->crypto,
+		    &fsprops_nvl, &keyfile))
+			goto fail;
+	}
+
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(plz);
 	err = zpool_create(plz->lzh, cpa->name, root_nvl,
 	    props_nvl, fsprops_nvl);
-	if (err)
+	if (err) {
 		py_get_zfs_error(plz->lzh, &zfs_err);
+	} else if (keyfile != NULL) {
+		/*
+		 * The root dataset was created with its key staged in an
+		 * in-memory file; that path dies with this call, so point
+		 * keylocation back at "prompt" while the lock is held.
+		 */
+		pyzfs_crypto_reset_keylocation(plz->lzh, cpa->name,
+		    ZFS_TYPE_FILESYSTEM);
+	}
 
 	fnvlist_free(root_nvl);
 	fnvlist_free(props_nvl);
 	fnvlist_free(fsprops_nvl);
 
 	PY_ZFS_UNLOCK(plz);
+
+	if (keyfile != NULL)
+		fclose(keyfile);
 	Py_END_ALLOW_THREADS
 
 	Py_XDECREF(storage_seq);
@@ -1576,6 +1611,8 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	Py_RETURN_NONE;
 
 fail:
+	if (keyfile != NULL)
+		fclose(keyfile);
 	fnvlist_free(root_nvl);
 	fnvlist_free(props_nvl);
 	fnvlist_free(fsprops_nvl);

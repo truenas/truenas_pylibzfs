@@ -6,6 +6,7 @@ Sections:
   2. create_pool() topology validation (open_handle(), no real disks)
   3. Successful pool creation (needs make_disks fixture)
   4. force=True bypass tests
+  5. Encrypted pool roots (crypto=)
 """
 
 import os
@@ -21,6 +22,8 @@ ZFSProperty = truenas_pylibzfs.ZFSProperty
 
 POOL_NAME = "test_create_pool_pylibzfs"
 DISK_SZ = 128 * 1024 * 1024  # 128 MiB
+ENC_PASSPHRASE = "Cats1234"
+ENC_HEX_KEY = "1234567890abcdef" * 4  # 64 hex chars = 32 bytes
 
 
 # ---------------------------------------------------------------------------
@@ -1162,3 +1165,146 @@ def test_destroy_pool_requires_name():
     lz = truenas_pylibzfs.open_handle()
     with pytest.raises(ValueError, match="name"):
         lz.destroy_pool()
+
+
+# ---------------------------------------------------------------------------
+# Section 5 - encrypted pool roots (crypto=)
+# ---------------------------------------------------------------------------
+
+def test_create_pool_unencrypted_by_default(make_disks):
+    """Without crypto= the pool root must not be an encryption root."""
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    try:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[_spec(disks[0])])
+        rsrc = lz.open_resource(name=POOL_NAME)
+        assert rsrc.encrypted is False
+    finally:
+        _destroy()
+
+
+def test_create_pool_encrypted_passphrase(make_disks):
+    """
+    A passphrase configuration carries key material rather than a location,
+    so the key is staged in a memfd during creation.  That path dies with
+    the call, so the root must be left with keylocation "prompt".
+    """
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    crypto = lz.resource_cryptography_config(
+        keyformat="passphrase", key=ENC_PASSPHRASE
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_spec(disks[0])],
+            crypto=crypto,
+        )
+        rsrc = lz.open_resource(name=POOL_NAME)
+        assert rsrc.encrypted
+
+        info = rsrc.crypto().info()
+        assert info.is_root is True
+        assert info.encryption_root == POOL_NAME
+        assert info.key_is_loaded is True
+        assert info.key_location == "prompt", (
+            f"keylocation was not reset after creation: {info.key_location}"
+        )
+    finally:
+        _destroy()
+
+
+def test_create_pool_encrypted_hex_key(make_disks):
+    """Raw/hex key material takes the same memfd staging path."""
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    crypto = lz.resource_cryptography_config(keyformat="hex", key=ENC_HEX_KEY)
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_spec(disks[0])],
+            crypto=crypto,
+        )
+        rsrc = lz.open_resource(name=POOL_NAME)
+        assert rsrc.encrypted
+
+        info = rsrc.crypto().info()
+        assert info.is_root is True
+        assert info.key_location == "prompt"
+    finally:
+        _destroy()
+
+
+def test_create_pool_encrypted_keylocation(make_disks, tmp_path):
+    """
+    A caller-supplied key location needs no staging, so the location must
+    survive creation untouched rather than being reset to "prompt".
+    """
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    keyfile = tmp_path / "wrappingkey"
+    keyfile.write_bytes(ENC_PASSPHRASE.encode())
+    uri = f"file://{keyfile}"
+
+    crypto = lz.resource_cryptography_config(
+        keyformat="passphrase", keylocation=uri
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_spec(disks[0])],
+            crypto=crypto,
+        )
+        rsrc = lz.open_resource(name=POOL_NAME)
+        assert rsrc.encrypted
+        assert rsrc.crypto().info().key_location == uri
+    finally:
+        _destroy()
+
+
+def test_create_pool_encrypted_with_filesystem_properties(make_disks):
+    """
+    Encryption properties must merge into a caller-supplied property nvlist
+    rather than replacing it, and must survive py_zfsprops_to_nvlist()
+    rejecting them as read-only.
+    """
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    crypto = lz.resource_cryptography_config(
+        keyformat="passphrase", key=ENC_PASSPHRASE
+    )
+    try:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_spec(disks[0])],
+            filesystem_properties={ZFSProperty.ACLMODE: "restricted"},
+            crypto=crypto,
+        )
+        rsrc = lz.open_resource(name=POOL_NAME)
+        assert rsrc.encrypted
+        props = rsrc.asdict(properties={ZFSProperty.ACLMODE})["properties"]
+        assert props["aclmode"]["value"] == "restricted"
+    finally:
+        _destroy()
+
+
+def test_create_pool_encryption_feature_disabled(make_disks):
+    """
+    zpool_create() silently skips encryption when feature@encryption is
+    absent.  Refuse up front rather than returning an unencrypted pool.
+    """
+    disks = make_disks(1)
+    lz = truenas_pylibzfs.open_handle()
+    crypto = lz.resource_cryptography_config(
+        keyformat="passphrase", key=ENC_PASSPHRASE
+    )
+    try:
+        with pytest.raises(ValueError, match="encryption"):
+            lz.create_pool(
+                name=POOL_NAME,
+                storage_vdevs=[_spec(disks[0])],
+                feature_properties={"encryption": False},
+                crypto=crypto,
+            )
+    finally:
+        _destroy()

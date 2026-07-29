@@ -302,6 +302,7 @@ typedef struct {
 	PyObject	*properties;
 	PyObject	*filesystem_properties;
 	PyObject	*feature_properties;
+	PyObject	*crypto;
 	boolean_t	 force;
 } py_zfs_create_pool_args_t;
 
@@ -748,6 +749,53 @@ extern PyObject *generate_crypto_config(py_zfs_t *pyzfs,
 					PyObject *py_keyloc,
 					PyObject *py_key,
 					PyObject *py_iters);
+
+/*
+ * @brief merge encryption properties for a new pool root into an nvlist
+ *
+ * Validates `pycrypto` and merges the resulting root-dataset encryption
+ * properties into `*fsprops`, allocating the nvlist when the caller supplied
+ * none. The merge happens after py_zfsprops_to_nvlist() has run because the
+ * encryption properties are ONETIME and would otherwise be rejected as
+ * read-only.
+ *
+ * When the configuration carries key material rather than a key location URI,
+ * the key is staged in an anonymous in-memory file and keylocation points at
+ * it. That FILE is returned through `keyfile_out` and MUST be closed by the
+ * caller once zpool_create() has returned. `*keyfile_out` is NULL when no
+ * staging was needed, and always NULL on failure.
+ *
+ * @param[in]     state - pointer to the module state
+ * @param[in]     pycrypto - struct_zfs_crypto_config object
+ * @param[in,out] fsprops - root filesystem property nvlist, may point to NULL
+ * @param[out]    keyfile_out - in-memory key file to close after creation
+ * @return	  B_TRUE on success, B_FALSE with an exception set on failure
+ *
+ * @note GIL must be held while calling this function.
+ */
+extern boolean_t pyzfs_crypto_pool_fsprops(pylibzfs_state_t *state,
+					   PyObject *pycrypto,
+					   nvlist_t **fsprops,
+					   FILE **keyfile_out);
+
+/*
+ * @brief point a newly created encryption root back at "prompt"
+ *
+ * Resources created with staged key material carry a keylocation of
+ * file:///proc/self/fd/N, which is meaningless once the creating call has
+ * returned. This resets it to "prompt". Failures are ignored: the resource
+ * exists either way, and a stale keylocation is not worth failing a create.
+ *
+ * @param[in]	lzh - libzfs handle
+ * @param[in]	name - name of the newly created resource
+ * @param[in]	ztype - type of the newly created resource
+ *
+ * @note The caller must hold the libzfs handle lock. The GIL is not required
+ *       and this function must not be given Python objects.
+ */
+extern void pyzfs_crypto_reset_keylocation(libzfs_handle_t *lzh,
+					   const char *name,
+					   zfs_type_t ztype);
 
 
 /* provided by py_zfs_pool_status.c */

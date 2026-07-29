@@ -1245,6 +1245,7 @@ class ZFS:
         properties: dict[ZPOOLProperty, str] | None = None,
         filesystem_properties: dict[ZFSProperty, str] | None = None,
         feature_properties: dict[str, bool] | None = None,
+        crypto: struct_zfs_crypto_config | None = None,
         force: bool = False,
     ) -> None: ...
     def destroy_pool(self, *, name: str, force: bool = False) -> None: ...

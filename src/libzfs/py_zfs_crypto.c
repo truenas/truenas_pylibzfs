@@ -636,8 +636,12 @@ static boolean_t write_key_to_memfile(const char *key, size_t keylen,
 		return B_FALSE;
 
 	written = fwrite(key, 1, keylen, keyfile);
-	if (written != keylen)
+	if (written != keylen) {
+		// Close here rather than leaving it to the caller: keyfile is
+		// not handed back on failure, so nothing else can close it.
+		fclose(keyfile);
 		return B_FALSE;
+	}
 
 	fflush(keyfile);
 
@@ -1408,6 +1412,76 @@ static boolean_t pyzfs_zfs_create_crypto_history(py_zfs_t *self,
 	return err ? B_FALSE : B_TRUE;
 }
 
+void pyzfs_crypto_reset_keylocation(libzfs_handle_t *lzh,
+				    const char *name,
+				    zfs_type_t ztype)
+{
+	zfs_handle_t *hdl = NULL;
+
+	hdl = zfs_open(lzh, name, ztype);
+	if (hdl == NULL)
+		return;
+
+	(void) zfs_prop_set(hdl, zfs_prop_to_name(ZFS_PROP_KEYLOCATION),
+	    "prompt");
+	zfs_close(hdl);
+}
+
+boolean_t pyzfs_crypto_pool_fsprops(pylibzfs_state_t *state,
+				    PyObject *pycrypto,
+				    nvlist_t **fsprops,
+				    FILE **keyfile_out)
+{
+	zfs_crypto_change_info_t info = { .iters = PBKDF2_MIN_ITERS };
+	nvlist_t *crypto_props = NULL;
+	FILE *keyfile = NULL;
+	char pbuf[42] = { 0 };  // "file://" + "/proc/self/fd/" + strlen(2^64) + \0
+
+	*keyfile_out = NULL;
+
+	if (!py_validate_crypto_change(state, pycrypto, &info))
+		return B_FALSE;
+
+	if (info.key_len) {
+		/*
+		 * The caller supplied key material rather than a location.
+		 * libzfs reads the wrapping key from the keylocation URI, and
+		 * zpool_create() has no stdin to prompt on, so stage the key
+		 * in an anonymous in-memory file and point keylocation at it.
+		 * This is a small memfd write with no blocking I/O, so it is
+		 * safe to perform with the GIL held.
+		 */
+		if (!write_key_to_memfile(info.key, info.key_len, pbuf,
+		    sizeof(pbuf), &keyfile)) {
+			PyErr_Format(PyExc_RuntimeError,
+				     "Failed to load key into memory: %s",
+				     strerror(errno));
+			return B_FALSE;
+		}
+		info.key_location_uri = pbuf;
+	}
+
+	crypto_props = get_change_key_params(&info);
+	fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION), "on");
+
+	/*
+	 * These properties are ONETIME, so py_zfsprops_to_nvlist() rejects
+	 * them as read-only.  Merging them in afterwards is what allows an
+	 * encryption root to be created; zpool_create() passes the resulting
+	 * nvlist to zfs_valid_proplist() with key_params_ok set, which
+	 * accepts them at creation time.
+	 */
+	if (*fsprops) {
+		fnvlist_merge(*fsprops, crypto_props);
+		fnvlist_free(crypto_props);
+	} else {
+		*fsprops = crypto_props;
+	}
+
+	*keyfile_out = keyfile;
+	return B_TRUE;
+}
+
 /*
  * props is passed by reference because the caller may not have supplied any
  * properties.  In that case we hand our crypto nvlist back through *props so
@@ -1431,9 +1505,6 @@ static boolean_t pyzfs_create_crypto_key(py_zfs_t *self,
 	success = write_key_to_memfile(info->key, info->key_len, pbuf, sizeof(pbuf),
 				       &keyfile);
 	if (success) {
-		zfs_handle_t *tmp_hdl;
-		const char *keyprop = zfs_prop_to_name(ZFS_PROP_KEYLOCATION);
-
 		info->key_location_uri = pbuf;
 		crypto_props = get_change_key_params(info);
 		fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION), "on");
@@ -1452,11 +1523,7 @@ static boolean_t pyzfs_create_crypto_key(py_zfs_t *self,
 		} else {
 			// While lock is held we need to set the keylocation
 			// to "prompt"
-			tmp_hdl = zfs_open(self->lzh, name, ztype);
-			if (tmp_hdl) {
-				zfs_prop_set(tmp_hdl, keyprop, "prompt");
-				zfs_close(tmp_hdl);
-			}
+			pyzfs_crypto_reset_keylocation(self->lzh, name, ztype);
 		}
 
 		PY_ZFS_UNLOCK(self);
