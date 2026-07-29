@@ -837,7 +837,8 @@ PyObject *py_zfs_iter_pools(PyObject *self,
 
 PyDoc_STRVAR(py_zfs_rsrc_crypto_config__doc__,
 "resource_cryptography_config(*, keyformat=None, keylocation=None,\n"
-"                             pbkdf2iters=1300000, key=None) -> None\n"
+"                             pbkdf2iters=1300000, key=None,\n"
+"                             algorithm=None) -> None\n"
 "--------------------------------------------------------------------\n\n"
 "Create a truenas_pylibzfs.struct_zfs_crypto_config based on the specified \n"
 "parameters for use when creating a new encrypted resource or re-keying \n"
@@ -862,6 +863,12 @@ PyDoc_STRVAR(py_zfs_rsrc_crypto_config__doc__,
 "pbkdf2iters: int, optional, default=1300000\n"
 "    Optional parameter to specify the number of hashing iterations\n"
 "    to peform on the key material when the \"key_format\" is \"passphrase\".\n"
+"algorithm: str, optional, default=None\n"
+"    Optional parameter to specify the encryption suite to use when creating\n"
+"    a new encrypted resource, for example \"aes-128-gcm\". If None, the ZFS\n"
+"    default suite (aes-256-gcm) is used. Since the ZFS \"encryption\" property\n"
+"    is set once when the resource is created, this must be None when the\n"
+"    configuration is used to re-key an existing resource.\n"
 "Returns\n"
 "-------\n"
 "new truenas_pylibzfs.struct_zfs_crypto_config object\n\n"
@@ -884,22 +891,25 @@ PyObject *py_zfs_rsrc_crypto_config(PyObject *self,
 	PyObject *py_keyloc = Py_None;
 	PyObject *py_key = Py_None;
 	PyObject *py_iters = Py_None;
+	PyObject *py_algorithm = Py_None;
 
 	char *kwnames [] = {
 		"keyformat",
 		"keylocation",
 		"key",
 		"pbkdf2iters",
+		"algorithm",
 		NULL
 	};
 
 	if (!PyArg_ParseTupleAndKeywords(args_unused, kwargs,
-					 "|$OOOO",
+					 "|$OOOOO",
 					 kwnames,
 					 &py_keyformat,
 					 &py_keyloc,
 					 &py_key,
-					 &py_iters)) {
+					 &py_iters,
+					 &py_algorithm)) {
 		return NULL;
 	}
 
@@ -908,7 +918,8 @@ PyObject *py_zfs_rsrc_crypto_config(PyObject *self,
 		py_keyformat,
 		py_keyloc,
 		py_key,
-		py_iters
+		py_iters,
+		py_algorithm
 	);
 }
 

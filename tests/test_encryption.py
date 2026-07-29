@@ -211,6 +211,133 @@ def test_crypto_config_invalid_keyformat_names_the_format(root_dataset):
         lz.resource_cryptography_config(keyformat='bogusformat', key=PASSPHRASE)
 
 
+def encryption_suite(rsrc):
+    """Return the value of the ZFS encryption property for `rsrc`."""
+    props = rsrc.asdict(properties={truenas_pylibzfs.ZFSProperty.ENCRYPTION})
+    return props['properties']['encryption']['value']
+
+
+def test_crypto_config_algorithm_defaults_to_none(root_dataset):
+    lz, _ = root_dataset
+    config = lz.resource_cryptography_config(keyformat='passphrase', key=PASSPHRASE)
+    assert config.algorithm is None
+
+    config = lz.resource_cryptography_config(
+        keyformat='passphrase',
+        key=PASSPHRASE,
+        algorithm='aes-128-gcm'
+    )
+    assert config.algorithm == 'aes-128-gcm'
+
+
+def test_crypto_config_rejects_bad_algorithm(root_dataset):
+    """The error message must identify the rejected encryption suite."""
+    lz, _ = root_dataset
+    with pytest.raises(ValueError, match='rot13'):
+        lz.resource_cryptography_config(
+            keyformat='passphrase',
+            key=PASSPHRASE,
+            algorithm='rot13'
+        )
+
+
+def test_create_encrypted_filesystem_default_algorithm(data_pool1):
+    """Omitting the algorithm must yield the ZFS default suite."""
+    lz = truenas_pylibzfs.open_handle()
+    rsrc_name = f'{data_pool1}/enc_default_algo'
+
+    crypto = lz.resource_cryptography_config(keyformat='passphrase', key=PASSPHRASE)
+    lz.create_resource(
+        name=rsrc_name,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+        crypto=crypto
+    )
+    try:
+        assert encryption_suite(lz.open_resource(name=rsrc_name)) == 'aes-256-gcm'
+    finally:
+        lz.destroy_resource(name=rsrc_name)
+
+
+@pytest.mark.parametrize('algorithm', ['aes-128-gcm', 'aes-192-ccm'])
+def test_create_encrypted_filesystem_algorithm(data_pool1, algorithm):
+    """The requested suite must reach ZFS on the key material path."""
+    lz = truenas_pylibzfs.open_handle()
+    rsrc_name = f'{data_pool1}/enc_algo'
+
+    crypto = lz.resource_cryptography_config(
+        keyformat='passphrase',
+        key=PASSPHRASE,
+        algorithm=algorithm
+    )
+    lz.create_resource(
+        name=rsrc_name,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+        crypto=crypto
+    )
+    try:
+        assert encryption_suite(lz.open_resource(name=rsrc_name)) == algorithm
+    finally:
+        lz.destroy_resource(name=rsrc_name)
+
+
+def test_create_encrypted_volume_algorithm(data_pool1):
+    """Zvols take the requested suite as well."""
+    lz = truenas_pylibzfs.open_handle()
+    rsrc_name = f'{data_pool1}/enc_algo_zvol'
+
+    crypto = lz.resource_cryptography_config(
+        keyformat='passphrase',
+        key=PASSPHRASE,
+        algorithm='aes-128-gcm'
+    )
+    lz.create_resource(
+        name=rsrc_name,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_VOLUME,
+        properties={truenas_pylibzfs.ZFSProperty.VOLSIZE: '1048576'},
+        crypto=crypto
+    )
+    try:
+        assert encryption_suite(lz.open_resource(name=rsrc_name)) == 'aes-128-gcm'
+    finally:
+        lz.destroy_resource(name=rsrc_name)
+
+
+def test_create_encrypted_filesystem_algorithm_keylocation(data_pool1, tmp_path):
+    """The requested suite must reach ZFS on the key location path too."""
+    lz = truenas_pylibzfs.open_handle()
+    rsrc_name = f'{data_pool1}/enc_algo_keyloc'
+    uri = write_keyfile(tmp_path / 'wrappingkey')
+
+    crypto = lz.resource_cryptography_config(
+        keyformat='passphrase',
+        keylocation=uri,
+        algorithm='aes-128-gcm'
+    )
+    lz.create_resource(
+        name=rsrc_name,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+        crypto=crypto
+    )
+    try:
+        assert encryption_suite(lz.open_resource(name=rsrc_name)) == 'aes-128-gcm'
+    finally:
+        lz.destroy_resource(name=rsrc_name)
+
+
+def test_change_key_rejects_algorithm(enc_dataset):
+    """The encryption suite is set once at creation and cannot be re-keyed."""
+    lz, rsrc = enc_dataset
+    enc = rsrc.crypto()
+
+    new_crypto = lz.resource_cryptography_config(
+        keyformat='passphrase',
+        key=PASSPHRASE2,
+        algorithm='aes-128-gcm'
+    )
+    with pytest.raises(ValueError):
+        enc.change_key(info=new_crypto)
+
+
 def test_create_encrypted_filesystem_keylocation(data_pool1, tmp_path):
     """
     Create an encrypted dataset whose key material lives in a file, passing

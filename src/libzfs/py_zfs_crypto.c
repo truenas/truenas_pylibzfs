@@ -90,6 +90,16 @@ PyDoc_STRVAR(py_zfs_crypto_pbkdf2_iters__doc__,
 "NOTE: This setting is valid only if the \"passphrase\" \"keyformat\" is selected.\n"
 );
 
+PyDoc_STRVAR(py_zfs_crypto_algorithm__doc__,
+"This setting controls the encryption suite used to encrypt the ZFS resource.\n"
+"Valid algorithm values are the ZFS \"encryption\" property values, for example\n"
+"\"aes-256-gcm\" or \"aes-128-ccm\".\n"
+"* The value None selects \"on\", which is the ZFS default suite (aes-256-gcm).\n"
+"NOTE: The ZFS \"encryption\" property is set once when the resource is created\n"
+"and cannot be changed afterwards. This setting is therefore valid only when\n"
+"creating a new ZFS resource and must be None when changing an encryption key.\n"
+);
+
 PyDoc_STRVAR(py_zfs_crypto_change__doc__,
 "This data structure is used to define (on resource creation) or change resource\n"
 "encryption settings. ZFS can either prompt the user for the key or retrieve it from\n"
@@ -103,6 +113,7 @@ PyStructSequence_Field struct_zfs_crypto_change [] = {
 	{"keylocation", py_zfs_crypto_keylocation_uri__doc__},
 	{"key", py_zfs_crypto_key__doc__},
 	{"pbkdf2iters", py_zfs_crypto_pbkdf2_iters__doc__},
+	{"algorithm", py_zfs_crypto_algorithm__doc__},
 	{0},
 };
 
@@ -110,7 +121,7 @@ PyStructSequence_Desc struct_zfs_crypto_change_desc = {
         .name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zfs_crypto_config",
         .fields = struct_zfs_crypto_change,
         .doc = py_zfs_crypto_change__doc__,
-        .n_in_sequence = 4
+        .n_in_sequence = 5
 };
 
 typedef struct {
@@ -120,6 +131,7 @@ typedef struct {
 	char key[MAX_PASSPHRASE_LEN + 1];  // crypto key if keylocation is prompt
 	Py_ssize_t key_len;
 	uint64_t iters;  // pbkdf2 iters (for passphrase keyformat)
+	const char *algorithm;  // encryption suite (NULL means the ZFS default)
 } zfs_crypto_change_info_t;
 
 static
@@ -238,6 +250,39 @@ boolean_t validate_keyformat(PyObject *py_keyformat,
 	return B_TRUE;
 }
 
+/* Validate the encryption suite and set it in the provided `info` */
+static
+boolean_t validate_algorithm(PyObject *py_algorithm,
+			     zfs_crypto_change_info_t *info)
+{
+	const char *algorithm;
+	uint64_t index;
+
+	if (NULL_OR_NONE(py_algorithm))
+		return B_TRUE;
+
+	if (!PyUnicode_Check(py_algorithm)) {
+		PyErr_SetString(PyExc_TypeError,
+				"algorithm must be a ZFS encryption property "
+				"value, for example \"aes-256-gcm\".");
+		return B_FALSE;
+	}
+
+	algorithm = PyUnicode_AsUTF8(py_algorithm);
+	if (algorithm == NULL)
+		return B_FALSE;
+
+	if (zfs_prop_string_to_index(ZFS_PROP_ENCRYPTION, algorithm, &index)) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: not a valid ZFS encryption suite.",
+			     algorithm);
+		return B_FALSE;
+	}
+
+	info->algorithm = algorithm;
+	return B_TRUE;
+}
+
 /* Validate key material and set it in the provided `info` */
 static
 boolean_t validate_key_material(PyObject *py_key, zfs_crypto_change_info_t *info)
@@ -338,7 +383,7 @@ boolean_t py_validate_crypto_change(pylibzfs_state_t *state,
 				    PyObject *obj,
 				    zfs_crypto_change_info_t *info)
 {
-	PyObject *py_keyformat, *py_keyloc, *py_key, *py_iters;
+	PyObject *py_keyformat, *py_keyloc, *py_key, *py_iters, *py_algorithm;
 
 	if (!PyObject_TypeCheck(obj, state->struct_zfs_crypto_change_type)) {
 		PyErr_SetString(PyExc_TypeError,
@@ -351,8 +396,12 @@ boolean_t py_validate_crypto_change(pylibzfs_state_t *state,
 	py_keyloc = PyStructSequence_GET_ITEM(obj, 1);
 	py_key = PyStructSequence_GET_ITEM(obj, 2);
 	py_iters = PyStructSequence_GET_ITEM(obj, 3);
+	py_algorithm = PyStructSequence_GET_ITEM(obj, 4);
 
 	if (!validate_keyformat(py_keyformat, py_iters, info))
+		return B_FALSE;
+
+	if (!validate_algorithm(py_algorithm, info))
 		return B_FALSE;
 
 	if (NULL_OR_NONE(py_keyloc) && NULL_OR_NONE(py_key)){
@@ -1238,6 +1287,14 @@ PyObject *py_zfs_enc_change_key(PyObject *self,
 	if (!py_validate_crypto_change(state, py_info, &info))
 		return NULL;
 
+	if (info.algorithm != NULL) {
+		PyErr_SetString(PyExc_ValueError,
+				"The encryption suite may only be specified "
+				"when the ZFS resource is created. It cannot "
+				"be changed afterwards.");
+		return NULL;
+	}
+
 	if (!zfs_obj_crypto_info(obj,
 				 encroot, sizeof(encroot),
 				 keylocation, sizeof(keylocation),
@@ -1436,7 +1493,8 @@ static boolean_t pyzfs_create_crypto_key(py_zfs_t *self,
 
 		info->key_location_uri = pbuf;
 		crypto_props = get_change_key_params(info);
-		fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION), "on");
+		fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION),
+				   info->algorithm ? info->algorithm : "on");
 		info->key_location_uri = NULL;
 		if (*props) {
 			fnvlist_merge(*props, crypto_props);
@@ -1506,7 +1564,8 @@ static boolean_t pyzfs_create_crypto_loc(py_zfs_t *self,
 		return B_FALSE;
 
 	Py_BEGIN_ALLOW_THREADS
-	fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION), "on");
+	fnvlist_add_string(crypto_props, zfs_prop_to_name(ZFS_PROP_ENCRYPTION),
+			   info->algorithm ? info->algorithm : "on");
 	// nvlist_merge() returns EINVAL for a NULL destination and fnvlist_merge()
 	// turns that into an abort(), so adopt the crypto nvlist outright when the
 	// caller supplied no properties rather than merging into nothing.
@@ -1562,7 +1621,8 @@ PyObject *generate_crypto_config(py_zfs_t *pyzfs,
 				 PyObject *py_keyformat,
 				 PyObject *py_keyloc,
 				 PyObject *py_key,
-				 PyObject *py_iters)
+				 PyObject *py_iters,
+				 PyObject *py_algorithm)
 {
 	pylibzfs_state_t *state = py_get_module_state(pyzfs);
 	PyObject *out = NULL;
@@ -1576,11 +1636,13 @@ PyObject *generate_crypto_config(py_zfs_t *pyzfs,
 	PyStructSequence_SET_ITEM(out, 1, py_keyloc);
 	PyStructSequence_SET_ITEM(out, 2, py_key);
 	PyStructSequence_SET_ITEM(out, 3, py_iters);
+	PyStructSequence_SET_ITEM(out, 4, py_algorithm);
 
 	Py_XINCREF(py_keyformat);
 	Py_XINCREF(py_keyloc);
 	Py_XINCREF(py_key);
 	Py_XINCREF(py_iters);
+	Py_XINCREF(py_algorithm);
 
 	// Apply our validation routins to user-provided info
 	if (!py_validate_crypto_change(state, out, &info)) {

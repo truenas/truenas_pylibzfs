@@ -738,6 +738,9 @@ extern boolean_t pyzfs_create_crypto(py_zfs_t *pyzfs,
  * @param[in]   py_key - unicode or bytes object containing key material if prompt
  *              else None type if key location is local FS path or https.
  * @param[in]   py_iters - hashing algo iterations if keyformat is password
+ * @param[in]   py_algorithm - unicode object containing the ZFS encryption
+ *              property value to use when creating a resource, or None to use
+ *              the ZFS default suite.
  * @return	returns new python object on success or NULL (with exception set)
  *              on failure.
  *
@@ -747,7 +750,8 @@ extern PyObject *generate_crypto_config(py_zfs_t *pyzfs,
 					PyObject *py_keyformat,
 					PyObject *py_keyloc,
 					PyObject *py_key,
-					PyObject *py_iters);
+					PyObject *py_iters,
+					PyObject *py_algorithm);
 
 
 /* provided by py_zfs_pool_status.c */
