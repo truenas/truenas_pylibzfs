@@ -1,4 +1,5 @@
 import pytest
+import time
 import truenas_pylibzfs
 
 PASSPHRASE = 'Cats1234'
@@ -299,6 +300,8 @@ def test_create_encrypted_volume_algorithm(data_pool1):
     try:
         assert encryption_suite(lz.open_resource(name=rsrc_name)) == 'aes-128-gcm'
     finally:
+        # insert short sleep to prevent EZFS_BUSY
+        time.sleep(1)
         lz.destroy_resource(name=rsrc_name)
 
 
