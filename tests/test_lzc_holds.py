@@ -11,6 +11,7 @@ Covers:
   - defer destroy + hold lifecycle
   - nonexistent snapshot returned in result tuple
   - keyword-only argument enforcement
+  - all entries must resolve to the same pool
 """
 
 import pytest
@@ -84,6 +85,17 @@ def test_create_holds_keyword_only():
         lzc.create_holds([(f'{POOL_NAME}@snap', 'tag')])
 
 
+def test_create_holds_pool_name_prefix_is_not_enough():
+    # 'testpool_xy' merely shares a prefix with 'testpool_x'; a bare strncmp()
+    # pool check accepts it and the kernel then fails the whole batch.
+    # Validation is string-level, so no pool is needed here.
+    with pytest.raises(ValueError):
+        lzc.create_holds(holds=[
+            ('testpool_x/ds@s1', 'tag1'),
+            ('testpool_xy/ds@s1', 'tag2'),
+        ])
+
+
 # ---------------------------------------------------------------------------
 # release_holds
 # ---------------------------------------------------------------------------
@@ -116,6 +128,15 @@ def test_release_nonexistent_hold_raises(snapshot):
 def test_release_holds_keyword_only():
     with pytest.raises(TypeError):
         lzc.release_holds([(f'{POOL_NAME}@snap', 'tag')])
+
+
+def test_release_holds_pool_name_prefix_is_not_enough():
+    # Same prefix-confusion guard as create_holds, on the release parse path.
+    with pytest.raises(ValueError):
+        lzc.release_holds(holds=[
+            ('testpool_x/ds@s1', 'tag1'),
+            ('testpool_xy/ds@s1', 'tag2'),
+        ])
 
 
 # ---------------------------------------------------------------------------

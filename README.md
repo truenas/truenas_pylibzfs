@@ -354,10 +354,11 @@ clone.promote()  # clone becomes independent; original dataset gets the snapshot
 # Roll back to most recent snapshot
 name = truenas_pylibzfs.lzc.rollback(resource_name="tank/data")
 
-# Roll back to a specific snapshot
+# Roll back to a specific snapshot. snapshot_name is the short snapshot
+# component only; the full name is composed internally and returned.
 name = truenas_pylibzfs.lzc.rollback(
     resource_name="tank/data",
-    snapshot_name="tank/data@snap1",
+    snapshot_name="snap1",
 )
 ```
 

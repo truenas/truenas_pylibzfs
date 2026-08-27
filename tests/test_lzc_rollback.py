@@ -5,7 +5,10 @@ Tests for lzc.rollback():
   - rollback to non-most-recent raises FileExistsError
   - rollback on nonexistent resource raises
   - keyword-only enforcement
+  - name validation of resource_name and snapshot_name
 """
+
+import errno
 
 import pytest
 import truenas_pylibzfs
@@ -105,3 +108,25 @@ def test_rollback_keyword_only(dataset_with_snap):
     lz, ds_name, snap_name = dataset_with_snap
     with pytest.raises(TypeError):
         lzc.rollback(ds_name)
+
+
+def test_rollback_full_snapshot_name_raises(dataset_with_snap):
+    lz, ds_name, snap_name = dataset_with_snap
+    # snapshot_name must be the short component; a full name would compose
+    # to "<ds>@<ds>@snap"
+    with pytest.raises(ValueError):
+        lzc.rollback(resource_name=ds_name, snapshot_name=snap_name)
+
+
+def test_rollback_invalid_resource_name_raises(pool):
+    lz, _, root = pool
+    with pytest.raises(ValueError):
+        lzc.rollback(resource_name=f'{POOL_NAME}/rb_ds@rb_snap1')
+
+
+def test_rollback_overlong_snapshot_name_raises(dataset_with_snap):
+    lz, ds_name, snap_name = dataset_with_snap
+    with pytest.raises(OSError) as exc_info:
+        lzc.rollback(resource_name=ds_name, snapshot_name='x' * 300)
+
+    assert exc_info.value.errno == errno.ENAMETOOLONG

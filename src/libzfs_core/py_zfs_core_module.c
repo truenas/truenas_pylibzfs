@@ -259,6 +259,38 @@ void set_zfscore_exc(PyObject *module,
 	return;
 }
 
+/*
+ * Raise OSError(errno, msg) for lzc calls that give us nothing but an errno.
+ * CPython remaps well-known errnos onto OSError subclasses when the exception
+ * is built from the (errno, strerror) 2-tuple form: ENOENT ->
+ * FileNotFoundError, ESRCH -> ProcessLookupError, EEXIST -> FileExistsError,
+ * EPERM/EACCES -> PermissionError.  Everything else surfaces as a plain
+ * OSError with .errno set.
+ *
+ * Sets the Python exception and returns; callers return NULL.
+ */
+static
+void py_lzc_raise_oserror(int code, const char *fmt, ...)
+{
+	PyObject *errstr = NULL;
+	PyObject *etuple = NULL;
+	va_list args;
+
+	va_start(args, fmt);
+	errstr = PyUnicode_FromFormatV(fmt, args);
+	va_end(args);
+	if (errstr == NULL)
+		return;
+
+	etuple = Py_BuildValue("(iO)", code, errstr);
+	Py_DECREF(errstr);
+	if (etuple == NULL)
+		return;
+
+	PyErr_SetObject(PyExc_OSError, etuple);
+	Py_DECREF(etuple);
+}
+
 enum pylzcop { ADD_SNAP, DEL_SNAP, ADD_HOLD, DEL_HOLD };
 
 typedef boolean_t (*py_lzc_parse_f)(enum pylzcop op,
@@ -267,6 +299,30 @@ typedef boolean_t (*py_lzc_parse_f)(enum pylzcop op,
 				    PyObject *dsname_set,
 				    char *pool_name,
 				    size_t pool_name_sz);
+
+/*
+ * Pool-membership test for a fully-qualified snapshot name, as used by the
+ * snapshot and hold validation paths.
+ *
+ * A bare strncmp() prefix match is wrong: pool "dozer" would accept
+ * "dozerx/ds@now".  The kernel requires the byte after the pool name to be a
+ * real separator (see zfs_ioc_destroy_snaps() in module/zfs/zfs_ioctl.c, which
+ * returns EXDEV for the whole batch otherwise).  Mirroring that check here
+ * turns a confusing whole-batch EXDEV from the kernel into a precise
+ * ValueError naming the offending entry.
+ *
+ * A bare pool name carries no separator and is rejected.
+ */
+static
+boolean_t py_name_within_pool(const char *name, const char *pool)
+{
+	size_t poollen = strlen(pool);
+
+	if (strncmp(name, pool, poollen) != 0)
+		return B_FALSE;
+
+	return ((name[poollen] == '/') || (name[poollen] == '@'));
+}
 
 static
 boolean_t py_snapname_to_nvpair(enum pylzcop op,
@@ -313,7 +369,7 @@ boolean_t py_snapname_to_nvpair(enum pylzcop op,
 		pool_name[strcspn(pool_name, "/@")] = '\0';
 	}
 
-	if (strncmp(snap, pool_name, strlen(pool_name)) != 0) {
+	if (!py_name_within_pool(snap, pool_name)) {
 		PyErr_Format(PyExc_ValueError,
 			     "%s: snapshot is not within "
 			     "expected pool [%s]. All "
@@ -417,7 +473,7 @@ boolean_t py_entry_to_hold_nvpair(enum pylzcop op,
 		pool_name[strcspn(pool_name, "/@")] = '\0';
 	}
 
-	if (strncmp(snap, pool_name, strlen(pool_name)) != 0) {
+	if (!py_name_within_pool(snap, pool_name)) {
 		PyErr_Format(PyExc_ValueError,
 			     "%s: snapshot is not within "
 			     "expected pool [%s]. All "
@@ -499,7 +555,7 @@ boolean_t py_entry_to_rel_nvpair(enum pylzcop op,
 		pool_name[strcspn(pool_name, "/@")] = '\0';
 	}
 
-	if (strncmp(snap, pool_name, strlen(pool_name)) != 0) {
+	if (!py_name_within_pool(snap, pool_name)) {
 		PyErr_Format(PyExc_ValueError,
 			     "%s: snapshot is not within "
 			     "expected pool [%s]. All "
@@ -1105,7 +1161,7 @@ PyDoc_STRVAR(py_zfs_core_destroy_snaps__doc__,
 "----------\n"
 "snapshot_names: iterable\n"
 "    Iterable (set, list, tuple, etc) containing names of snapshots to destroy\n"
-"defer: bool, optional, default=False\n"
+"defer_destroy: bool, optional, default=False\n"
 "    If a snapshot has user holds or clones, it will be marked for deferred\n"
 "    destruction, and will be destroyed when the last hold or close is removed\n"
 "    or destroyed.\n"
@@ -1121,7 +1177,6 @@ PyDoc_STRVAR(py_zfs_core_destroy_snaps__doc__,
 "    \"snapshot_names\" contains an entry that is not a valid snapshot name.\n"
 "\n"
 "ValueError:\n"
-"    Multiple entries for same dataset were specified\n"
 "    \"snapshot_names\" was omitted or is empty\n"
 "    \"snapshot_names\" contains entries for multiple pools\n"
 "\n"
@@ -1129,6 +1184,11 @@ PyDoc_STRVAR(py_zfs_core_destroy_snaps__doc__,
 "    Failed to destroy one or more of the specified snapshots.\n"
 "    The failed snapshots and error numbers are reported by the\n"
 "    exception's \"errors\" attribute.\n"
+"\n"
+"RuntimeError:\n"
+"    The snapshots were destroyed, but writing the pool history entry\n"
+"    failed. Callers that treat this as benign should match RuntimeError\n"
+"    and clear the exception.\n"
 );
 static PyObject *py_lzc_destroy_snaps(PyObject *self,
 				      PyObject *args_unused,
@@ -1331,9 +1391,16 @@ PyDoc_STRVAR(py_lzc_program__doc__,
 "                instruction_limit=10000000, memory_limit=10485760,\n"
 "                readonly=True) -> dict\n"
 "---------------------------------------\n\n"
-"Run a provided ZFS channel program Lua script. The entire script is executed\n"
-"atomically, with no other administrative operations taking effect\n"
-"concurrently.\n"
+"Run a provided ZFS channel program Lua script. The script runs in\n"
+"isolation: it executes inside a single transaction group with the pool\n"
+"configuration held, so no other administrative operation can interleave\n"
+"with it and the pool state cannot change between the script's own calls.\n"
+"\n"
+"WARNING: isolation is not failure atomicity. If the script hits a runtime\n"
+"error, a memory limit or an instruction limit partway through, the ZFS\n"
+"operations it already performed are NOT rolled back. Scripts that must\n"
+"leave the pool consistent have to check their preconditions up front (the\n"
+"zfs.check.* calls) and report partial progress through their return value.\n"
 "NOTE: man (8) zfs-program contains documentation for a library of ZFS calls\n"
 "available to channel program scripts under the \"LUA INTERFACE\" section.\n"
 "\n\n"
@@ -1502,8 +1569,10 @@ PyDoc_STRVAR(py_zfs_core_rollback__doc__,
 "resource_name: str\n"
 "    Target ZFS volume or filesystem for the rollback operation.\n"
 "snapshot_name: str | None, optional\n"
-"    If specified, the target ZFS dataset will be rolled back to this snapshot\n"
-"    If unspecified (the default), the ZFS dataset will be rolled back to the\n"
+"    Short name of the target snapshot, WITHOUT the \"<resource_name>@\"\n"
+"    prefix (e.g. \"daily-2025-01-01\", not \"tank/ds@daily-2025-01-01\").\n"
+"    The full snapshot name is composed internally and returned.\n"
+"    If unspecified (the default), the ZFS dataset is rolled back to its\n"
 "    most recent snapshot.\n"
 "\n"
 "Returns\n"
@@ -1513,24 +1582,44 @@ PyDoc_STRVAR(py_zfs_core_rollback__doc__,
 "Raises\n"
 "------\n"
 "ValueError:\n"
-"    Target resource or snapshot does not exist.\n"
+"    \"resource_name\" was omitted, is not a valid filesystem or volume\n"
+"    name, or the composed \"<resource_name>@<snapshot_name>\" is not a\n"
+"    valid snapshot name.\n"
 "\n"
 "FileNotFoundError:\n"
-"    Target resource or snapshot does not exist.\n"
+"    (ENOENT) The target resource does not exist.\n"
+"\n"
+"ProcessLookupError:\n"
+"    (ESRCH) The target resource has no snapshots at all, or the snapshot\n"
+"    named by \"snapshot_name\" does not exist or does not belong to the\n"
+"    target resource.\n"
 "\n"
 "FileExistsError:\n"
-"    Rollback could not take place because the specified `snapshot_name` is\n"
-"    not the most recent snapshot.\n"
+"    (EEXIST) The rollback would have to discard something newer than the\n"
+"    requested target: snapshots taken after \"snapshot_name\", or a\n"
+"    bookmark created after the most recent snapshot. Destroy the newer\n"
+"    snapshots first with destroy_snapshots(). A newer bookmark must be\n"
+"    removed outside this library (\"zfs destroy <dataset>#<bookmark>\").\n"
 "\n"
 "PermissionError:\n"
-"    User lacks permission to roll back dataset.\n"
+"    (EPERM / EACCES) User lacks permission to roll back the dataset.\n"
 "\n"
 "OSError:\n"
-"    An Error occurred during the rollback operation.\n"
+"    Any other errno returned by libzfs_core, including:\n"
+"    - EBUSY: the dataset could not be handed off because it has long\n"
+"      holds (an in-flight send, for example).\n"
+"    - EAGAIN: the target snapshot was created in the current transaction\n"
+"      group; retry.\n"
+"    - EDQUOT: the rolled-back state exceeds the dataset refquota.\n"
+"    - ENOSPC: not enough space to hold the refreservation during the\n"
+"      rollback.\n"
+"    - ENAMETOOLONG: the composed snapshot name exceeds the maximum ZFS\n"
+"      name length.\n"
 "\n"
 "RuntimeError:\n"
-"    An Error occurred while writing the history file.\n"
-"\n"
+"    The rollback completed, but writing the pool history entry failed.\n"
+"    Callers that treat this as benign should match RuntimeError and clear\n"
+"    the exception.\n"
 );
 static PyObject *py_lzc_rollback(PyObject *self,
 				 PyObject *args_unused,
@@ -1560,6 +1649,46 @@ static PyObject *py_lzc_rollback(PyObject *self,
 		return NULL;
 	}
 
+	if (!zfs_name_valid(crsrc, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME)) {
+		PyErr_Format(PyExc_ValueError,
+			     "%s: not a valid ZFS filesystem or volume name.",
+			     crsrc);
+		return NULL;
+	}
+
+	/*
+	 * Compose the full snapshot name up front.  snprintf() truncates
+	 * silently, and lzc_rollback_to() would then roll back to whatever
+	 * the truncated name happens to match (or fail with a confusing
+	 * errno), so a truncated name is refused with ENAMETOOLONG.
+	 */
+	if (csnap != NULL) {
+		int n;
+
+		n = snprintf(snapret, sizeof(snapret), "%s@%s", crsrc, csnap);
+		if ((n < 0) || ((size_t)n >= sizeof(snapret))) {
+			py_lzc_raise_oserror(ENAMETOOLONG,
+			    "%s@%s: snapshot name exceeds the maximum ZFS "
+			    "name length.", crsrc, csnap);
+			return NULL;
+		}
+
+		/*
+		 * snapshot_name is the short snapshot component; catches a
+		 * caller that passed a full "pool/ds@snap" (which would
+		 * compose to "pool/ds@pool/ds@snap") as well as invalid
+		 * characters and over-long components.
+		 */
+		if (!zfs_name_valid(snapret, ZFS_TYPE_SNAPSHOT)) {
+			PyErr_Format(PyExc_ValueError,
+				     "%s: not a valid snapshot name. "
+				     "snapshot_name must be the short "
+				     "snapshot component, without the "
+				     "\"%s@\" prefix.", snapret, crsrc);
+			return NULL;
+		}
+	}
+
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".lzc.rollback", "ss",
 			crsrc, csnap ? csnap : "<LATEST>") < 0) {
 		return NULL;
@@ -1569,33 +1698,14 @@ static PyObject *py_lzc_rollback(PyObject *self,
 	if (csnap == NULL) {
 		err = lzc_rollback(crsrc, snapret, (int)sizeof(snapret));
 	} else {
-		snprintf(snapret, sizeof(snapret), "%s@%s", crsrc, csnap);
 		err = lzc_rollback_to(crsrc, snapret);
 	}
 	Py_END_ALLOW_THREADS
 
 	if (err) {
-		/*
-		 * Use OSError since we don't have anything more than errno
-		 * to work from
-		 */
-		PyObject *errstr = NULL;
-		PyObject *etuple = NULL;
-
-		errstr = PyUnicode_FromFormat("Failed to rollback %s to %s: %s",
+		py_lzc_raise_oserror(err,
+		    "Failed to rollback %s to %s: %s",
 		    crsrc, csnap ? csnap : "<LATEST>", strerror(err));
-		if (errstr == NULL) {
-			return NULL;
-		}
-
-		etuple = Py_BuildValue("(iO)", err, errstr);
-		Py_DECREF(errstr);
-		if (etuple == NULL) {
-			return NULL;
-		}
-
-		PyErr_SetObject(PyExc_OSError, etuple);
-		Py_DECREF(etuple);
 		return NULL;
 	}
 
