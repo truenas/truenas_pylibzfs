@@ -137,6 +137,17 @@ class TestDestroySnapshots:
             lzc.destroy_snapshots([f'{POOL_NAME}@kw'])
 
 
+def test_destroy_snapshots_pool_name_prefix_is_not_enough():
+    # 'testpool_xy' merely shares a prefix with 'testpool_x'; a bare strncmp()
+    # pool check accepts it and the kernel then fails the whole batch with
+    # EXDEV. Validation is string-level, so no pool is needed here.
+    with pytest.raises(ValueError):
+        lzc.destroy_snapshots(snapshot_names=[
+            'testpool_x/ds@s1',
+            'testpool_xy/ds@s1',
+        ])
+
+
 # ---------------------------------------------------------------------------
 # ZFSSnapshot.get_holds
 # ---------------------------------------------------------------------------
