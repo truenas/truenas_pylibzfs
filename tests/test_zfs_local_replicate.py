@@ -199,6 +199,10 @@ def volume_dataset(pool_fixture):
         type=truenas_pylibzfs.ZFSType.ZFS_TYPE_VOLUME,
         properties={
             truenas_pylibzfs.ZFSProperty.VOLSIZE: str(16 * 1024 * 1024),
+            # no /dev/zvol node: these tests replicate the volume rather than
+            # open it, and a node udev still holds makes the pool teardown
+            # fail EZFS_BUSY, stranding the pool for every later test here
+            truenas_pylibzfs.ZFSProperty.VOLMODE: "none",
         },
     )
     vol_rsrc = lz.open_resource(name=vol)
