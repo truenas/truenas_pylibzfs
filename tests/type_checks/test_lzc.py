@@ -160,7 +160,7 @@ def check_rollback_returns_str() -> None:
 
 
 def check_rollback_to_snap() -> None:
-    name: str = lzc.rollback(resource_name="pool/fs", snapshot_name="pool/fs@snap")
+    name: str = lzc.rollback(resource_name="pool/fs", snapshot_name="snap")
     _ = name
 
 
