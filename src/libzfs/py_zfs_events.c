@@ -1,5 +1,6 @@
 #include "py_zfs_events.h"
 #include "../truenas_pylibzfs.h"
+#include <fcntl.h>
 
 
 #define ZEVENT_NONBLOCK 0x1
