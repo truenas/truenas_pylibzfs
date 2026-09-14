@@ -1166,13 +1166,20 @@ PyObject *pypool_error_log(py_zfs_pool_t *pypool)
 
 	if (err) {
 		/*
-		 * Pool I/O is suspended (EZFS_POOLUNAVAIL): the error log is
-		 * unavailable, but the pool handle is still valid and status()
-		 * should succeed.  Return an empty tuple rather than raising so
-		 * that the caller can still surface pool status information —
-		 * mirroring what `zpool status` does in this situation.
+		 * The error log can be unreadable while the pool handle is
+		 * still valid and status() should succeed:
+		 *
+		 * - EZFS_POOLUNAVAIL: pool I/O is suspended.
+		 * - EZFS_NOENT: an error log entry references a dataset or
+		 *   snapshot that has since been destroyed, which aborts the
+		 *   whole errlog walk in the kernel.
+		 *
+		 * Return an empty tuple rather than raising so that the caller
+		 * can still surface pool status information, mirroring what
+		 * `zpool status` does in these situations.
 		 */
-		if (zfs_err.code == EZFS_POOLUNAVAIL) {
+		if (zfs_err.code == EZFS_POOLUNAVAIL ||
+		    zfs_err.code == EZFS_NOENT) {
 			out = PyTuple_New(0);
 			goto done;
 		}
