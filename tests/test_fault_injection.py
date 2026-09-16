@@ -34,14 +34,17 @@ Design constraints, validated against the ZFS source:
 
 import os
 import subprocess
+import time
 
 import pytest
 import truenas_pylibzfs
+from truenas_pylibzfs import lzc
 
 
 VDevType = truenas_pylibzfs.VDevType
 VDevState = truenas_pylibzfs.libzfs_types.VDevState
 ScanFunction = truenas_pylibzfs.libzfs_types.ScanFunction
+ScanState = truenas_pylibzfs.libzfs_types.ScanState
 
 PAYLOAD = b"X" * (256 * 1024)
 
@@ -171,3 +174,89 @@ def test_vdev_fault_action_faults_leaf(mirror_pool, zinject_action, wait_for_vde
     )
 
     _write_payload(root.get_mountpoint(), name="post_fault")
+
+
+PASSPHRASE = "Cats1234"
+
+
+def _ensure_mounted(rsrc):
+    """Mount rsrc unless ZFS already auto-mounted it; return the mountpoint."""
+    mountpoint = rsrc.get_mountpoint()
+    if mountpoint is None or not os.path.ismount(mountpoint):
+        rsrc.mount()
+        mountpoint = rsrc.get_mountpoint()
+    return mountpoint
+
+
+def _wait_for_scan_end(pool, timeout=60.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        info = pool.scrub_info()
+        if info is None or info.state != ScanState.SCANNING:
+            return
+        time.sleep(0.1)
+    raise AssertionError("timed out waiting for the scrub to finish")
+
+
+def test_status_survives_errlog_entry_for_destroyed_snapshot(make_pool, inject, tmp_path):
+    """pool.status() must not raise when the error log holds an entry it
+    cannot resolve to a live dataset.
+
+    The kernel keys each head_errlog entry by the head dataset of the
+    objset the error was seen in. When that lookup fails at sync time (a
+    locked encrypted dataset makes the decrypting hold fail) it falls back
+    to keying the entry by the raw objset id. If that objset is a snapshot
+    that is later destroyed, zpool_get_errlog() aborts with ENOENT and
+    libzfs raises EZFS_NOENT. pool.status() must treat that like an
+    unavailable error log, as `zpool status` does, rather than failing.
+    """
+    lz, pool, root = make_pool("zinject_errlog")
+    ds_name = f"{pool.name}/enc"
+    snap_name = f"{ds_name}@snap"
+
+    crypto = lz.resource_cryptography_config(keyformat="passphrase", key=PASSPHRASE)
+    lz.create_resource(
+        name=ds_name,
+        type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM,
+        crypto=crypto,
+    )
+    # Mount under tmp_path so the test also runs on a read-only root.
+    root.set_properties(
+        properties={truenas_pylibzfs.ZFSProperty.MOUNTPOINT: str(tmp_path / "pool")}
+    )
+    _ensure_mounted(root)
+    rsrc = lz.open_resource(name=ds_name)
+    mountpoint = _ensure_mounted(rsrc)
+
+    victim = _write_payload(mountpoint)
+    victim_obj = os.stat(victim).st_ino
+    lzc.create_snapshots(snapshot_names=[snap_name])
+    # Leave the snapshot as the only holder of the block so the scrub
+    # visits it under the snapshot's objset.
+    os.unlink(victim)
+    subprocess.run(["sync"], check=True)
+
+    snap_objset = (
+        lz.open_resource(name=snap_name)
+        .get_properties(properties={truenas_pylibzfs.ZFSProperty.OBJSETID})
+        .objsetid.value
+    )
+
+    # Lock the dataset so the errlog sync cannot resolve the head dataset.
+    rsrc.unmount(unload_encryption_key=True)
+
+    bookmark = f"{snap_objset:x}:{victim_obj:x}:0:0:0"
+    with inject("-b", bookmark, pool.name):
+        pool.scan(func=ScanFunction.SCRUB)
+        _wait_for_scan_end(pool)
+    subprocess.run(["zpool", "sync", pool.name], check=True)
+
+    rsrc.crypto().load_key(key=PASSPHRASE)
+    # With the snapshot still present the entry resolves.
+    assert lz.open_pool(name=pool.name).status().corrupted_files
+
+    lzc.destroy_snapshots(snapshot_names=[snap_name])
+
+    status = lz.open_pool(name=pool.name).status()
+    assert status.corrupted_files == ()
+    assert status.name == pool.name
