@@ -1023,9 +1023,10 @@ PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "dry_run: bool, optional, default=False\n"
 "    Run every check that does not need the kernel (vdev specs, the\n"
 "    structural and policy constraints, property and feature names)\n"
-"    and return without creating anything.  Leaf device names are\n"
-"    not opened, so placeholders are acceptable.  The pool name and\n"
-"    the devices themselves are only checked by a real creation.\n\n"
+"    and return without creating anything, after also applying the\n"
+"    pool name rules.  Leaf device names are not opened, so placeholders\n"
+"    are acceptable; the devices themselves are only checked by a real\n"
+"    creation.\n\n"
 "Returns\n"
 "-------\n"
 "    None\n\n"
@@ -1065,13 +1066,13 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 
 	if (cpa.name == NULL) {
 		PyErr_SetString(PyExc_ValueError,
-		    "\"name\" keyword argument is required");
+		    "name: keyword argument is required");
 		return NULL;
 	}
 
 	if (cpa.storage_vdevs == NULL || cpa.storage_vdevs == Py_None) {
 		PyErr_SetString(PyExc_ValueError,
-		    "\"storage_vdevs\" is required and must be non-empty");
+		    "storage_vdevs: at least one storage vdev is required");
 		return NULL;
 	}
 

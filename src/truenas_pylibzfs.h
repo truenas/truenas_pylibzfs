@@ -345,7 +345,9 @@ extern boolean_t py_zfs_validate_vdev_spec(pylibzfs_state_t *state,
 /*
  * Maximum number of dRAID distributed spares.  There is no named constant
  * for this in the ZFS headers; the value matches the hardcoded limit in
- * draid_config_by_type() in zpool_vdev.c.
+ * draid_config_by_type() in zpool_vdev.c.  It is named like the genuine
+ * VDEV_DRAID_* macros it is exported beside, so if OpenZFS ever defines a
+ * macro of this name this definition must be dropped in favour of it.
  */
 #define VDEV_DRAID_MAX_SPARES 100
 

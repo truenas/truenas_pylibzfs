@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <libzutil.h>
 #include <stdlib.h>
+#include <zfs_namecheck.h>
 
 /*
  * py_zfs_pool_create.c — pool creation API
@@ -410,9 +411,10 @@ validate_log_vdevs(PyObject *seq)
 }
 
 /*
- * Special and dedup vdevs must be leaf, mirror or raidz1/2/3; dRAID is
- * never permitted.  This is a structural rule that holds regardless of
- * force.
+ * Special and dedup vdevs must not be dRAID.  Every other vdev type the
+ * spec validation lets through (leaf, mirror, raidz1/2/3) is acceptable.
+ * This is a structural rule that holds regardless of force, for both
+ * create_pool() and add_vdevs().
  */
 static boolean_t
 validate_special_dedup_types(PyObject *seq, const char *context)
@@ -427,7 +429,6 @@ validate_special_dedup_types(PyObject *seq, const char *context)
 
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-
 		if (is_draid_type(py_type)) {
 			PyErr_Format(PyExc_ValueError,
 			    "%s: dRAID is not permitted for special or "
@@ -437,18 +438,6 @@ validate_special_dedup_types(PyObject *seq, const char *context)
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
-
-		if (!is_leaf_type(py_type) && !is_mirror_type(py_type) &&
-		    !is_raidz_type(py_type)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev must be leaf, mirror, or raidz type, "
-			    "got \"%U\"",
-			    context, py_type);
-			Py_DECREF(spec);
-			Py_DECREF(iterator);
-			return B_FALSE;
-		}
-
 		Py_DECREF(spec);
 	}
 	Py_DECREF(iterator);
@@ -592,6 +581,72 @@ validate_storage_widths(PyObject *storage_seq)
 }
 
 /* --------------------------------------------------------------------------
+ * Pool name validation.
+ * -------------------------------------------------------------------------- */
+
+/*
+ * The pool name rules zpool_create() applies through zpool_name_valid(),
+ * which libzfs does not export: pool_namecheck() plus the reserved prefixes
+ * libzfs refuses only on create.  The messages are libzfs's own.
+ * Returns B_TRUE if valid, B_FALSE with a ValueError set if not.
+ */
+static boolean_t
+validate_pool_name(const char *name)
+{
+	namecheck_err_t why;
+	char what = '\0';
+	const char *reason = NULL;
+
+	if (pool_namecheck(name, &why, &what) == 0) {
+		if (strncmp(name, "mirror", 6) != 0 &&
+		    strncmp(name, "raidz", 5) != 0 &&
+		    strncmp(name, "draid", 5) != 0 &&
+		    strncmp(name, "spare", 5) != 0 &&
+		    strcmp(name, "log") != 0)
+			return B_TRUE;
+		reason = "name is reserved";
+	} else {
+		switch (why) {
+		case NAME_ERR_TOOLONG:
+			reason = "name is too long";
+			break;
+		case NAME_ERR_INVALCHAR:
+			PyErr_Format(PyExc_ValueError,
+			    "name: invalid character '%c' in pool name", what);
+			return B_FALSE;
+		case NAME_ERR_NOLETTER:
+			reason = "name must begin with a letter";
+			break;
+		case NAME_ERR_RESERVED:
+			reason = "name is reserved";
+			break;
+		case NAME_ERR_DISKLIKE:
+			reason = "pool name is reserved";
+			break;
+		case NAME_ERR_LEADING_SLASH:
+			reason = "leading slash in name";
+			break;
+		case NAME_ERR_EMPTY_COMPONENT:
+			reason = "empty component in name";
+			break;
+		case NAME_ERR_TRAILING_SLASH:
+			reason = "trailing slash in name";
+			break;
+		case NAME_ERR_MULTIPLE_DELIMITERS:
+			reason = "multiple '@' and/or '#' delimiters in name";
+			break;
+		default:
+			PyErr_Format(PyExc_ValueError,
+			    "name: (%d) not defined", (int)why);
+			return B_FALSE;
+		}
+	}
+
+	PyErr_Format(PyExc_ValueError, "name: %s", reason);
+	return B_FALSE;
+}
+
+/* --------------------------------------------------------------------------
  * Full pool topology validation.
  * -------------------------------------------------------------------------- */
 
@@ -619,7 +674,7 @@ validate_pool_structure(
 		return B_FALSE;
 	if (storage_len == 0) {
 		PyErr_SetString(PyExc_ValueError,
-		    "storage_vdevs must be non-empty");
+		    "storage_vdevs: at least one storage vdev is required");
 		return B_FALSE;
 	}
 
@@ -1576,10 +1631,13 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 
 	/*
 	 * Every check that does not need the kernel has passed.  A dry run
-	 * stops here: no audit event, no device is opened, nothing is
-	 * created and no history is logged.
+	 * also applies the pool name rules zpool_create() would, then stops
+	 * here: no audit event, no device is opened, nothing is created and
+	 * no history is logged.
 	 */
 	if (cpa->dry_run) {
+		if (!validate_pool_name(cpa->name))
+			goto fail;
 		fnvlist_free(props_nvl);
 		fnvlist_free(fsprops_nvl);
 		Py_XDECREF(storage_seq);
@@ -1747,39 +1805,6 @@ pool_get_storage_info(zpool_handle_t *zhp)
 	}
 
 	return (info);
-}
-
-/*
- * Reject dRAID in a metadata vdev sequence (special or dedup).
- * This check always runs regardless of force=True.
- * Returns B_TRUE on success, B_FALSE with exception set on failure.
- */
-static boolean_t
-validate_metadata_no_draid(PyObject *seq, const char *context)
-{
-	PyObject *iterator = NULL;
-	PyObject *spec = NULL;
-	PyObject *py_type = NULL;
-
-	iterator = PyObject_GetIter(seq);
-	if (iterator == NULL)
-		return (B_FALSE);
-
-	while ((spec = PyIter_Next(iterator))) {
-		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-		if (is_draid_type(py_type)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: dRAID is not permitted for metadata vdevs",
-			    context);
-			Py_DECREF(spec);
-			Py_DECREF(iterator);
-			return (B_FALSE);
-		}
-		Py_DECREF(spec);
-	}
-
-	Py_DECREF(iterator);
-	return (B_TRUE);
 }
 
 /*
@@ -1968,11 +1993,11 @@ validate_add_structure(
 		return (B_FALSE);
 
 	if (special_n > 0 &&
-	    !validate_metadata_no_draid(special_seq, "special_vdevs"))
+	    !validate_special_dedup_types(special_seq, "special_vdevs"))
 		return (B_FALSE);
 
 	if (dedup_n > 0 &&
-	    !validate_metadata_no_draid(dedup_seq, "dedup_vdevs"))
+	    !validate_special_dedup_types(dedup_seq, "dedup_vdevs"))
 		return (B_FALSE);
 
 	return (B_TRUE);

@@ -1301,8 +1301,8 @@ PyDoc_STRVAR(py_zfs_pool_add_vdevs__doc__,
 "force: bool, optional, default=False\n"
 "    Skip pool-match validation (storage type/parity/width against existing\n"
 "    pool geometry, special/dedup redundancy requirements), storage vdev\n"
-"    width limits (mirror: max 4 members, raidz: max 15 drives), and the\n"
-"    kernel ashift check.  Structural constraints (cache/spare must be\n"
+"    width limits (constants.MAX_MIRROR_WIDTH, constants.MAX_RAIDZ_WIDTH),\n"
+"    and the kernel ashift check.  Structural constraints (cache/spare must be\n"
 "    leaf, log must be leaf or mirror, dRAID not permitted for\n"
 "    special/dedup) always apply.  Equivalent to 'zpool add -f'.\n"
 "dry_run: bool, optional, default=False\n"
@@ -1327,8 +1327,8 @@ py_zfs_pool_add_vdevs(PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_add_vdevs_args_t ava = {0};
-	int force = 0;
-	int dry_run = 0;
+	boolean_t force = B_FALSE;
+	boolean_t dry_run = B_FALSE;
 	char *kwnames[] = {
 		"storage_vdevs", "cache_vdevs", "log_vdevs",
 		"special_vdevs", "dedup_vdevs", "spare_vdevs",
