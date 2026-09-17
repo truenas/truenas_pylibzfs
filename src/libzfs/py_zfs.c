@@ -1021,22 +1021,25 @@ PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "    constraints still apply.  Equivalent to passing -f to zpool(8).\n"
 "    Does not suppress kernel-level checks.\n\n"
 "dry_run: bool, optional, default=False\n"
-"    Run every check that does not need the kernel (vdev specs, the\n"
-"    structural and policy constraints, property and feature names)\n"
-"    and return without creating anything, after also applying the\n"
-"    pool name rules.  Leaf device names are not opened, so placeholders\n"
-"    are acceptable; the devices themselves are only checked by a real\n"
+"    Run every check zpool_create() makes before its ioctl (vdev specs,\n"
+"    the structural and policy constraints, the pool name, property and\n"
+"    feature names, and the root filesystem property values through\n"
+"    libzfs's own zfs_valid_proplist()) and return without creating\n"
+"    anything.  Leaf device names are not opened, so placeholders are\n"
+"    acceptable; the devices themselves are only checked by a real\n"
 "    creation.\n\n"
 "Returns\n"
 "-------\n"
 "    None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
+"ValidationError:\n"
 "    A required argument is missing, the pool topology violates a\n"
-"    structural constraint, or it violates a policy constraint and\n"
-"    force=True was not passed.  The message names the offending\n"
-"    keyword argument first, e.g. \"storage_vdevs: ...\".\n"
+"    structural constraint, it violates a policy constraint and\n"
+"    force=True was not passed, or (dry_run only) the name or a\n"
+"    property value is refused.  A ValueError subclass whose argument\n"
+"    and index attributes locate the refusal; the message reads\n"
+"    \"storage_vdevs[1]: ...\".\n"
 "TypeError:\n"
 "    An argument has an unexpected type.\n"
 "ZFSException:\n"
@@ -1065,14 +1068,14 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 		return NULL;
 
 	if (cpa.name == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "name: keyword argument is required");
+		py_set_validation_error("name", -1,
+		    "keyword argument is required");
 		return NULL;
 	}
 
 	if (cpa.storage_vdevs == NULL || cpa.storage_vdevs == Py_None) {
-		PyErr_SetString(PyExc_ValueError,
-		    "storage_vdevs: at least one storage vdev is required");
+		py_set_validation_error("storage_vdevs", -1,
+		    "at least one storage vdev is required");
 		return NULL;
 	}
 

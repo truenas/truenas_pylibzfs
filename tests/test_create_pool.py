@@ -1234,14 +1234,14 @@ def test_create_pool_dry_run_rejects_policy_violation():
     mirror = truenas_pylibzfs.create_vdev_spec(
         vdev_type="mirror", children=[_placeholder(0), _placeholder(1)]
     )
-    with pytest.raises(ValueError, match="storage_vdevs: all vdevs must share the same type"):
+    with pytest.raises(ValueError, match=r"storage_vdevs\[1\]: all vdevs must share the same type"):
         lz.create_pool(name=POOL_NAME, storage_vdevs=[mirror, _placeholder(2)], dry_run=True)
     wide = truenas_pylibzfs.create_vdev_spec(
         vdev_type="mirror", children=[_placeholder(i) for i in range(5)]
     )
-    with pytest.raises(ValueError, match="storage_vdevs: mirror width 5 exceeds"):
+    with pytest.raises(ValueError, match=r"storage_vdevs\[0\]: mirror width 5 exceeds limit of 4$"):
         lz.create_pool(name=POOL_NAME, storage_vdevs=[wide], dry_run=True)
-    with pytest.raises(ValueError, match="special_vdevs: .* no redundancy"):
+    with pytest.raises(ValueError, match=r"special_vdevs\[0\]: .*no redundancy"):
         lz.create_pool(
             name=POOL_NAME, storage_vdevs=[mirror], special_vdevs=[_placeholder(3)], dry_run=True
         )
@@ -1292,6 +1292,92 @@ def test_create_pool_dry_run_accepts_draid_with_placeholders():
         vdev_type="draid2", name="3d:1s", children=[_placeholder(i) for i in range(8)]
     )
     assert lz.create_pool(name=POOL_NAME, storage_vdevs=[draid], dry_run=True) is None
+    # ndata left to the zpool default
+    draid = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="draid1", name="1s", children=[_placeholder(i) for i in range(12)]
+    )
+    assert lz.create_pool(name=POOL_NAME, storage_vdevs=[draid], dry_run=True) is None
+    _pool_absent()
+
+
+def test_create_vdev_spec_draid_default_ndata():
+    spec = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="draid1", name="0s", children=[_placeholder(i) for i in range(3)]
+    )
+    assert spec.name == "0s"
+    with pytest.raises(truenas_pylibzfs.ValidationError, match="leaves no disks available for data") as e:
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type="draid1", name="1s", children=[_placeholder(i) for i in range(2)]
+        )
+    assert e.value.argument == "children"
+    assert e.value.index is None
+
+
+def test_create_pool_draid_default_ndata(make_disks):
+    disks = make_disks(4)
+    lz = truenas_pylibzfs.open_handle()
+    draid = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="draid1", name="1s", children=[_spec(d) for d in disks]
+    )
+    try:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[draid])
+        status = lz.open_pool(name=POOL_NAME).status()
+        # 4 children, 1 spare, parity 1: 2 data disks per group
+        assert status.storage_vdevs[0].name == "draid1:2d:4c:1s-0"
+    finally:
+        _destroy()
+
+
+def test_validation_error_locates_the_refusal():
+    lz = truenas_pylibzfs.open_handle()
+    mirror = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="mirror", children=[_placeholder(0), _placeholder(1)]
+    )
+    with pytest.raises(truenas_pylibzfs.ValidationError) as e:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[mirror, mirror, _placeholder(2)], dry_run=True)
+    assert e.value.argument == "storage_vdevs"
+    assert e.value.index == 2
+    assert e.value.reason == 'all vdevs must share the same type; got "mirror" and "disk"'
+    assert str(e.value) == f"storage_vdevs[2]: {e.value.reason}"
+    raidz = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="raidz1", children=[_placeholder(i) for i in range(3)]
+    )
+    with pytest.raises(truenas_pylibzfs.ValidationError) as e:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[_placeholder(0)], log_vdevs=[_placeholder(1), raidz], dry_run=True)
+    assert (e.value.argument, e.value.index) == ("log_vdevs", 1)
+    with pytest.raises(truenas_pylibzfs.ValidationError) as e:
+        lz.create_pool(name="mirror", storage_vdevs=[_placeholder(0)], dry_run=True)
+    assert (e.value.argument, e.value.index, e.value.reason) == ("name", None, "name is reserved")
+    with pytest.raises(truenas_pylibzfs.ValidationError) as e:
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[], dry_run=True)
+    assert (e.value.argument, e.value.index) == ("storage_vdevs", None)
+    assert issubclass(truenas_pylibzfs.ValidationError, ValueError)
+
+
+def test_create_pool_dry_run_checks_property_values():
+    lz = truenas_pylibzfs.open_handle()
+    with pytest.raises(truenas_pylibzfs.ValidationError, match="compression") as e:
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_placeholder(0)],
+            filesystem_properties={"compression": "bogus"},
+            dry_run=True,
+        )
+    assert e.value.argument == "filesystem_properties"
+    with pytest.raises(truenas_pylibzfs.ValidationError, match="recordsize"):
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_placeholder(0)],
+            filesystem_properties={ZFSProperty.RECORDSIZE: "3M"},
+            dry_run=True,
+        )
+    # values libzfs accepts pass, including ones the middleware used to reject
+    assert lz.create_pool(
+        name=POOL_NAME,
+        storage_vdevs=[_placeholder(0)],
+        filesystem_properties={"acltype": "disabled", "aclinherit": "secure", "recordsize": "128K", "quota": "10G"},
+        dry_run=True,
+    ) is None
     _pool_absent()
 
 

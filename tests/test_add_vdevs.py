@@ -874,9 +874,10 @@ class TestAddVdevsDryRun:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_mirror_pool(lz, disks[0], disks[1])
         try:
-            with pytest.raises(ValueError, match="storage_vdevs"):
+            with pytest.raises(truenas_pylibzfs.ValidationError, match=r"storage_vdevs\[0\]") as e:
                 pool.add_vdevs(storage_vdevs=[_spec("placeholder0")], dry_run=True)
-            with pytest.raises(ValueError, match="special_vdevs"):
+            assert (e.value.argument, e.value.index) == ("storage_vdevs", 0)
+            with pytest.raises(truenas_pylibzfs.ValidationError, match=r"special_vdevs\[0\]"):
                 pool.add_vdevs(special_vdevs=[_spec("placeholder0")], dry_run=True)
             assert len(pool.status().storage_vdevs) == 1
         finally:

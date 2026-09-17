@@ -218,6 +218,17 @@ extern const char *zfs_error_name(zfs_error_t error);
 extern void py_get_zfs_error(libzfs_handle_t *lz, py_zfs_error_t *out);
 
 extern PyObject *setup_zfs_exception(void);
+extern PyObject *setup_validation_exception(void);
+
+/*
+ * Raise truenas_pylibzfs.ValidationError (a ValueError) for a refused
+ * argument.  index is the offending position within a sequence argument,
+ * or -1 when there is none; argument may be NULL when the refusal spans
+ * several arguments.  Requires the GIL.
+ */
+extern void py_set_validation_error(const char *argument, Py_ssize_t index,
+    const char *fmt, ...);
+extern void py_validation_error_from_current(const char *argument);
 
 /*
  * @brief set a ZFSError exception based on given parameters
@@ -333,7 +344,7 @@ extern nvlist_t *py_zfs_build_single_vdev_nvroot(PyObject *spec);
  * Returns B_TRUE if valid, B_FALSE with a Python exception set if not.
  */
 extern boolean_t py_zfs_validate_vdev_spec(pylibzfs_state_t *state,
-    PyObject *spec, const char *context);
+    PyObject *spec, const char *argument, Py_ssize_t index);
 
 /*
  * Policy limits for vdev widths.  Mirror and raidz vdevs wider than these
