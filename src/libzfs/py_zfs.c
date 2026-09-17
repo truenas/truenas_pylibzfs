@@ -966,11 +966,21 @@ PyObject *py_zfs_iter_events(PyObject *self,
 PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "create_pool(*, name, storage_vdevs, cache_vdevs=None, log_vdevs=None,\n"
 "            special_vdevs=None, dedup_vdevs=None, spare_vdevs=None,\n"
-"            properties=None, filesystem_properties=None,"
-" force=False) -> None\n"
+"            properties=None, filesystem_properties=None,\n"
+"            feature_properties=None, force=False,"
+" dry_run=False) -> None\n"
 "--------------------------------------------------------------------\n\n"
 "Create a new ZFS storage pool.  All arguments are keyword-only.\n"
 "Vdev specifications must be built with create_vdev_spec() first.\n\n"
+"The topology is checked in two layers before libzfs is called.\n"
+"Structural constraints always apply: storage_vdevs is non-empty,\n"
+"cache and spare vdevs are leaves, log vdevs are leaves or mirrors,\n"
+"and special and dedup vdevs are leaf, mirror or raidz (never dRAID).\n"
+"Policy constraints apply unless force=True: every storage vdev has\n"
+"enough children for its type, all storage vdevs share one type and\n"
+"child count, mirror and raidz storage widths stay within\n"
+"constants.MAX_MIRROR_WIDTH and constants.MAX_RAIDZ_WIDTH, and special\n"
+"and dedup vdevs carry some redundancy when the storage vdevs do.\n\n"
 "Parameters\n"
 "----------\n"
 "name: str, required\n"
@@ -1007,17 +1017,25 @@ PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "    all supported features are enabled; use this to selectively disable\n"
 "    specific features at pool creation time.\n\n"
 "force: bool, optional, default=False\n"
-"    Skip Python-level topology validation, including storage vdev width\n"
-"    limits (mirror: max 4 members, raidz: max 15 drives).  Equivalent\n"
-"    to passing -f to zpool(8).  Does not suppress kernel-level checks.\n\n"
+"    Skip the policy constraints described above.  Structural\n"
+"    constraints still apply.  Equivalent to passing -f to zpool(8).\n"
+"    Does not suppress kernel-level checks.\n\n"
+"dry_run: bool, optional, default=False\n"
+"    Run every check that does not need the kernel (vdev specs, the\n"
+"    structural and policy constraints, property and feature names)\n"
+"    and return without creating anything.  Leaf device names are\n"
+"    not opened, so placeholders are acceptable.  The pool name and\n"
+"    the devices themselves are only checked by a real creation.\n\n"
 "Returns\n"
 "-------\n"
 "    None\n\n"
 "Raises\n"
 "------\n"
 "ValueError:\n"
-"    A required argument is missing or the pool topology violates\n"
-"    the enforced constraints (overridden by force=True).\n"
+"    A required argument is missing, the pool topology violates a\n"
+"    structural constraint, or it violates a policy constraint and\n"
+"    force=True was not passed.  The message names the offending\n"
+"    keyword argument first, e.g. \"storage_vdevs: ...\".\n"
 "TypeError:\n"
 "    An argument has an unexpected type.\n"
 "ZFSException:\n"
@@ -1033,16 +1051,16 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 		"name", "storage_vdevs", "cache_vdevs", "log_vdevs",
 		"special_vdevs", "dedup_vdevs", "spare_vdevs",
 		"properties", "filesystem_properties",
-		"feature_properties", "force",
+		"feature_properties", "force", "dry_run",
 		NULL
 	};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOOp",
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOOpp",
 	    kwnames,
 	    &cpa.name, &cpa.storage_vdevs, &cpa.cache_vdevs, &cpa.log_vdevs,
 	    &cpa.special_vdevs, &cpa.dedup_vdevs, &cpa.spare_vdevs,
 	    &cpa.properties, &cpa.filesystem_properties,
-	    &cpa.feature_properties, &cpa.force))
+	    &cpa.feature_properties, &cpa.force, &cpa.dry_run))
 		return NULL;
 
 	if (cpa.name == NULL) {

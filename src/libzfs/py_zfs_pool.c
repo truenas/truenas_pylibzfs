@@ -1275,7 +1275,7 @@ PyObject *py_zfs_pool_online_device(PyObject *self,
 PyDoc_STRVAR(py_zfs_pool_add_vdevs__doc__,
 "add_vdevs(*, storage_vdevs=None, cache_vdevs=None, log_vdevs=None,\n"
 "          special_vdevs=None, dedup_vdevs=None, spare_vdevs=None,\n"
-"          force=False) -> None\n\n"
+"          force=False, dry_run=False) -> None\n\n"
 "-----------------------------------------------------------------------\n\n"
 "Add vdevs to an existing pool (equivalent to 'zpool add').\n\n"
 "At least one vdev category must be non-empty.\n\n"
@@ -1304,7 +1304,14 @@ PyDoc_STRVAR(py_zfs_pool_add_vdevs__doc__,
 "    width limits (mirror: max 4 members, raidz: max 15 drives), and the\n"
 "    kernel ashift check.  Structural constraints (cache/spare must be\n"
 "    leaf, log must be leaf or mirror, dRAID not permitted for\n"
-"    special/dedup) always apply.  Equivalent to 'zpool add -f'.\n\n"
+"    special/dedup) always apply.  Equivalent to 'zpool add -f'.\n"
+"dry_run: bool, optional, default=False\n"
+"    Run every check that does not need the kernel (vdev specs, the\n"
+"    structural constraints, and unless force=True the width limits and\n"
+"    the match against the existing pool geometry) and return without\n"
+"    adding anything.  Leaf device names are not opened, so placeholders\n"
+"    are acceptable.  The kernel ashift check and the devices themselves\n"
+"    are only checked by a real add.\n\n"
 "Returns\n"
 "-------\n"
 "None\n\n"
@@ -1320,20 +1327,22 @@ py_zfs_pool_add_vdevs(PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_add_vdevs_args_t ava = {0};
-	boolean_t force = B_FALSE;
+	int force = 0;
+	int dry_run = 0;
 	char *kwnames[] = {
 		"storage_vdevs", "cache_vdevs", "log_vdevs",
 		"special_vdevs", "dedup_vdevs", "spare_vdevs",
-		"force", NULL
+		"force", "dry_run", NULL
 	};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OOOOOOp", kwnames,
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OOOOOOpp", kwnames,
 	    &ava.storage_vdevs, &ava.cache_vdevs, &ava.log_vdevs,
 	    &ava.special_vdevs, &ava.dedup_vdevs, &ava.spare_vdevs,
-	    &force))
+	    &force, &dry_run))
 		return (NULL);
 
 	ava.force = force ? B_TRUE : B_FALSE;
+	ava.dry_run = dry_run ? B_TRUE : B_FALSE;
 	return (py_zfs_do_add_vdevs(p, &ava));
 }
 

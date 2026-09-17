@@ -1162,3 +1162,133 @@ def test_destroy_pool_requires_name():
     lz = truenas_pylibzfs.open_handle()
     with pytest.raises(ValueError, match="name"):
         lz.destroy_pool()
+
+
+# ---------------------------------------------------------------------------
+# Section 5 — structural checks survive force=True
+# ---------------------------------------------------------------------------
+
+def _placeholder(i):
+    """A disk leaf that names a device which does not exist."""
+    return truenas_pylibzfs.create_vdev_spec(vdev_type="disk", name=f"placeholder{i}")
+
+
+def test_create_pool_force_keeps_log_type_check():
+    lz = truenas_pylibzfs.open_handle()
+    log = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="raidz1", children=[_placeholder(i) for i in range(3)]
+    )
+    with pytest.raises(ValueError, match="log_vdevs"):
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[_placeholder(9)], log_vdevs=[log], force=True)
+
+
+def test_create_pool_force_keeps_special_draid_check():
+    lz = truenas_pylibzfs.open_handle()
+    special = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="draid1", name="1d:0s", children=[_placeholder(i) for i in range(2)]
+    )
+    with pytest.raises(ValueError, match="special_vdevs"):
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[_placeholder(9)], special_vdevs=[special], force=True)
+
+
+# ---------------------------------------------------------------------------
+# Section 6 — dry_run=True (no real disks; placeholder device names)
+# ---------------------------------------------------------------------------
+
+def _pool_absent():
+    lz = truenas_pylibzfs.open_handle()
+    with pytest.raises(truenas_pylibzfs.ZFSException):
+        lz.open_pool(name=POOL_NAME)
+
+
+def test_create_pool_dry_run_accepts_valid_topology_and_creates_nothing():
+    lz = truenas_pylibzfs.open_handle()
+    mirrors = [
+        truenas_pylibzfs.create_vdev_spec(
+            vdev_type="mirror", children=[_placeholder(i), _placeholder(i + 1)]
+        )
+        for i in (0, 2)
+    ]
+    special = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="mirror", children=[_placeholder(4), _placeholder(5)]
+    )
+    result = lz.create_pool(
+        name=POOL_NAME,
+        storage_vdevs=mirrors,
+        log_vdevs=[_placeholder(6)],
+        cache_vdevs=[_placeholder(7)],
+        spare_vdevs=[_placeholder(8)],
+        special_vdevs=[special],
+        properties={ZPOOLProperty.ASHIFT: "12", "autotrim": "on"},
+        filesystem_properties={ZFSProperty.COMPRESSION: "lz4", "atime": "off"},
+        feature_properties={"bookmark_v2": False},
+        dry_run=True,
+    )
+    assert result is None
+    _pool_absent()
+
+
+def test_create_pool_dry_run_rejects_policy_violation():
+    lz = truenas_pylibzfs.open_handle()
+    mirror = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="mirror", children=[_placeholder(0), _placeholder(1)]
+    )
+    with pytest.raises(ValueError, match="storage_vdevs: all vdevs must share the same type"):
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[mirror, _placeholder(2)], dry_run=True)
+    with pytest.raises(ValueError, match="storage_vdevs: mirror width 5 exceeds"):
+        wide = truenas_pylibzfs.create_vdev_spec(
+            vdev_type="mirror", children=[_placeholder(i) for i in range(5)]
+        )
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[wide], dry_run=True)
+    with pytest.raises(ValueError, match="special_vdevs: .* no redundancy"):
+        lz.create_pool(
+            name=POOL_NAME, storage_vdevs=[mirror], special_vdevs=[_placeholder(3)], dry_run=True
+        )
+    _pool_absent()
+
+
+def test_create_pool_dry_run_force_skips_policy_but_not_structure():
+    lz = truenas_pylibzfs.open_handle()
+    mirror = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="mirror", children=[_placeholder(0), _placeholder(1)]
+    )
+    assert lz.create_pool(
+        name=POOL_NAME, storage_vdevs=[mirror, _placeholder(2)], force=True, dry_run=True
+    ) is None
+    cache_mirror = truenas_pylibzfs.create_vdev_spec(
+        vdev_type="mirror", children=[_placeholder(3), _placeholder(4)]
+    )
+    with pytest.raises(ValueError, match="cache_vdevs"):
+        lz.create_pool(
+            name=POOL_NAME, storage_vdevs=[mirror], cache_vdevs=[cache_mirror], force=True, dry_run=True
+        )
+    _pool_absent()
+
+
+def test_create_pool_dry_run_checks_properties():
+    lz = truenas_pylibzfs.open_handle()
+    with pytest.raises(ValueError, match="not a valid zpool property"):
+        lz.create_pool(
+            name=POOL_NAME, storage_vdevs=[_placeholder(0)], properties={"bogus": "x"}, dry_run=True
+        )
+    with pytest.raises(ValueError, match="not a valid ZFS feature name"):
+        lz.create_pool(
+            name=POOL_NAME, storage_vdevs=[_placeholder(0)], feature_properties={"bogus": True}, dry_run=True
+        )
+    with pytest.raises((ValueError, TypeError)):
+        lz.create_pool(
+            name=POOL_NAME,
+            storage_vdevs=[_placeholder(0)],
+            filesystem_properties={"bogus": "x"},
+            dry_run=True,
+        )
+    _pool_absent()
+
+
+def test_topology_limits_are_exported():
+    c = truenas_pylibzfs.constants
+    assert c.MAX_MIRROR_WIDTH == 4
+    assert c.MAX_RAIDZ_WIDTH == 15
+    assert c.VDEV_DRAID_MAX_CHILDREN == 255
+    assert c.VDEV_DRAID_MAXPARITY == 3
+    assert c.VDEV_DRAID_MAX_SPARES == 100

@@ -19,13 +19,6 @@
  *   lz.create_pool(name="tank", storage_vdevs=[m])
  */
 
-/*
- * Maximum number of dRAID distributed spares.  There is no named constant
- * for this in the ZFS headers; the value matches the hardcoded limit in
- * draid_config_by_type() in zpool_vdev.c.
- */
-#define	VDEV_DRAID_MAX_SPARES	100
-
 /* Field indices for struct_vdev_create_spec */
 #define VCSPEC_NAME_IDX     0
 #define VCSPEC_TYPE_IDX     1
@@ -417,20 +410,16 @@ validate_log_vdevs(PyObject *seq)
 }
 
 /*
- * Special and dedup vdevs must not be dRAID.  When the storage tier is
- * redundant (mirror or raidz, parity >= 1), special/dedup vdevs must also
- * carry some redundancy (parity >= 1); the parity levels are not required
- * to match.  When storage is striped (parity 0), no redundancy floor
- * applies.  Allowed types: leaf, mirror, raidz1/2/3.
+ * Special and dedup vdevs must be leaf, mirror or raidz1/2/3; dRAID is
+ * never permitted.  This is a structural rule that holds regardless of
+ * force.
  */
 static boolean_t
-validate_special_dedup_vdevs(PyObject *seq,
-    const char *context, PyObject *storage_py_type, int storage_parity)
+validate_special_dedup_types(PyObject *seq, const char *context)
 {
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
-	int parity;
 
 	iterator = PyObject_GetIter(seq);
 	if (iterator == NULL)
@@ -460,6 +449,34 @@ validate_special_dedup_vdevs(PyObject *seq,
 			return B_FALSE;
 		}
 
+		Py_DECREF(spec);
+	}
+	Py_DECREF(iterator);
+	return B_TRUE;
+}
+
+/*
+ * When the storage tier is redundant (mirror or raidz, parity >= 1),
+ * special/dedup vdevs must also carry some redundancy (parity >= 1); the
+ * parity levels are not required to match.  When storage is striped
+ * (parity 0), no redundancy floor applies.  This is a policy rule that
+ * force=True bypasses.
+ */
+static boolean_t
+validate_special_dedup_redundancy(PyObject *seq,
+    const char *context, PyObject *storage_py_type, int storage_parity)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+	int parity;
+
+	iterator = PyObject_GetIter(seq);
+	if (iterator == NULL)
+		return B_FALSE;
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 		parity = vdev_parity_level(py_type);
 		if (storage_parity >= 1 && parity < 1) {
 			PyErr_Format(PyExc_ValueError,
@@ -471,7 +488,6 @@ validate_special_dedup_vdevs(PyObject *seq,
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
-
 		Py_DECREF(spec);
 	}
 	Py_DECREF(iterator);
@@ -492,25 +508,25 @@ validate_storage_min_children(PyObject *spec, PyObject *py_type)
 
 	if (is_mirror_type(py_type) && nch < 2) {
 		PyErr_Format(PyExc_ValueError,
-		    "mirror vdev requires at least 2 children, got %zd", nch);
+		    "storage_vdevs: mirror vdev requires at least 2 children, got %zd", nch);
 		return B_FALSE;
 	}
 	if (PyUnicode_CompareWithASCIIString(py_type, "raidz1") == 0 &&
 	    nch < 2) {
 		PyErr_Format(PyExc_ValueError,
-		    "raidz1 vdev requires at least 2 children, got %zd", nch);
+		    "storage_vdevs: raidz1 vdev requires at least 2 children, got %zd", nch);
 		return B_FALSE;
 	}
 	if (PyUnicode_CompareWithASCIIString(py_type, "raidz2") == 0 &&
 	    nch < 3) {
 		PyErr_Format(PyExc_ValueError,
-		    "raidz2 vdev requires at least 3 children, got %zd", nch);
+		    "storage_vdevs: raidz2 vdev requires at least 3 children, got %zd", nch);
 		return B_FALSE;
 	}
 	if (PyUnicode_CompareWithASCIIString(py_type, "raidz3") == 0 &&
 	    nch < 4) {
 		PyErr_Format(PyExc_ValueError,
-		    "raidz3 vdev requires at least 4 children, got %zd", nch);
+		    "storage_vdevs: raidz3 vdev requires at least 4 children, got %zd", nch);
 		return B_FALSE;
 	}
 	return B_TRUE;
@@ -522,8 +538,10 @@ validate_storage_min_children(PyObject *spec, PyObject *py_type)
 
 /*
  * Check that the first storage vdev spec does not exceed the mirror or raidz
- * width limits.  Only the first spec is inspected because topology validation
- * already requires all storage specs to share the same type and child count.
+ * width limits.  Only the first spec is inspected because the callers
+ * require all storage specs to share the same type and child count (for a
+ * new pool that is checked first; for an add, each spec must match the
+ * existing pool geometry).
  *
  * Returns B_TRUE if within limits, B_FALSE with exception set if not.
  * The caller is responsible for only invoking this when force=False.
@@ -578,18 +596,66 @@ validate_storage_widths(PyObject *storage_seq)
  * -------------------------------------------------------------------------- */
 
 /*
- * Enforce all topology rules from the plan.  All seq arguments are
- * PySequence_Fast sequences (already validated per-spec); optional
- * categories (cache, log, special, dedup, spare) are NULL when absent.
+ * Structural rules, enforced regardless of force: storage_vdevs is
+ * non-empty, cache and spare vdevs are leaves, log vdevs are leaves or
+ * mirrors, and special/dedup vdevs are leaf, mirror or raidz.  All seq
+ * arguments are PySequence_Fast sequences (already validated per-spec);
+ * optional categories (cache, log, special, dedup, spare) are NULL when
+ * absent.
  */
 static boolean_t
-validate_pool_topology(
+validate_pool_structure(
     PyObject *storage_seq,
     PyObject *cache_seq,
     PyObject *log_seq,
     PyObject *special_seq,
     PyObject *dedup_seq,
     PyObject *spare_seq)
+{
+	Py_ssize_t storage_len;
+
+	storage_len = PyObject_Length(storage_seq);
+	if (storage_len < 0)
+		return B_FALSE;
+	if (storage_len == 0) {
+		PyErr_SetString(PyExc_ValueError,
+		    "storage_vdevs must be non-empty");
+		return B_FALSE;
+	}
+
+	if (cache_seq != NULL && !validate_all_leaf(cache_seq, "cache_vdevs"))
+		return B_FALSE;
+
+	if (spare_seq != NULL && !validate_all_leaf(spare_seq, "spare_vdevs"))
+		return B_FALSE;
+
+	if (log_seq != NULL && !validate_log_vdevs(log_seq))
+		return B_FALSE;
+
+	if (special_seq != NULL &&
+	    !validate_special_dedup_types(special_seq, "special_vdevs"))
+		return B_FALSE;
+
+	if (dedup_seq != NULL &&
+	    !validate_special_dedup_types(dedup_seq, "dedup_vdevs"))
+		return B_FALSE;
+
+	return B_TRUE;
+}
+
+/*
+ * Policy rules, bypassed by force=True: every storage vdev has enough
+ * children for its type, all storage vdevs share one type and child
+ * count, mirror and raidz storage widths stay within the
+ * PYLIBZFS_MAX_*_WIDTH limits, and special/dedup vdevs carry some
+ * redundancy when the storage tier does.  Assumes validate_pool_structure()
+ * has passed, so storage_seq is non-empty.
+ */
+static boolean_t
+validate_pool_policy(
+    PyObject *storage_seq,
+    PyObject *special_seq,
+    PyObject *dedup_seq)
 {
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
@@ -606,19 +672,6 @@ validate_pool_topology(
 	int storage_parity = 0;
 	boolean_t first = B_TRUE;
 
-	/* storage_vdevs must be non-empty */
-	{
-		Py_ssize_t storage_len = PyObject_Length(storage_seq);
-		if (storage_len < 0)
-			return B_FALSE;
-		if (storage_len == 0) {
-			PyErr_SetString(PyExc_ValueError,
-			    "storage_vdevs must be non-empty");
-			return B_FALSE;
-		}
-	}
-
-	/* Per-spec storage checks */
 	iterator = PyObject_GetIter(storage_seq);
 	if (iterator == NULL)
 		return B_FALSE;
@@ -681,36 +734,23 @@ validate_pool_topology(
 	}
 	Py_DECREF(iterator);
 
+	if (!validate_storage_widths(storage_seq))
+		return B_FALSE;
+
 	/*
 	 * Storage parity level, used to enforce that special/dedup vdevs
-	 * carry at least equivalent redundancy.  first_py_type is always set
-	 * here because an empty storage_seq is already rejected above.
+	 * carry some redundancy.  first_py_type is always set here because
+	 * validate_pool_structure() rejects an empty storage_seq.
 	 */
 	storage_parity = vdev_parity_level(first_py_type);
 
-	/* cache vdevs must be leaf */
-	if (cache_seq != NULL && !validate_all_leaf(cache_seq, "cache_vdevs"))
-		return B_FALSE;
-
-	/* spare vdevs must be leaf */
-	if (spare_seq != NULL && !validate_all_leaf(spare_seq, "spare_vdevs"))
-		return B_FALSE;
-
-	/* log vdevs must be leaf or mirror */
-	if (log_seq != NULL && !validate_log_vdevs(log_seq))
-		return B_FALSE;
-
-	/*
-	 * Special and dedup vdevs must not be dRAID and must carry at least
-	 * as much redundancy as the storage tier.
-	 */
 	if (special_seq != NULL &&
-	    !validate_special_dedup_vdevs(special_seq, "special_vdevs",
+	    !validate_special_dedup_redundancy(special_seq, "special_vdevs",
 	    first_py_type, storage_parity))
 		return B_FALSE;
 
 	if (dedup_seq != NULL &&
-	    !validate_special_dedup_vdevs(dedup_seq, "dedup_vdevs",
+	    !validate_special_dedup_redundancy(dedup_seq, "dedup_vdevs",
 	    first_py_type, storage_parity))
 		return B_FALSE;
 
@@ -1495,23 +1535,14 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	    "spare_vdevs", &spare_seq))
 		goto fail;
 
-	/* Topology validation (skip when force=True) */
-	if (!cpa->force) {
-		if (!validate_storage_widths(storage_seq))
-			goto fail;
-		if (!validate_pool_topology(storage_seq, cache_seq, log_seq,
-		    special_seq, dedup_seq, spare_seq))
-			goto fail;
-	}
-
-	/* Audit before making any kernel calls */
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
-	    cpa->name) < 0)
+	/* Structural checks always run regardless of force */
+	if (!validate_pool_structure(storage_seq, cache_seq, log_seq,
+	    special_seq, dedup_seq, spare_seq))
 		goto fail;
 
-	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
-	    special_seq, dedup_seq, spare_seq);
-	if (root_nvl == NULL)
+	/* Policy checks are bypassed by force=True */
+	if (!cpa->force &&
+	    !validate_pool_policy(storage_seq, special_seq, dedup_seq))
 		goto fail;
 
 	/* Cannot fail: fnvlist_alloc() aborts on OOM */
@@ -1542,6 +1573,33 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 		if (fsprops_nvl == NULL)
 			goto fail;
 	}
+
+	/*
+	 * Every check that does not need the kernel has passed.  A dry run
+	 * stops here: no audit event, no device is opened, nothing is
+	 * created and no history is logged.
+	 */
+	if (cpa->dry_run) {
+		fnvlist_free(props_nvl);
+		fnvlist_free(fsprops_nvl);
+		Py_XDECREF(storage_seq);
+		Py_XDECREF(cache_seq);
+		Py_XDECREF(log_seq);
+		Py_XDECREF(special_seq);
+		Py_XDECREF(dedup_seq);
+		Py_XDECREF(spare_seq);
+		Py_RETURN_NONE;
+	}
+
+	/* Audit before making any kernel calls */
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
+	    cpa->name) < 0)
+		goto fail;
+
+	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
+	    special_seq, dedup_seq, spare_seq);
+	if (root_nvl == NULL)
+		goto fail;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(plz);
@@ -2028,6 +2086,21 @@ py_zfs_do_add_vdevs(py_zfs_pool_t *pool, py_zfs_add_vdevs_args_t *ava)
 		if (!validate_add_topology(storage_seq, special_seq,
 		    dedup_seq, &existing))
 			goto fail;
+	}
+
+	/*
+	 * Every check that does not need the kernel has passed.  A dry run
+	 * stops here: no audit event, no device is opened, nothing is added
+	 * and no history is logged.
+	 */
+	if (ava->dry_run) {
+		Py_XDECREF(storage_seq);
+		Py_XDECREF(cache_seq);
+		Py_XDECREF(log_seq);
+		Py_XDECREF(special_seq);
+		Py_XDECREF(dedup_seq);
+		Py_XDECREF(spare_seq);
+		Py_RETURN_NONE;
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.add_vdevs", "O",

@@ -303,6 +303,7 @@ typedef struct {
 	PyObject	*filesystem_properties;
 	PyObject	*feature_properties;
 	boolean_t	 force;
+	boolean_t	 dry_run;
 } py_zfs_create_pool_args_t;
 
 extern PyObject *py_zfs_pool_create_vdev_spec(pylibzfs_state_t *state,
@@ -320,6 +321,7 @@ typedef struct {
 	PyObject *dedup_vdevs;
 	PyObject *spare_vdevs;
 	boolean_t force;
+	boolean_t dry_run;
 } py_zfs_add_vdevs_args_t;
 
 extern PyObject *py_zfs_do_add_vdevs(py_zfs_pool_t *pool,
@@ -339,6 +341,13 @@ extern boolean_t py_zfs_validate_vdev_spec(pylibzfs_state_t *state,
  */
 #define PYLIBZFS_MAX_MIRROR_WIDTH 4
 #define PYLIBZFS_MAX_RAIDZ_WIDTH  15
+
+/*
+ * Maximum number of dRAID distributed spares.  There is no named constant
+ * for this in the ZFS headers; the value matches the hardcoded limit in
+ * draid_config_by_type() in zpool_vdev.c.
+ */
+#define VDEV_DRAID_MAX_SPARES 100
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);

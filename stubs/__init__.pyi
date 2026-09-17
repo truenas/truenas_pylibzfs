@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
+from . import constants
 from . import libzfs_types
 from . import lzc
 from . import property_sets
