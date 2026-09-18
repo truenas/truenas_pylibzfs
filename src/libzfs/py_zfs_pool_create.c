@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <libzutil.h>
 #include <stdlib.h>
+#include <zfs_namecheck.h>
 
 /*
  * py_zfs_pool_create.c — pool creation API
@@ -18,13 +19,6 @@
  *   m   = create_vdev_spec(vdev_type="mirror", children=[sda, sdb])
  *   lz.create_pool(name="tank", storage_vdevs=[m])
  */
-
-/*
- * Maximum number of dRAID distributed spares.  There is no named constant
- * for this in the ZFS headers; the value matches the hardcoded limit in
- * draid_config_by_type() in zpool_vdev.c.
- */
-#define	VDEV_DRAID_MAX_SPARES	100
 
 /* Field indices for struct_vdev_create_spec */
 #define VCSPEC_NAME_IDX     0
@@ -144,44 +138,81 @@ vdev_parity_level(PyObject *py_type)
 typedef struct {
 	uint64_t ndata;
 	uint64_t nspares;
+	boolean_t ndata_given;
 } draid_config_t;
 
 /*
- * Parse a dRAID configuration string of the form
- * "<ndata>d:<nspares>s" (e.g. "3d:1s").
- * nchildren is not encoded in the name — it is derived from len(children).
+ * Data disks per redundancy group when the caller does not choose: the
+ * same default as draid_config_by_type() in zpool_vdev.c.
+ */
+#define DRAID_DEFAULT_NDATA 8
+
+/*
+ * Parse a dRAID configuration string of the form "<ndata>d:<nspares>s"
+ * (e.g. "3d:1s") or "<nspares>s" (e.g. "1s"), the latter leaving ndata to
+ * resolve_draid_config().  nchildren is not encoded in the name; it is
+ * derived from len(children).
  * Returns B_TRUE on success, B_FALSE if the string is malformed.
  */
 static boolean_t
 parse_draid_config(const char *str, draid_config_t *out)
 {
-	unsigned long ndata, nspares;
+	unsigned long first, nspares;
 	char *endp;
 
 	if (str == NULL || *str == '\0')
 		return B_FALSE;
 
-	/* Parse <ndata>d */
 	errno = 0;
-	ndata = strtoul(str, &endp, 10);
-	if (endp == str || *endp != 'd' || errno == ERANGE)
+	first = strtoul(str, &endp, 10);
+	if (endp == str || errno == ERANGE)
 		return B_FALSE;
-	str = endp + 1;
-	if (*str != ':')
-		return B_FALSE;
-	str++;
 
-	/* Parse <nspares>s */
-	errno = 0;
-	nspares = strtoul(str, &endp, 10);
-	if (endp == str || *endp != 's' || errno == ERANGE)
+	if (*endp == 'd') {
+		/* <ndata>d:<nspares>s */
+		out->ndata = (uint64_t)first;
+		out->ndata_given = B_TRUE;
+		str = endp + 1;
+		if (*str != ':')
+			return B_FALSE;
+		str++;
+		errno = 0;
+		nspares = strtoul(str, &endp, 10);
+		if (endp == str || *endp != 's' || errno == ERANGE)
+			return B_FALSE;
+	} else if (*endp == 's') {
+		/* <nspares>s */
+		out->ndata = 0;
+		out->ndata_given = B_FALSE;
+		nspares = first;
+	} else {
 		return B_FALSE;
+	}
+
 	/* Must be end of string */
 	if (*(endp + 1) != '\0')
 		return B_FALSE;
 
-	out->ndata = (uint64_t)ndata;
 	out->nspares = (uint64_t)nspares;
+	return B_TRUE;
+}
+
+/*
+ * Fill in the default ndata for a config that left it out, given the
+ * child count and parity level.  Returns B_FALSE when no disk would be
+ * left for data; the caller reports that.
+ */
+static boolean_t
+resolve_draid_config(draid_config_t *cfg, uint64_t nchildren,
+    uint64_t parity)
+{
+	if (cfg->ndata_given)
+		return B_TRUE;
+	if (nchildren <= cfg->nspares + parity)
+		return B_FALSE;
+	cfg->ndata = nchildren - cfg->nspares - parity;
+	if (cfg->ndata > DRAID_DEFAULT_NDATA)
+		cfg->ndata = DRAID_DEFAULT_NDATA;
 	return B_TRUE;
 }
 
@@ -196,7 +227,7 @@ parse_draid_config(const char *str, draid_config_t *out)
  */
 boolean_t
 py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
-    const char *context)
+    const char *argument, Py_ssize_t index)
 {
 	PyObject *py_name = NULL;
 	PyObject *py_type = NULL;
@@ -211,7 +242,7 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 	if (!PyObject_TypeCheck(spec, state->struct_vdev_create_spec_type)) {
 		PyErr_Format(PyExc_TypeError,
 		    "%s: expected struct_vdev_create_spec, got %s",
-		    context, Py_TYPE(spec)->tp_name);
+		    argument ? argument : "spec", Py_TYPE(spec)->tp_name);
 		return B_FALSE;
 	}
 
@@ -221,23 +252,32 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 
 	if (!PyUnicode_Check(py_type)) {
 		PyErr_Format(PyExc_TypeError,
-		    "%s: vdev_type must be a string", context);
+		    "%s: vdev_type must be a string",
+		    argument ? argument : "vdev_type");
 		return B_FALSE;
 	}
+
+	/*
+	 * When called for a sequence argument the refusal is located at
+	 * argument[index]; when called for a spec under construction
+	 * (argument NULL) it names the create_vdev_spec() parameter.
+	 */
+#define	SPEC_ERROR(param, ...) \
+	py_set_validation_error(argument ? argument : (param), \
+	    argument ? index : -1, __VA_ARGS__)
 
 	/* ---- Leaf vdevs ---- */
 	if (is_leaf_type(py_type)) {
 		if (py_name == Py_None || !PyUnicode_Check(py_name)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: leaf vdev type \"%U\" requires a non-None "
-			    "\"name\" (device path)",
-			    context, py_type);
+			SPEC_ERROR("name",
+			    "leaf vdev type \"%U\" requires a non-None "
+			    "\"name\" (device path)", py_type);
 			return B_FALSE;
 		}
 		if (py_children != Py_None) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: leaf vdev type \"%U\" must not have children",
-			    context, py_type);
+			SPEC_ERROR("children",
+			    "leaf vdev type \"%U\" must not have children",
+			    py_type);
 			return B_FALSE;
 		}
 		return B_TRUE;
@@ -246,10 +286,9 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 	/* ---- Virtual vdevs (mirror / raidz / draid) ---- */
 	if (is_virtual_type(py_type)) {
 		if (py_children == Py_None || !PyTuple_Check(py_children)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: virtual vdev type \"%U\" requires children "
-			    "(got None or non-tuple)",
-			    context, py_type);
+			SPEC_ERROR("children",
+			    "virtual vdev type \"%U\" requires children "
+			    "(got None or non-tuple)", py_type);
 			return B_FALSE;
 		}
 
@@ -258,14 +297,14 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 		if (is_draid_type(py_type)) {
 			/*
 			 * dRAID: name must be a parseable config string of
-			 * the form "<ndata>d:<nspares>s" (e.g. "3d:1s").
-			 * nchildren is implicit from len(children).
+			 * the form "<ndata>d:<nspares>s" (e.g. "3d:1s") or
+			 * "<nspares>s".  nchildren is implicit from
+			 * len(children).
 			 */
 			if (py_name == Py_None || !PyUnicode_Check(py_name)) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: dRAID vdev requires a name of the form "
-				    "\"<ndata>d:<nspares>s\"",
-				    context);
+				SPEC_ERROR("name",
+				    "dRAID vdev requires a name of the form "
+				    "\"<ndata>d:<nspares>s\" or \"<nspares>s\"");
 				return B_FALSE;
 			}
 			name_str = PyUnicode_AsUTF8(py_name);
@@ -273,44 +312,51 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 				return B_FALSE;
 
 			if (!parse_draid_config(name_str, &cfg)) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: dRAID name \"%s\" is malformed; "
-				    "expected \"<ndata>d:<nspares>s\"",
-				    context, name_str);
+				SPEC_ERROR("name",
+				    "dRAID name \"%s\" is malformed; expected "
+				    "\"<ndata>d:<nspares>s\" or \"<nspares>s\"",
+				    name_str);
 				return B_FALSE;
 			}
 
 			n_uint = (uint64_t)n;
 			parity_level = (uint64_t)vdev_parity_level(py_type);
 
-			if (cfg.ndata == 0) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: dRAID ndata must be > 0", context);
-				return B_FALSE;
-			}
-			if (n_uint > VDEV_DRAID_MAX_CHILDREN) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: dRAID supports at most %u children, "
-				    "got %llu",
-				    context, VDEV_DRAID_MAX_CHILDREN,
-				    (unsigned long long)n_uint);
-				return B_FALSE;
-			}
 			if (cfg.nspares > VDEV_DRAID_MAX_SPARES) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: dRAID nspares %llu exceeds maximum "
-				    "of %u",
-				    context,
+				SPEC_ERROR("name",
+				    "dRAID nspares %llu exceeds maximum of %u",
 				    (unsigned long long)cfg.nspares,
 				    VDEV_DRAID_MAX_SPARES);
 				return B_FALSE;
 			}
+			if (!resolve_draid_config(&cfg, n_uint,
+			    parity_level)) {
+				SPEC_ERROR("children",
+				    "dRAID with %llu distributed spares and "
+				    "parity %llu leaves no disks available for "
+				    "data, got %llu children",
+				    (unsigned long long)cfg.nspares,
+				    (unsigned long long)parity_level,
+				    (unsigned long long)n_uint);
+				return B_FALSE;
+			}
+			if (cfg.ndata == 0) {
+				SPEC_ERROR("name", "dRAID ndata must be > 0");
+				return B_FALSE;
+			}
+			if (n_uint > VDEV_DRAID_MAX_CHILDREN) {
+				SPEC_ERROR("children",
+				    "dRAID supports at most %u children, "
+				    "got %llu",
+				    VDEV_DRAID_MAX_CHILDREN,
+				    (unsigned long long)n_uint);
+				return B_FALSE;
+			}
 			if (n_uint < cfg.ndata + parity_level + cfg.nspares) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: dRAID requires at least %llu children "
+				SPEC_ERROR("children",
+				    "dRAID requires at least %llu children "
 				    "(ndata=%llu + parity=%llu + nspares=%llu),"
 				    " got %llu",
-				    context,
 				    (unsigned long long)(cfg.ndata +
 				    parity_level + cfg.nspares),
 				    (unsigned long long)cfg.ndata,
@@ -324,9 +370,9 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 			 * mirror / raidz: name must be None.
 			 */
 			if (py_name != Py_None) {
-				PyErr_Format(PyExc_ValueError,
-				    "%s: vdev type \"%U\" must have name=None",
-				    context, py_type);
+				SPEC_ERROR("name",
+				    "vdev type \"%U\" must have name=None",
+				    py_type);
 				return B_FALSE;
 			}
 		}
@@ -334,7 +380,8 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 		/* Recursively validate children */
 		for (i = 0; i < n; i++) {
 			child = PyTuple_GET_ITEM(py_children, i);
-			if (!py_zfs_validate_vdev_spec(state, child, context))
+			if (!py_zfs_validate_vdev_spec(state, child,
+			    argument, index))
 				return B_FALSE;
 		}
 
@@ -342,12 +389,12 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 	}
 
 	/* Unknown type */
-	PyErr_Format(PyExc_ValueError,
-	    "%s: unknown vdev_type \"%U\". Must be one of: "
+	SPEC_ERROR("vdev_type",
+	    "unknown vdev_type \"%U\". Must be one of: "
 	    "disk, file, mirror, raidz1, raidz2, raidz3, "
-	    "draid1, draid2, draid3",
-	    context, py_type);
+	    "draid1, draid2, draid3", py_type);
 	return B_FALSE;
+#undef SPEC_ERROR
 }
 
 /* --------------------------------------------------------------------------
@@ -358,11 +405,12 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
  * All vdevs in seq must be leaf type.  Used for cache and spare lists.
  */
 static boolean_t
-validate_all_leaf(PyObject *seq, const char *context)
+validate_all_leaf(PyObject *seq, const char *argument)
 {
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
+	Py_ssize_t i = 0;
 
 	iterator = PyObject_GetIter(seq);
 	if (iterator == NULL)
@@ -371,15 +419,15 @@ validate_all_leaf(PyObject *seq, const char *context)
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 		if (!is_leaf_type(py_type)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev must be leaf type (disk or file), "
-			    "got \"%U\"",
-			    context, py_type);
+			py_set_validation_error(argument, i,
+			    "vdev must be leaf type (disk or file), "
+			    "got \"%U\"", py_type);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
 		Py_DECREF(spec);
+		i++;
 	}
 	Py_DECREF(iterator);
 	return B_TRUE;
@@ -394,6 +442,7 @@ validate_log_vdevs(PyObject *seq)
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
+	Py_ssize_t i = 0;
 
 	iterator = PyObject_GetIter(seq);
 	if (iterator == NULL)
@@ -402,34 +451,70 @@ validate_log_vdevs(PyObject *seq)
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 		if (!is_leaf_type(py_type) && !is_mirror_type(py_type)) {
-			PyErr_Format(PyExc_ValueError,
-			    "log_vdevs: log vdev must be leaf or mirror, "
-			    "got \"%U\"",
+			py_set_validation_error("log_vdevs", i,
+			    "log vdev must be leaf or mirror, got \"%U\"",
 			    py_type);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
 		Py_DECREF(spec);
+		i++;
 	}
 	Py_DECREF(iterator);
 	return B_TRUE;
 }
 
 /*
- * Special and dedup vdevs must not be dRAID.  When the storage tier is
- * redundant (mirror or raidz, parity >= 1), special/dedup vdevs must also
- * carry some redundancy (parity >= 1); the parity levels are not required
- * to match.  When storage is striped (parity 0), no redundancy floor
- * applies.  Allowed types: leaf, mirror, raidz1/2/3.
+ * Special and dedup vdevs must not be dRAID.  Every other vdev type the
+ * spec validation lets through (leaf, mirror, raidz1/2/3) is acceptable.
+ * This is a structural rule that holds regardless of force, for both
+ * create_pool() and add_vdevs().
  */
 static boolean_t
-validate_special_dedup_vdevs(PyObject *seq,
-    const char *context, PyObject *storage_py_type, int storage_parity)
+validate_special_dedup_types(PyObject *seq, const char *argument)
 {
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
+	Py_ssize_t i = 0;
+
+	iterator = PyObject_GetIter(seq);
+	if (iterator == NULL)
+		return B_FALSE;
+
+	while ((spec = PyIter_Next(iterator))) {
+		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
+		if (is_draid_type(py_type)) {
+			py_set_validation_error(argument, i,
+			    "dRAID is not permitted for special or dedup "
+			    "vdevs");
+			Py_DECREF(spec);
+			Py_DECREF(iterator);
+			return B_FALSE;
+		}
+		Py_DECREF(spec);
+		i++;
+	}
+	Py_DECREF(iterator);
+	return B_TRUE;
+}
+
+/*
+ * When the storage tier is redundant (mirror or raidz, parity >= 1),
+ * special/dedup vdevs must also carry some redundancy (parity >= 1); the
+ * parity levels are not required to match.  When storage is striped
+ * (parity 0), no redundancy floor applies.  This is a policy rule that
+ * force=True bypasses.
+ */
+static boolean_t
+validate_special_dedup_redundancy(PyObject *seq,
+    const char *argument, PyObject *storage_py_type, int storage_parity)
+{
+	PyObject *iterator = NULL;
+	PyObject *spec = NULL;
+	PyObject *py_type = NULL;
+	Py_ssize_t i = 0;
 	int parity;
 
 	iterator = PyObject_GetIter(seq);
@@ -438,41 +523,18 @@ validate_special_dedup_vdevs(PyObject *seq,
 
 	while ((spec = PyIter_Next(iterator))) {
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-
-		if (is_draid_type(py_type)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: dRAID is not permitted for special or "
-			    "dedup vdevs",
-			    context);
-			Py_DECREF(spec);
-			Py_DECREF(iterator);
-			return B_FALSE;
-		}
-
-		if (!is_leaf_type(py_type) && !is_mirror_type(py_type) &&
-		    !is_raidz_type(py_type)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev must be leaf, mirror, or raidz type, "
-			    "got \"%U\"",
-			    context, py_type);
-			Py_DECREF(spec);
-			Py_DECREF(iterator);
-			return B_FALSE;
-		}
-
 		parity = vdev_parity_level(py_type);
 		if (storage_parity >= 1 && parity < 1) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev type \"%U\" has no redundancy but "
-			    "storage vdevs (type \"%U\") are redundant; "
-			    "pass force=True to override",
-			    context, py_type, storage_py_type);
+			py_set_validation_error(argument, i,
+			    "vdev type \"%U\" has no redundancy but "
+			    "storage vdevs (type \"%U\") are redundant",
+			    py_type, storage_py_type);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
 		}
-
 		Py_DECREF(spec);
+		i++;
 	}
 	Py_DECREF(iterator);
 	return B_TRUE;
@@ -482,35 +544,29 @@ validate_special_dedup_vdevs(PyObject *seq,
  * Check the minimum child count for a storage vdev by type.
  */
 static boolean_t
-validate_storage_min_children(PyObject *spec, PyObject *py_type)
+validate_storage_min_children(PyObject *spec, PyObject *py_type,
+    Py_ssize_t index)
 {
 	PyObject *py_children = NULL;
 	Py_ssize_t nch;
+	Py_ssize_t min = 0;
 
 	py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
 	nch = (py_children != Py_None) ? PyTuple_Size(py_children) : 0;
 
-	if (is_mirror_type(py_type) && nch < 2) {
-		PyErr_Format(PyExc_ValueError,
-		    "mirror vdev requires at least 2 children, got %zd", nch);
-		return B_FALSE;
-	}
-	if (PyUnicode_CompareWithASCIIString(py_type, "raidz1") == 0 &&
-	    nch < 2) {
-		PyErr_Format(PyExc_ValueError,
-		    "raidz1 vdev requires at least 2 children, got %zd", nch);
-		return B_FALSE;
-	}
-	if (PyUnicode_CompareWithASCIIString(py_type, "raidz2") == 0 &&
-	    nch < 3) {
-		PyErr_Format(PyExc_ValueError,
-		    "raidz2 vdev requires at least 3 children, got %zd", nch);
-		return B_FALSE;
-	}
-	if (PyUnicode_CompareWithASCIIString(py_type, "raidz3") == 0 &&
-	    nch < 4) {
-		PyErr_Format(PyExc_ValueError,
-		    "raidz3 vdev requires at least 4 children, got %zd", nch);
+	if (is_mirror_type(py_type))
+		min = 2;
+	else if (PyUnicode_CompareWithASCIIString(py_type, "raidz1") == 0)
+		min = 2;
+	else if (PyUnicode_CompareWithASCIIString(py_type, "raidz2") == 0)
+		min = 3;
+	else if (PyUnicode_CompareWithASCIIString(py_type, "raidz3") == 0)
+		min = 4;
+
+	if (nch < min) {
+		py_set_validation_error("storage_vdevs", index,
+		    "%U vdev requires at least %zd children, got %zd",
+		    py_type, min, nch);
 		return B_FALSE;
 	}
 	return B_TRUE;
@@ -522,8 +578,10 @@ validate_storage_min_children(PyObject *spec, PyObject *py_type)
 
 /*
  * Check that the first storage vdev spec does not exceed the mirror or raidz
- * width limits.  Only the first spec is inspected because topology validation
- * already requires all storage specs to share the same type and child count.
+ * width limits.  Only the first spec is inspected because the callers
+ * require all storage specs to share the same type and child count (for a
+ * new pool that is checked first; for an add, each spec must match the
+ * existing pool geometry).
  *
  * Returns B_TRUE if within limits, B_FALSE with exception set if not.
  * The caller is responsible for only invoking this when force=False.
@@ -554,17 +612,15 @@ validate_storage_widths(PyObject *storage_seq)
 	nch = (py_children != Py_None) ? PyTuple_Size(py_children) : 0;
 
 	if (is_mirror_type(py_type) && nch > PYLIBZFS_MAX_MIRROR_WIDTH) {
-		PyErr_Format(PyExc_ValueError,
-		    "storage_vdevs: mirror width %zd exceeds limit of %d; "
-		    "use force=True to override",
+		py_set_validation_error("storage_vdevs", 0,
+		    "mirror width %zd exceeds limit of %d",
 		    nch, PYLIBZFS_MAX_MIRROR_WIDTH);
 		Py_DECREF(spec);
 		return (B_FALSE);
 	}
 	if (is_raidz_type(py_type) && nch > PYLIBZFS_MAX_RAIDZ_WIDTH) {
-		PyErr_Format(PyExc_ValueError,
-		    "storage_vdevs: raidz width %zd exceeds limit of %d; "
-		    "use force=True to override",
+		py_set_validation_error("storage_vdevs", 0,
+		    "raidz width %zd exceeds limit of %d",
 		    nch, PYLIBZFS_MAX_RAIDZ_WIDTH);
 		Py_DECREF(spec);
 		return (B_FALSE);
@@ -574,22 +630,136 @@ validate_storage_widths(PyObject *storage_seq)
 }
 
 /* --------------------------------------------------------------------------
+ * Pool name validation.
+ * -------------------------------------------------------------------------- */
+
+/*
+ * The pool name rules zpool_create() applies through zpool_name_valid(),
+ * which libzfs does not export: pool_namecheck() plus the reserved prefixes
+ * libzfs refuses only on create.  The messages are libzfs's own.
+ * Returns B_TRUE if valid, B_FALSE with a ValidationError set if not.
+ */
+static boolean_t
+validate_pool_name(const char *name)
+{
+	namecheck_err_t why;
+	char what = '\0';
+	const char *reason = NULL;
+
+	if (pool_namecheck(name, &why, &what) == 0) {
+		if (strncmp(name, "mirror", 6) != 0 &&
+		    strncmp(name, "raidz", 5) != 0 &&
+		    strncmp(name, "draid", 5) != 0 &&
+		    strncmp(name, "spare", 5) != 0 &&
+		    strcmp(name, "log") != 0)
+			return B_TRUE;
+		reason = "name is reserved";
+	} else {
+		switch (why) {
+		case NAME_ERR_TOOLONG:
+			reason = "name is too long";
+			break;
+		case NAME_ERR_INVALCHAR:
+			py_set_validation_error("name", -1,
+			    "invalid character '%c' in pool name", what);
+			return B_FALSE;
+		case NAME_ERR_NOLETTER:
+			reason = "name must begin with a letter";
+			break;
+		case NAME_ERR_RESERVED:
+			reason = "name is reserved";
+			break;
+		case NAME_ERR_DISKLIKE:
+			reason = "pool name is reserved";
+			break;
+		case NAME_ERR_LEADING_SLASH:
+			reason = "leading slash in name";
+			break;
+		case NAME_ERR_EMPTY_COMPONENT:
+			reason = "empty component in name";
+			break;
+		case NAME_ERR_TRAILING_SLASH:
+			reason = "trailing slash in name";
+			break;
+		case NAME_ERR_MULTIPLE_DELIMITERS:
+			reason = "multiple '@' and/or '#' delimiters in name";
+			break;
+		default:
+			py_set_validation_error("name", -1,
+			    "(%d) not defined", (int)why);
+			return B_FALSE;
+		}
+	}
+
+	py_set_validation_error("name", -1, "%s", reason);
+	return B_FALSE;
+}
+
+/* --------------------------------------------------------------------------
  * Full pool topology validation.
  * -------------------------------------------------------------------------- */
 
 /*
- * Enforce all topology rules from the plan.  All seq arguments are
- * PySequence_Fast sequences (already validated per-spec); optional
- * categories (cache, log, special, dedup, spare) are NULL when absent.
+ * Structural rules, enforced regardless of force: storage_vdevs is
+ * non-empty, cache and spare vdevs are leaves, log vdevs are leaves or
+ * mirrors, and special/dedup vdevs are leaf, mirror or raidz.  All seq
+ * arguments are PySequence_Fast sequences (already validated per-spec);
+ * optional categories (cache, log, special, dedup, spare) are NULL when
+ * absent.
  */
 static boolean_t
-validate_pool_topology(
+validate_pool_structure(
     PyObject *storage_seq,
     PyObject *cache_seq,
     PyObject *log_seq,
     PyObject *special_seq,
     PyObject *dedup_seq,
     PyObject *spare_seq)
+{
+	Py_ssize_t storage_len;
+
+	storage_len = PyObject_Length(storage_seq);
+	if (storage_len < 0)
+		return B_FALSE;
+	if (storage_len == 0) {
+		py_set_validation_error("storage_vdevs", -1,
+		    "at least one storage vdev is required");
+		return B_FALSE;
+	}
+
+	if (cache_seq != NULL && !validate_all_leaf(cache_seq, "cache_vdevs"))
+		return B_FALSE;
+
+	if (spare_seq != NULL && !validate_all_leaf(spare_seq, "spare_vdevs"))
+		return B_FALSE;
+
+	if (log_seq != NULL && !validate_log_vdevs(log_seq))
+		return B_FALSE;
+
+	if (special_seq != NULL &&
+	    !validate_special_dedup_types(special_seq, "special_vdevs"))
+		return B_FALSE;
+
+	if (dedup_seq != NULL &&
+	    !validate_special_dedup_types(dedup_seq, "dedup_vdevs"))
+		return B_FALSE;
+
+	return B_TRUE;
+}
+
+/*
+ * Policy rules, bypassed by force=True: every storage vdev has enough
+ * children for its type, all storage vdevs share one type and child
+ * count, mirror and raidz storage widths stay within the
+ * PYLIBZFS_MAX_*_WIDTH limits, and special/dedup vdevs carry some
+ * redundancy when the storage tier does.  Assumes validate_pool_structure()
+ * has passed, so storage_seq is non-empty.
+ */
+static boolean_t
+validate_pool_policy(
+    PyObject *storage_seq,
+    PyObject *special_seq,
+    PyObject *dedup_seq)
 {
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
@@ -603,31 +773,20 @@ validate_pool_topology(
 	PyObject *first_py_type = NULL;
 	Py_ssize_t nch = 0;
 	Py_ssize_t first_child_count = -1;
+	Py_ssize_t i = -1;
 	int storage_parity = 0;
 	boolean_t first = B_TRUE;
 
-	/* storage_vdevs must be non-empty */
-	{
-		Py_ssize_t storage_len = PyObject_Length(storage_seq);
-		if (storage_len < 0)
-			return B_FALSE;
-		if (storage_len == 0) {
-			PyErr_SetString(PyExc_ValueError,
-			    "storage_vdevs must be non-empty");
-			return B_FALSE;
-		}
-	}
-
-	/* Per-spec storage checks */
 	iterator = PyObject_GetIter(storage_seq);
 	if (iterator == NULL)
 		return B_FALSE;
 
 	while ((spec = PyIter_Next(iterator))) {
+		i++;
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 
 		/* Min children for this vdev type */
-		if (!validate_storage_min_children(spec, py_type)) {
+		if (!validate_storage_min_children(spec, py_type, i)) {
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return B_FALSE;
@@ -654,9 +813,9 @@ validate_pool_topology(
 				return B_FALSE;
 			}
 			if (cmp == 0) {
-				PyErr_Format(PyExc_ValueError,
-				    "storage_vdevs: all vdevs must share the "
-				    "same type; got \"%U\" and \"%U\"",
+				py_set_validation_error("storage_vdevs", i,
+				    "all vdevs must share the same type; "
+				    "got \"%U\" and \"%U\"",
 				    first_py_type, py_type);
 				Py_DECREF(spec);
 				Py_DECREF(iterator);
@@ -669,10 +828,9 @@ validate_pool_topology(
 			if (first_child_count == -1) {
 				first_child_count = nch;
 			} else if (nch != first_child_count) {
-				PyErr_Format(PyExc_ValueError,
-				    "storage_vdevs: all \"%U\" vdevs must have "
-				    "the same number of children; "
-				    "got %zd and %zd",
+				py_set_validation_error("storage_vdevs", i,
+				    "all \"%U\" vdevs must have the same "
+				    "number of children; got %zd and %zd",
 				    py_type, first_child_count, nch);
 				Py_DECREF(iterator);
 				return B_FALSE;
@@ -681,36 +839,23 @@ validate_pool_topology(
 	}
 	Py_DECREF(iterator);
 
+	if (!validate_storage_widths(storage_seq))
+		return B_FALSE;
+
 	/*
 	 * Storage parity level, used to enforce that special/dedup vdevs
-	 * carry at least equivalent redundancy.  first_py_type is always set
-	 * here because an empty storage_seq is already rejected above.
+	 * carry some redundancy.  first_py_type is always set here because
+	 * validate_pool_structure() rejects an empty storage_seq.
 	 */
 	storage_parity = vdev_parity_level(first_py_type);
 
-	/* cache vdevs must be leaf */
-	if (cache_seq != NULL && !validate_all_leaf(cache_seq, "cache_vdevs"))
-		return B_FALSE;
-
-	/* spare vdevs must be leaf */
-	if (spare_seq != NULL && !validate_all_leaf(spare_seq, "spare_vdevs"))
-		return B_FALSE;
-
-	/* log vdevs must be leaf or mirror */
-	if (log_seq != NULL && !validate_log_vdevs(log_seq))
-		return B_FALSE;
-
-	/*
-	 * Special and dedup vdevs must not be dRAID and must carry at least
-	 * as much redundancy as the storage tier.
-	 */
 	if (special_seq != NULL &&
-	    !validate_special_dedup_vdevs(special_seq, "special_vdevs",
+	    !validate_special_dedup_redundancy(special_seq, "special_vdevs",
 	    first_py_type, storage_parity))
 		return B_FALSE;
 
 	if (dedup_seq != NULL &&
-	    !validate_special_dedup_vdevs(dedup_seq, "dedup_vdevs",
+	    !validate_special_dedup_redundancy(dedup_seq, "dedup_vdevs",
 	    first_py_type, storage_parity))
 		return B_FALSE;
 
@@ -807,7 +952,8 @@ build_vdev_spec_nvlist(PyObject *spec)
 			fnvlist_free(nvl);
 			return NULL;
 		}
-		if (!parse_draid_config(name_str, &cfg)) {
+		if (!parse_draid_config(name_str, &cfg) ||
+		    !resolve_draid_config(&cfg, (uint64_t)n, parity)) {
 			PyErr_Format(PyExc_RuntimeError,
 			    "Internal error: dRAID config parse failed "
 			    "for \"%s\"", name_str);
@@ -964,7 +1110,7 @@ py_zpoolprops_to_nvlist(PyObject *pyprops)
 			}
 			zprop = zpool_name_to_prop(kstr);
 			if (zprop == ZPOOL_PROP_INVAL) {
-				PyErr_Format(PyExc_ValueError,
+				py_set_validation_error("properties", -1,
 				    "\"%s\": not a valid zpool property", kstr);
 				fnvlist_free(nvl);
 				return NULL;
@@ -976,9 +1122,8 @@ py_zpoolprops_to_nvlist(PyObject *pyprops)
 				return NULL;
 			}
 			if (lval < 0 || lval >= ZPOOL_NUM_PROPS) {
-				PyErr_Format(PyExc_ValueError,
-				    "%ld: not a valid zpool property value",
-				    lval);
+				py_set_validation_error("properties", -1,
+				    "%ld: not a valid zpool property", lval);
 				fnvlist_free(nvl);
 				return NULL;
 			}
@@ -1029,6 +1174,7 @@ validate_vdev_list(pylibzfs_state_t *state, PyObject *pyobj,
 	PyObject *seq = NULL;
 	PyObject *iterator = NULL;
 	PyObject *item = NULL;
+	Py_ssize_t index = 0;
 
 	if (pyobj == NULL || pyobj == Py_None) {
 		*out_seq = NULL;
@@ -1046,7 +1192,8 @@ validate_vdev_list(pylibzfs_state_t *state, PyObject *pyobj,
 	}
 
 	while ((item = PyIter_Next(iterator))) {
-		boolean_t ok = py_zfs_validate_vdev_spec(state, item, argname);
+		boolean_t ok = py_zfs_validate_vdev_spec(state, item, argname,
+		    index++);
 		Py_DECREF(item);
 		if (!ok) {
 			Py_DECREF(iterator);
@@ -1079,8 +1226,8 @@ py_zfs_pool_create_vdev_spec(pylibzfs_state_t *state,
 	Py_ssize_t n, i;
 
 	if (!is_valid_vdev_type(py_vtype)) {
-		PyErr_Format(PyExc_ValueError,
-		    "Invalid vdev_type \"%U\". Must be one of: "
+		py_set_validation_error("vdev_type", -1,
+		    "invalid vdev_type \"%U\". Must be one of: "
 		    "disk, file, mirror, raidz1, raidz2, raidz3, "
 		    "draid1, draid2, draid3",
 		    py_vtype);
@@ -1137,7 +1284,7 @@ py_zfs_pool_create_vdev_spec(pylibzfs_state_t *state,
 	PyStructSequence_SetItem(out, VCSPEC_CHILDREN_IDX, children_tuple);
 
 	/* Full validation of the constructed spec */
-	if (!py_zfs_validate_vdev_spec(state, out, "create_vdev_spec")) {
+	if (!py_zfs_validate_vdev_spec(state, out, NULL, -1)) {
 		Py_DECREF(out);
 		return NULL;
 	}
@@ -1420,7 +1567,7 @@ apply_feature_properties(nvlist_t *props, PyObject *feat_dict)
 		}
 
 		if (!found) {
-			PyErr_Format(PyExc_ValueError,
+			py_set_validation_error("feature_properties", -1,
 			    "\"%s\": not a valid ZFS feature name", fname);
 			return (-1);
 		}
@@ -1444,6 +1591,46 @@ apply_feature_properties(nvlist_t *props, PyObject *feat_dict)
 	}
 
 	return (0);
+}
+
+/*
+ * Run libzfs's own value validation on the root filesystem properties, as
+ * zpool_create() does before its ioctl (zoned and key_ok as it passes
+ * them, no dataset or pool handle).  Returns B_TRUE if libzfs accepts
+ * them, B_FALSE with a ValidationError carrying libzfs's description.
+ */
+static boolean_t
+validate_fsprops(py_zfs_t *plz, nvlist_t *fsprops)
+{
+	nvlist_t *valid = NULL;
+	const char *zonestr = NULL;
+	uint64_t zoned;
+	py_zfs_error_t zfs_err;
+	boolean_t err = B_FALSE;
+
+	zoned = (nvlist_lookup_string(fsprops,
+	    zfs_prop_to_name(ZFS_PROP_ZONED), &zonestr) == 0 &&
+	    strcmp(zonestr, "on") == 0);
+
+	Py_BEGIN_ALLOW_THREADS
+	PY_ZFS_LOCK(plz);
+	valid = zfs_valid_proplist(plz->lzh, ZFS_TYPE_FILESYSTEM, fsprops,
+	    zoned, NULL, NULL, B_TRUE, "cannot create pool");
+	if (valid == NULL) {
+		py_get_zfs_error(plz->lzh, &zfs_err);
+		err = B_TRUE;
+	} else {
+		fnvlist_free(valid);
+	}
+	PY_ZFS_UNLOCK(plz);
+	Py_END_ALLOW_THREADS
+
+	if (err) {
+		py_set_validation_error("filesystem_properties", -1, "%s",
+		    zfs_err.description);
+		return B_FALSE;
+	}
+	return B_TRUE;
 }
 
 /*
@@ -1495,23 +1682,14 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	    "spare_vdevs", &spare_seq))
 		goto fail;
 
-	/* Topology validation (skip when force=True) */
-	if (!cpa->force) {
-		if (!validate_storage_widths(storage_seq))
-			goto fail;
-		if (!validate_pool_topology(storage_seq, cache_seq, log_seq,
-		    special_seq, dedup_seq, spare_seq))
-			goto fail;
-	}
-
-	/* Audit before making any kernel calls */
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
-	    cpa->name) < 0)
+	/* Structural checks always run regardless of force */
+	if (!validate_pool_structure(storage_seq, cache_seq, log_seq,
+	    special_seq, dedup_seq, spare_seq))
 		goto fail;
 
-	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
-	    special_seq, dedup_seq, spare_seq);
-	if (root_nvl == NULL)
+	/* Policy checks are bypassed by force=True */
+	if (!cpa->force &&
+	    !validate_pool_policy(storage_seq, special_seq, dedup_seq))
 		goto fail;
 
 	/* Cannot fail: fnvlist_alloc() aborts on OOM */
@@ -1539,9 +1717,46 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	    cpa->filesystem_properties != Py_None) {
 		fsprops_nvl = py_zfsprops_to_nvlist(state,
 		    cpa->filesystem_properties, ZFS_TYPE_FILESYSTEM, B_FALSE);
-		if (fsprops_nvl == NULL)
+		if (fsprops_nvl == NULL) {
+			py_validation_error_from_current(
+			    "filesystem_properties");
 			goto fail;
+		}
 	}
+
+	/*
+	 * Every check that does not need the kernel has passed.  A dry run
+	 * also applies what zpool_create() checks before its ioctl, the
+	 * pool name rules and zfs_valid_proplist() on the root filesystem
+	 * properties, then stops here: no audit event, no device is opened,
+	 * nothing is created and no history is logged.
+	 */
+	if (cpa->dry_run) {
+		if (!validate_pool_name(cpa->name))
+			goto fail;
+		if (fsprops_nvl != NULL &&
+		    !validate_fsprops(plz, fsprops_nvl))
+			goto fail;
+		fnvlist_free(props_nvl);
+		fnvlist_free(fsprops_nvl);
+		Py_XDECREF(storage_seq);
+		Py_XDECREF(cache_seq);
+		Py_XDECREF(log_seq);
+		Py_XDECREF(special_seq);
+		Py_XDECREF(dedup_seq);
+		Py_XDECREF(spare_seq);
+		Py_RETURN_NONE;
+	}
+
+	/* Audit before making any kernel calls */
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
+	    cpa->name) < 0)
+		goto fail;
+
+	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
+	    special_seq, dedup_seq, spare_seq);
+	if (root_nvl == NULL)
+		goto fail;
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(plz);
@@ -1692,39 +1907,6 @@ pool_get_storage_info(zpool_handle_t *zhp)
 }
 
 /*
- * Reject dRAID in a metadata vdev sequence (special or dedup).
- * This check always runs regardless of force=True.
- * Returns B_TRUE on success, B_FALSE with exception set on failure.
- */
-static boolean_t
-validate_metadata_no_draid(PyObject *seq, const char *context)
-{
-	PyObject *iterator = NULL;
-	PyObject *spec = NULL;
-	PyObject *py_type = NULL;
-
-	iterator = PyObject_GetIter(seq);
-	if (iterator == NULL)
-		return (B_FALSE);
-
-	while ((spec = PyIter_Next(iterator))) {
-		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
-		if (is_draid_type(py_type)) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: dRAID is not permitted for metadata vdevs",
-			    context);
-			Py_DECREF(spec);
-			Py_DECREF(iterator);
-			return (B_FALSE);
-		}
-		Py_DECREF(spec);
-	}
-
-	Py_DECREF(iterator);
-	return (B_TRUE);
-}
-
-/*
  * Validate redundancy of metadata vdevs (special or dedup) against the
  * existing pool storage.  When the existing pool storage is redundant
  * (parity >= 1), metadata vdevs must also have some redundancy (parity >= 1);
@@ -1734,12 +1916,13 @@ validate_metadata_no_draid(PyObject *seq, const char *context)
  * failure.
  */
 static boolean_t
-validate_metadata_parity(PyObject *seq, const char *context,
+validate_metadata_parity(PyObject *seq, const char *argument,
     const pool_storage_info_t *existing)
 {
 	PyObject *iterator = NULL;
 	PyObject *spec = NULL;
 	PyObject *py_type = NULL;
+	Py_ssize_t i = 0;
 	int parity;
 
 	iterator = PyObject_GetIter(seq);
@@ -1750,17 +1933,16 @@ validate_metadata_parity(PyObject *seq, const char *context,
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 		parity = vdev_parity_level(py_type);
 		if (existing->parity >= 1 && parity < 1) {
-			PyErr_Format(PyExc_ValueError,
-			    "%s: vdev type \"%U\" has no redundancy but "
-			    "existing pool storage is redundant (parity %llu); "
-			    "pass force=True to override",
-			    context, py_type,
-			    (unsigned long long)existing->parity);
+			py_set_validation_error(argument, i,
+			    "vdev type \"%U\" has no redundancy but "
+			    "existing pool storage is redundant (parity %llu)",
+			    py_type, (unsigned long long)existing->parity);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
 			return (B_FALSE);
 		}
 		Py_DECREF(spec);
+		i++;
 	}
 
 	Py_DECREF(iterator);
@@ -1785,12 +1967,14 @@ validate_storage_vdevs_match(PyObject *storage_seq,
 	const char *ktype = NULL;
 	uint64_t kparity = 0;
 	Py_ssize_t nch = 0;
+	Py_ssize_t i = -1;
 
 	iterator = PyObject_GetIter(storage_seq);
 	if (iterator == NULL)
 		return (B_FALSE);
 
 	while ((spec = PyIter_Next(iterator))) {
+		i++;
 		py_type = PyStructSequence_GET_ITEM(spec, VCSPEC_TYPE_IDX);
 		py_children = PyStructSequence_GET_ITEM(spec, VCSPEC_CHILDREN_IDX);
 
@@ -1815,10 +1999,9 @@ validate_storage_vdevs_match(PyObject *storage_seq,
 		nch = (py_children != Py_None) ? PyTuple_Size(py_children) : 0;
 
 		if (strcmp(ktype, existing->type) != 0) {
-			PyErr_Format(PyExc_ValueError,
-			    "storage_vdevs: new vdev type \"%U\" "
-			    "(kernel type \"%s\") does not match "
-			    "existing pool storage type \"%s\"",
+			py_set_validation_error("storage_vdevs", i,
+			    "new vdev type \"%U\" (kernel type \"%s\") does "
+			    "not match existing pool storage type \"%s\"",
 			    py_type, ktype, existing->type);
 			Py_DECREF(spec);
 			Py_DECREF(iterator);
@@ -1826,9 +2009,9 @@ validate_storage_vdevs_match(PyObject *storage_seq,
 		}
 
 		if (kparity != existing->parity) {
-			PyErr_Format(PyExc_ValueError,
-			    "storage_vdevs: new vdev \"%U\" parity %llu "
-			    "does not match existing pool storage parity %llu",
+			py_set_validation_error("storage_vdevs", i,
+			    "new vdev \"%U\" parity %llu does not match "
+			    "existing pool storage parity %llu",
 			    py_type,
 			    (unsigned long long)kparity,
 			    (unsigned long long)existing->parity);
@@ -1838,9 +2021,9 @@ validate_storage_vdevs_match(PyObject *storage_seq,
 		}
 
 		if ((uint64_t)nch != existing->nchildren) {
-			PyErr_Format(PyExc_ValueError,
-			    "storage_vdevs: new vdev \"%U\" has %zd children "
-			    "but existing pool storage has %llu children",
+			py_set_validation_error("storage_vdevs", i,
+			    "new vdev \"%U\" has %zd children but existing "
+			    "pool storage has %llu children",
 			    py_type, nch,
 			    (unsigned long long)existing->nchildren);
 			Py_DECREF(spec);
@@ -1895,8 +2078,8 @@ validate_add_structure(
 
 	if (storage_n == 0 && cache_n == 0 && log_n == 0 &&
 	    special_n == 0 && dedup_n == 0 && spare_n == 0) {
-		PyErr_SetString(PyExc_ValueError,
-		    "add_vdevs: at least one vdev category must be non-empty");
+		py_set_validation_error(NULL, -1,
+		    "at least one vdev category must be non-empty");
 		return (B_FALSE);
 	}
 
@@ -1910,11 +2093,11 @@ validate_add_structure(
 		return (B_FALSE);
 
 	if (special_n > 0 &&
-	    !validate_metadata_no_draid(special_seq, "special_vdevs"))
+	    !validate_special_dedup_types(special_seq, "special_vdevs"))
 		return (B_FALSE);
 
 	if (dedup_n > 0 &&
-	    !validate_metadata_no_draid(dedup_seq, "dedup_vdevs"))
+	    !validate_special_dedup_types(dedup_seq, "dedup_vdevs"))
 		return (B_FALSE);
 
 	return (B_TRUE);
@@ -2028,6 +2211,21 @@ py_zfs_do_add_vdevs(py_zfs_pool_t *pool, py_zfs_add_vdevs_args_t *ava)
 		if (!validate_add_topology(storage_seq, special_seq,
 		    dedup_seq, &existing))
 			goto fail;
+	}
+
+	/*
+	 * Every check that does not need the kernel has passed.  A dry run
+	 * stops here: no audit event, no device is opened, nothing is added
+	 * and no history is logged.
+	 */
+	if (ava->dry_run) {
+		Py_XDECREF(storage_seq);
+		Py_XDECREF(cache_seq);
+		Py_XDECREF(log_seq);
+		Py_XDECREF(special_seq);
+		Py_XDECREF(dedup_seq);
+		Py_XDECREF(spare_seq);
+		Py_RETURN_NONE;
 	}
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.add_vdevs", "O",

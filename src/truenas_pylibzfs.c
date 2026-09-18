@@ -26,6 +26,13 @@ static void add_constants(PyObject *m) {
 	ADD_INT_CONSTANT(ZFS_MAX_DATASET_NAME_LEN);
 	ADD_INT_CONSTANT(ZFS_IOC_GETDOSFLAGS);
 	ADD_INT_CONSTANT(ZFS_IOC_SETDOSFLAGS);
+	ADD_INT_CONSTANT(VDEV_DRAID_MAX_CHILDREN);
+	ADD_INT_CONSTANT(VDEV_DRAID_MAXPARITY);
+	ADD_INT_CONSTANT(VDEV_DRAID_MAX_SPARES);
+	PyModule_AddIntConstant(m, "MAX_MIRROR_WIDTH",
+	    PYLIBZFS_MAX_MIRROR_WIDTH);
+	PyModule_AddIntConstant(m, "MAX_RAIDZ_WIDTH",
+	    PYLIBZFS_MAX_RAIDZ_WIDTH);
 
 	ADD_STR_CONSTANT(ZPOOL_CACHE_BOOT);
 	ADD_STR_CONSTANT(ZPOOL_CACHE);
@@ -205,7 +212,10 @@ PyDoc_STRVAR(py_create_vdev_spec__doc__,
 "name: str | None, optional\n"
 "    Device path for leaf vdevs (disk/file), e.g. \"/dev/sda\".\n"
 "    For dRAID vdevs, a config string of the form \"<ndata>d:<nspares>s\",\n"
-"    e.g. \"3d:1s\" for 3 data disks and 1 distributed spare.\n"
+"    e.g. \"3d:1s\" for 3 data disks and 1 distributed spare, or just\n"
+"    \"<nspares>s\" to let the data disks per group default the way\n"
+"    zpool create does: every child left after parity and spares, at\n"
+"    most 8.\n"
 "    Must be None for all other virtual vdev types (mirror, raidz*).\n\n"
 "children: sequence of struct_vdev_create_spec | None, optional\n"
 "    Child vdev specs for virtual vdev types (mirror, raidz*, draid*).\n"
@@ -217,10 +227,13 @@ PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev_create_spec\n"
 "    (name, vdev_type, children).\n\n"
 "Raises\n"
 "------\n"
+"ValidationError:\n"
+"    vdev_type is unrecognised, or the name/children combination is\n"
+"    inconsistent with the requested type (e.g. leaf vdev with children,\n"
+"    or dRAID with a malformed config string).  A ValueError subclass;\n"
+"    its argument attribute names the parameter judged.\n"
 "ValueError:\n"
-"    vdev_type is missing, unrecognised, or the name/children combination\n"
-"    is inconsistent with the requested type (e.g. leaf vdev with children,\n"
-"    or dRAID with a malformed config string).\n"
+"    vdev_type is missing.\n"
 "TypeError:\n"
 "    vdev_type is not a string, name is not a string or None, or children\n"
 "    is not a sequence.\n"
@@ -649,6 +662,14 @@ PyInit_truenas_pylibzfs(void)
 
 	zfs_exc = setup_zfs_exception();
 	err = PyModule_AddObjectRef(mpylibzfs, "ZFSException", zfs_exc);
+	Py_XDECREF(zfs_exc);
+	if (err) {
+		Py_DECREF(mpylibzfs);
+		return NULL;
+	}
+
+	zfs_exc = setup_validation_exception();
+	err = PyModule_AddObjectRef(mpylibzfs, "ValidationError", zfs_exc);
 	Py_XDECREF(zfs_exc);
 	if (err) {
 		Py_DECREF(mpylibzfs);

@@ -218,6 +218,17 @@ extern const char *zfs_error_name(zfs_error_t error);
 extern void py_get_zfs_error(libzfs_handle_t *lz, py_zfs_error_t *out);
 
 extern PyObject *setup_zfs_exception(void);
+extern PyObject *setup_validation_exception(void);
+
+/*
+ * Raise truenas_pylibzfs.ValidationError (a ValueError) for a refused
+ * argument.  index is the offending position within a sequence argument,
+ * or -1 when there is none; argument may be NULL when the refusal spans
+ * several arguments.  Requires the GIL.
+ */
+extern void py_set_validation_error(const char *argument, Py_ssize_t index,
+    const char *fmt, ...);
+extern void py_validation_error_from_current(const char *argument);
 
 /*
  * @brief set a ZFSError exception based on given parameters
@@ -303,6 +314,7 @@ typedef struct {
 	PyObject	*filesystem_properties;
 	PyObject	*feature_properties;
 	boolean_t	 force;
+	boolean_t	 dry_run;
 } py_zfs_create_pool_args_t;
 
 extern PyObject *py_zfs_pool_create_vdev_spec(pylibzfs_state_t *state,
@@ -320,6 +332,7 @@ typedef struct {
 	PyObject *dedup_vdevs;
 	PyObject *spare_vdevs;
 	boolean_t force;
+	boolean_t dry_run;
 } py_zfs_add_vdevs_args_t;
 
 extern PyObject *py_zfs_do_add_vdevs(py_zfs_pool_t *pool,
@@ -331,7 +344,7 @@ extern nvlist_t *py_zfs_build_single_vdev_nvroot(PyObject *spec);
  * Returns B_TRUE if valid, B_FALSE with a Python exception set if not.
  */
 extern boolean_t py_zfs_validate_vdev_spec(pylibzfs_state_t *state,
-    PyObject *spec, const char *context);
+    PyObject *spec, const char *argument, Py_ssize_t index);
 
 /*
  * Policy limits for vdev widths.  Mirror and raidz vdevs wider than these
@@ -339,6 +352,15 @@ extern boolean_t py_zfs_validate_vdev_spec(pylibzfs_state_t *state,
  */
 #define PYLIBZFS_MAX_MIRROR_WIDTH 4
 #define PYLIBZFS_MAX_RAIDZ_WIDTH  15
+
+/*
+ * Maximum number of dRAID distributed spares.  There is no named constant
+ * for this in the ZFS headers; the value matches the hardcoded limit in
+ * draid_config_by_type() in zpool_vdev.c.  It is named like the genuine
+ * VDEV_DRAID_* macros it is exported beside, so if OpenZFS ever defines a
+ * macro of this name this definition must be dropped in favour of it.
+ */
+#define VDEV_DRAID_MAX_SPARES 100
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
