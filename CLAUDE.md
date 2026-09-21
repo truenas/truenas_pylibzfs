@@ -61,6 +61,7 @@ src/
     py_zfs_dataset.c        — ZFSDataset object
     py_zfs_volume.c         — ZFSVolume object
     py_zfs_snapshot.c       — ZFSSnapshot object
+    py_zfs_bookmark.c       — ZFSBookmark object
     py_zfs_resource.c       — shared resource methods
     py_zfs_object.c         — ZFSObject (bookmark support)
     py_zfs_prop.c           — property get/set

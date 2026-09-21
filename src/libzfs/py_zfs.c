@@ -358,6 +358,9 @@ PyObject *py_zfs_resource_open(PyObject *self,
 	case ZFS_TYPE_SNAPSHOT:
 		out = (PyObject *)init_zfs_snapshot(plz, zfsp, B_FALSE);
 		break;
+	case ZFS_TYPE_BOOKMARK:
+		out = (PyObject *)init_zfs_bookmark(plz, zfsp);
+		break;
 	default:
 		PyErr_SetString(PyExc_RuntimeError,
 				"Unsupported ZFS type");

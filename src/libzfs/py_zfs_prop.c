@@ -376,6 +376,8 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 	Py_END_ALLOW_THREADS
 
 	if ((err == -1) && (
+	    ((pyzfs->ctype == ZFS_TYPE_BOOKMARK) &&
+	     zfs_prop_valid_for_type(prop, ZFS_TYPE_BOOKMARK, B_FALSE)) ||
 	    (prop == ZFS_PROP_SNAPSHOTS_CHANGED) ||
 	    (prop == ZFS_PROP_ENCRYPTION_ROOT) ||
 	    (prop == ZFS_PROP_KEYSTATUS) ||
@@ -394,6 +396,14 @@ PyObject* py_zfs_get_prop(pylibzfs_state_t *state,
 		 * clones, since the underlying clones nvlist is empty. That is
 		 * an empty relationship, not an error, so map it to None to
 		 * match get_clones() returning an empty tuple in the same case.
+		 *
+		 * A bookmark only carries what the kernel writes into its ZAP
+		 * entry, so a property valid for ZFS_TYPE_BOOKMARK may still be
+		 * absent and report -1 without setting errno: compressratio
+		 * always, referenced and logicalreferenced when the bookmark
+		 * predates feature@bookmark_written. The valid_for_type() check
+		 * keeps this to those, so a property invalid for the type still
+		 * raises below.
 		 */
 
 		/* set value to "none" to ensure it's parsed to None type */

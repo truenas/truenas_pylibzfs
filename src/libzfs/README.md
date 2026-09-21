@@ -36,11 +36,23 @@ for this purpose throughout the module.
 ZFS                        - libzfs handle; pool/dataset factory
 +-- ZFSPool                - zpool_handle_t wrapper
 +-- ZFSObject              - base class (name, type, guid, ...)
+    +-- ZFSBookmark        - bookmark (pool/ds#name)
     +-- ZFSResource        - adds property get/set, is_simple flag
         +-- ZFSDataset     - filesystem
         +-- ZFSVolume      - zvol
         +-- ZFSSnapshot    - snapshot
 ```
+
+`ZFSBookmark` deliberately derives from `ZFSObject` rather than `ZFSResource`.
+A bookmark has no mountpoint, no settable properties and no user properties,
+and several inherited `ZFSResource` methods would issue a dataset ioctl
+against a name containing a `#`: `refresh_properties()` in particular calls
+`zfs_refresh_properties()` unconditionally, which reaches
+`ZFS_IOC_OBJSET_STATS`, under a docstring that promises it does not raise.
+`ZFSObject.rename()` is likewise unsafe for a bookmark -- `zfs_name_valid()`
+accepts a `#` name for `ZFS_TYPE_BOOKMARK` and `zfs_rename()` would take its
+non-snapshot branch -- so `ZFSBookmark` overrides it with a method that always
+raises `TypeError`.
 
 `ZFSCrypto` is a helper object returned by the `crypto` property of
 `ZFSDataset` and `ZFSVolume`. It holds a reference to the underlying resource
@@ -61,10 +73,11 @@ namespace.
 | `py_zfs.c` | `ZFS` handle object - `open_handle`, `create_resource`, `open_resource`, `destroy_resource`, `iter_root_filesystems`, `iter_pools`, `open_pool`, `destroy_pool`, `export_pool`, `create_pool`, `import_pool_find`, `import_pool`, `resource_cryptography_config`, `zpool_events` |
 | `py_zfs_pool.c` | `ZFSPool` - all pool-level operations: status, properties, device management (`add_vdevs`, `attach_vdev`, `replace_vdev`, `detach_vdev`, `remove_vdev`, `online_device`, `offline_device`), `scan`, `sync_pool`, `upgrade`, `expand_info`, `scrub_info`, `iter_history` |
 | `py_zfs_resource.c` | Shared methods on `ZFSResource`: property get/set, rename, promote, mount/unmount, snapshot, clone, destroy, iter_filesystems/snapshots |
-| `py_zfs_dataset.c` | `ZFSDataset`-specific additions: `iter_userspace`, `set_userquotas`, `crypto` property accessor, `local_replicate` thin wrapper |
-| `py_zfs_volume.c` | `ZFSVolume`-specific additions: `crypto` property accessor, `promote`, `local_replicate` thin wrapper |
+| `py_zfs_dataset.c` | `ZFSDataset`-specific additions: `iter_userspace`, `set_userquotas`, `crypto` property accessor, `local_replicate` and `iter_bookmarks` thin wrappers |
+| `py_zfs_volume.c` | `ZFSVolume`-specific additions: `crypto` property accessor, `promote`, `local_replicate` and `iter_bookmarks` thin wrappers |
 | `py_zfs_local_replicate.c` | `local_replicate` for `ZFSDataset` and `ZFSVolume`. Filesystem path is `zfs send -Rp [-w]` (recursive); volume path is `zfs send -p [-w]` (single snapshot, non-recursive); both pipe into a co-resident `zfs receive`. Source properties always embedded; pass `props={...}` to override on the destination. `fromsnap` requests `zfs send -i`; pair with `include_intermediates=True` for `zfs send -I` semantics (every intermediate snapshot included). |
 | `py_zfs_snapshot.c` | `ZFSSnapshot`-specific additions: `get_holds`, `get_clones`, `clone` |
+| `py_zfs_bookmark.c` | `ZFSBookmark` - `get_properties`, `destroy`, and a `rename` that always raises; the `iter_bookmarks` implementation shared by `ZFSDataset` and `ZFSVolume` |
 | `py_zfs_object.c` | `ZFSObject` base - `rename`; read-only properties `name`, `type`, `guid`, `createtxg`, `pool_name`, `encrypted` |
 | `py_zfs_common.c` | `py_zfs_promote()` shared helper used by dataset, volume, and resource |
 | `py_zfs_prop.c` | ZFS dataset property get/set - `py_zfs_get_properties`, `py_object_to_zfs_prop_t`; `ZFSProperty` struct-sequence types |
@@ -73,7 +86,7 @@ namespace.
 | `py_zfs_pool_expand.c` | RAIDZ expansion status - `ZFSPoolExpand` struct-sequence (state, vdev, timing, bytes) |
 | `py_zfs_pool_scrub.c` | Scan/scrub statistics - `ZFSPoolScrub` struct-sequence (23 fields: state, timing, bytes examined/processed/issued/errors, pass stats) |
 | `py_zfs_pool_status.c` | Pool status - `ZFSPoolStatus` struct-sequence built from `zpool_get_status` |
-| `py_zfs_iter.c/.h` | Iterator engine - `py_iter_state_t`, callbacks for filesystems, snapshots, userspace, and pools; manages GIL/lock interleaving around callbacks |
+| `py_zfs_iter.c/.h` | Iterator engine - `py_iter_state_t`, callbacks for filesystems, snapshots, bookmarks, userspace, and pools; manages GIL/lock interleaving around callbacks |
 | `py_zfs_events.c/.h` | `ZFSEventIterator` - iterator over `zpool_events_next` records; holds its own `zevent_fd` |
 | `py_zfs_history.c` | `ZFSHistoryIterator` - iterator over `zpool_get_history` records with `since`/`until` timestamp filtering |
 | `py_zfs_mount.c` | `zfs_mount_at` / `zfs_umount` wrappers |

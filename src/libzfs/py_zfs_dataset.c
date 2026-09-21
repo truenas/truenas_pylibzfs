@@ -293,6 +293,14 @@ PyObject *py_zfs_dataset_local_replicate(PyObject *self, PyObject *args,
 }
 
 static
+PyObject *py_zfs_dataset_iter_bookmarks(PyObject *self, PyObject *args,
+					PyObject *kwargs)
+{
+	py_zfs_resource_t *res = &((py_zfs_dataset_t *)self)->rsrc;
+	return py_zfs_iter_bookmarks(res, args, kwargs);
+}
+
+static
 PyGetSetDef zfs_dataset_getsetters[] = {
 	{ .name = NULL }
 };
@@ -328,6 +336,12 @@ PyMethodDef zfs_dataset_methods[] = {
 		.ml_meth = (PyCFunction)py_zfs_dataset_local_replicate,
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_local_replicate__doc__
+	},
+	{
+		.ml_name = "iter_bookmarks",
+		.ml_meth = (PyCFunction)py_zfs_dataset_iter_bookmarks,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
+		.ml_doc = py_zfs_iter_bookmarks__doc__
 	},
 	{ NULL, NULL, 0, NULL }
 };

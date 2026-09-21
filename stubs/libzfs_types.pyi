@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable, Iterator
 import enum
-from typing import Any, ClassVar, Literal, Self, final, overload
+from typing import Any, ClassVar, Literal, NoReturn, Self, final, overload
 
 from . import lzc
 
@@ -1004,6 +1004,7 @@ class ZFSResource(ZFSObject):
 class ZFSDataset(ZFSResource):  # type: ignore[misc]
     """ZFS filesystem dataset."""
     def iter_userspace(self, *, callback: Any, state: Any, quota_type: Any) -> bool: ...
+    def iter_bookmarks(self, *, callback: Any, state: Any) -> bool: ...
     def set_userquotas(self, *, quotas: Any) -> None: ...
     def crypto(self) -> ZFSCrypto | None: ...
     def promote(self) -> None: ...
@@ -1043,6 +1044,7 @@ class ZFSDataset(ZFSResource):  # type: ignore[misc]
 @final
 class ZFSVolume(ZFSResource):  # type: ignore[misc]
     """ZFS volume (zvol) dataset."""
+    def iter_bookmarks(self, *, callback: Any, state: Any) -> bool: ...
     def crypto(self) -> ZFSCrypto | None: ...
     def promote(self) -> None: ...
     def local_replicate(
@@ -1120,6 +1122,32 @@ class ZFSSnapshot(ZFSResource):  # type: ignore[misc]
     def get_holds(self) -> tuple[str, ...]: ...
     def get_clones(self) -> tuple[str, ...]: ...
     def clone(self, *, name: str, properties: dict[str, Any] | None = None, user_properties: dict[str, str] | None = None) -> None: ...
+
+
+@final
+class ZFSBookmark(ZFSObject):
+    """ZFS bookmark (``<pool>/<dataset>#<name>``).
+
+    A bookmark marks the point in a dataset's history where a snapshot was,
+    and holds no data of its own.  It cannot be mounted, renamed or cloned,
+    has no settable and no user properties, and its only operational use is
+    as the incremental source of a send.
+
+    ``encrypted`` is derived from the bookmark's IVset GUID, which ZFS
+    records only for bookmarks of encrypted datasets.  A bookmark taken from
+    a snapshot that predates that feature reports False even though its
+    dataset is encrypted.
+    """
+    def get_properties(self, *, properties: Any, get_source: bool = ...) -> struct_zfs_property: ...
+    def destroy(self) -> None: ...
+    def rename(
+        self,
+        *,
+        new_name: str,
+        recursive: bool = ...,
+        no_unmount: bool = ...,
+        force_unmount: bool = ...,
+    ) -> NoReturn: ...
 
 
 class ZFSPool:

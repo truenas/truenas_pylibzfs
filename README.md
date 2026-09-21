@@ -364,6 +364,57 @@ name = truenas_pylibzfs.lzc.rollback(
 
 ---
 
+## Bookmarks
+
+A bookmark records the creation txg of a snapshot so the snapshot itself can
+be destroyed while still serving as an incremental send source. Bookmarks are
+read-only: they have no mountpoint, no settable properties and no rename.
+`ZFSBookmark` therefore derives from `ZFSObject`, not `ZFSResource`.
+
+### Iterate and open
+
+```python
+ds = lz.open_resource(name="tank/data")
+
+
+def collect(bookmark, state):
+    state.append(bookmark.name)
+    return True  # return False to stop iteration
+
+
+names = []
+ds.iter_bookmarks(callback=collect, state=names)
+
+# Open one directly by its <dataset>#<bookmark> name
+bookmark = lz.open_resource(name="tank/data#bm1")
+print(bookmark.name, bookmark.guid, bookmark.createtxg)
+```
+
+### Properties
+
+```python
+props = bookmark.get_properties(
+    properties=truenas_pylibzfs.property_sets.ZFS_BOOKMARK_PROPERTIES,
+)
+print(props.guid.value, props.createtxg.value)
+
+# Values the kernel does not record for a bookmark are reported as None
+# rather than raising. compressratio is always absent; referenced and
+# logicalreferenced are absent on a bookmark created while
+# feature@bookmark_written was disabled.
+print(props.compressratio.value)  # None
+```
+
+### Destroy
+
+```python
+bookmark.destroy()
+```
+
+Creating a bookmark is not yet wrapped; use `zfs bookmark` for now.
+
+---
+
 ## Send / Receive (Replication)
 
 `truenas_pylibzfs.lzc` wraps libzfs_core send/receive directly. The caller is responsible for managing the file descriptor (pipe, socket, file).
@@ -838,9 +889,10 @@ src/
     py_zfs_dataset.c          # ZFSDataset subclass
     py_zfs_volume.c           # ZFSVolume subclass
     py_zfs_snapshot.c         # ZFSSnapshot subclass
+    py_zfs_bookmark.c         # ZFSBookmark subclass
     py_zfs_crypto.c           # ZFSCrypto class
     py_zfs_prop.c             # dataset property get/set
-    py_zfs_iter.c             # iter_pools, iter_filesystems, iter_snapshots, iter_userspace
+    py_zfs_iter.c             # iter_pools, iter_filesystems, iter_snapshots, iter_bookmarks, iter_userspace
     py_zfs_events.c           # zpool_events generator
     py_zfs_history.c          # iter_history
     py_zfs_mount.c            # mount/unmount
@@ -878,6 +930,7 @@ setup.py
 | `ZFS_SPACE_PROPERTIES` | Equivalent of `zfs get space` output |
 | `ZFS_FILESYSTEM_SNAPSHOT_PROPERTIES` | Valid properties for filesystem snapshots |
 | `ZFS_VOLUME_SNAPSHOT_PROPERTIES` | Valid properties for volume snapshots |
+| `ZFS_BOOKMARK_PROPERTIES` | Valid properties for `ZFS_TYPE_BOOKMARK` |
 | `ZPOOL_PROPERTIES` | All settable pool properties |
 | `ZPOOL_SPACE` | All pool space and capacity properties |
 | `ZPOOL_CLASS_SPACE` | Per-allocation-class space counters |

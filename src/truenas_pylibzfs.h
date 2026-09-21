@@ -15,8 +15,8 @@
 
 #define PYLIBZFS_MODULE_NAME "truenas_pylibzfs"
 #define PYLIBZFS_TYPES_MODULE_NAME PYLIBZFS_MODULE_NAME ".libzfs_types"
-#define SUPPORTED_RESOURCES ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
-	ZFS_TYPE_SNAPSHOT
+#define SUPPORTED_RESOURCES (ZFS_TYPE_VOLUME | ZFS_TYPE_FILESYSTEM | \
+	ZFS_TYPE_SNAPSHOT | ZFS_TYPE_BOOKMARK)
 #define MAX_HISTORY_PREFIX_LEN 25
 #define DEFAULT_HISTORY_PREFIX  "truenas-pylibzfs: "
 #define LIBZFS_NONE_VALUE "none"
@@ -136,6 +136,16 @@ typedef struct {
 	py_zfs_resource_t rsrc;
 } py_zfs_snapshot_t;
 
+/*
+ * A bookmark is not a ZFS resource. It has no mountpoint, no settable
+ * properties, no user properties and no clone relationship, and its handle
+ * must never be handed to an ioctl that expects a dataset name, so it extends
+ * py_zfs_obj_t directly rather than py_zfs_resource_t.
+ */
+typedef struct {
+	py_zfs_obj_t obj;
+} py_zfs_bookmark_t;
+
 union zfs_resources {
 	py_zfs_dataset_t *ds;
 	py_zfs_volume_t *vol;
@@ -158,6 +168,7 @@ typedef struct {
 } py_zfs_enc_t;
 
 extern PyTypeObject ZFS;
+extern PyTypeObject ZFSBookmark;
 extern PyTypeObject ZFSDataset;
 extern PyTypeObject ZFSEventIterator;
 extern PyTypeObject ZFSHistoryIterator;
@@ -282,6 +293,14 @@ extern py_zfs_volume_t *init_zfs_volume(py_zfs_t *lzp, zfs_handle_t *zfsp,
 /* Caveats and parameters are same as init_zfs_dataset() above */
 extern py_zfs_snapshot_t *init_zfs_snapshot(py_zfs_t *lzp, zfs_handle_t *zfsp,
 					    boolean_t simple);
+
+/* Provided by py_zfs_bookmark.c */
+/*
+ * Caveats and parameters are same as init_zfs_dataset() above, except that
+ * there is no `simple` argument: a bookmark handle always carries the full
+ * set of properties that ZFS records for it.
+ */
+extern py_zfs_bookmark_t *init_zfs_bookmark(py_zfs_t *lzp, zfs_handle_t *zfsp);
 
 /* Provided by py_zfs_pool.c */
 extern py_zfs_pool_t *init_zfs_pool(py_zfs_t *lzp, zpool_handle_t *zhp);
@@ -674,6 +693,47 @@ PyDoc_STRVAR(py_zfs_local_replicate__doc__,
 );
 extern PyObject *py_zfs_local_replicate(py_zfs_resource_t *res,
 					PyObject *args, PyObject *kwargs);
+
+/* py_zfs_bookmark.c */
+PyDoc_STRVAR(py_zfs_iter_bookmarks__doc__,
+"iter_bookmarks(*, callback, state) -> bool\n\n"
+"------------------------------------------\n\n"
+"List the bookmarks of this resource. Arguments are keyword-only.\n\n"
+"Unlike iter_snapshots() this takes no \"fast\", transaction group or\n"
+"ordering arguments. libzfs provides a single bookmark iterator, which\n"
+"has no simple-handle, txg-bounded or sorted variant, and bookmarks are\n"
+"returned in the order the kernel reports them.\n\n"
+"Parameters\n"
+"----------\n"
+"callback: callable\n"
+"    Callback function that will be called for every bookmark.\n\n"
+"state: object, optional\n"
+"    Optional python object (for example dictionary) passed as an argument\n"
+"    to the callback function for each bookmark.\n\n"
+"Returns\n"
+"-------\n"
+"bool\n"
+"    Value indicates that iteration completed without being stopped by the\n"
+"    callback function returning False.\n\n"
+"Raises:\n"
+"-------\n"
+"truenas_pylibzfs.ZFSError:\n"
+"    An error occurred during iteration. Note that this exception type may\n"
+"    also be raised within the callback function.\n\n"
+"NOTE regarding \"callback\":\n"
+"--------------------------\n"
+"Minimally the function signature must take a single argument for each ZFS\n"
+"object. If the \"state\" keyword is specified then the callback function\n"
+"should take two arguments. The callback function must return bool value\n"
+"indicating whether iteration should continue.\n\n"
+"Example \"callback\":\n"
+"-------------------\n"
+"def my_callback(bookmark, state):\n"
+"    print(f'{bookmark.name}: {state}')\n"
+"    return True\n"
+);
+extern PyObject *py_zfs_iter_bookmarks(py_zfs_resource_t *res,
+				       PyObject *args, PyObject *kwargs);
 
 /* Set up propset module with frozensets */
 extern PyObject *py_setup_propset_module(PyObject *parent);

@@ -9,6 +9,7 @@ typedef struct {
 	PyObject *zfs_filesystem_snapshot_readonly_props;
 	PyObject *zfs_volume_snapshot_props;
 	PyObject *zfs_volume_snapshot_readonly_props;
+	PyObject *zfs_bookmark_props;
 	PyObject *zpool_status_nonrecoverable;
 	PyObject *zpool_status_recoverable;
 	PyObject *zpool_readonly_properties;
@@ -42,6 +43,7 @@ py_zfs_propset_module_clear(PyObject *module)
 	Py_CLEAR(state->zfs_filesystem_snapshot_readonly_props);
 	Py_CLEAR(state->zfs_volume_snapshot_props);
 	Py_CLEAR(state->zfs_volume_snapshot_readonly_props);
+	Py_CLEAR(state->zfs_bookmark_props);
 	Py_CLEAR(state->zpool_status_nonrecoverable);
 	Py_CLEAR(state->zpool_status_recoverable);
 	Py_CLEAR(state->zpool_readonly_properties);
@@ -127,6 +129,10 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 	if (state->zfs_space_props == NULL)
 		goto error;
 
+	state->zfs_bookmark_props = PyFrozenSet_New(NULL);
+	if (state->zfs_bookmark_props == NULL)
+		goto error;
+
 	/*
 	 * Iterate the ZFS propset enum and build out frozenset
 	 * based on the properties
@@ -168,6 +174,11 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 			}
 		}
 
+		if (zfs_prop_valid_for_type(val, ZFS_TYPE_BOOKMARK, B_FALSE)) {
+			if (PySet_Add(state->zfs_bookmark_props, item))
+				goto error;
+		}
+
 		if (is_space_zfs_prop(val) &&
 		    (PySet_Add(state->zfs_space_props, item)))
 			goto error;
@@ -205,6 +216,10 @@ boolean_t py_add_zfs_propset(pylibzfs_state_t *pstate,
 
 	if (PyModule_AddObjectRef(module, "ZFS_VOLUME_SNAPSHOT_READONLY_PROPERTIES",
 	    state->zfs_volume_snapshot_readonly_props) < 0)
+		goto error;
+
+	if (PyModule_AddObjectRef(module, "ZFS_BOOKMARK_PROPERTIES",
+	    state->zfs_bookmark_props) < 0)
 		goto error;
 
 	if (PyModule_AddObjectRef(module, "ZFS_SPACE_PROPERTIES",
@@ -476,6 +491,10 @@ PYLIBZFS_MODULE_NAME ".propset provides various frozen sets for ZFS and zpool\n"
 "- ZFS_VOLUME_PROPERTIES: these properties are valid for ZFS_TYPE_VOLUME.\n"
 "\n"
 "- ZFS_FILESYSTEM_PROPERTIES: these properties are valid for ZFS_TYPE_FILESYSTEM.\n"
+"\n"
+"- ZFS_BOOKMARK_PROPERTIES: these properties are valid for ZFS_TYPE_BOOKMARK.\n"
+"   Note that a bookmark only ever carries the handful of values that ZFS\n"
+"   records for it; the remainder are returned as None.\n"
 "\n"
 "- ZFS_SPACE_PROPERTIES: these properties provide the equivalent of the property\n"
 "   set returned by the command \"zfs get space\".\n"

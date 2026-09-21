@@ -257,7 +257,10 @@ PyObject *py_zfs_obj_get_pool(py_zfs_obj_t *self, void *extra) {
 
 PyDoc_STRVAR(py_zfs_obj_encrypted__doc__,
 "If set, the ZFS resource is encrypted. This does not show if the resource is "
-"locked or unlocked. To get more infomration, call the crypto() method.\n"
+"locked or unlocked. To get more infomration, call the crypto() method.\n\n"
+"On a ZFSBookmark this is derived from the bookmark's IVset (Initialization\n"
+"Vector set) GUID, which ZFS records only for bookmarks of encrypted\n"
+"datasets, and there is no crypto() method to call.\n"
 );
 static
 PyObject *py_zfs_obj_get_encrypted(py_zfs_obj_t *self, void *extra) {

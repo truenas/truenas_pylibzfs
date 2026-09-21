@@ -17,6 +17,7 @@ types_add_to_submodule(PyObject *m)
 		PyTypeObject *type;
 	} type_exports[] = {
 		{ "ZFS", &ZFS },
+		{ "ZFSBookmark", &ZFSBookmark },
 		{ "ZFSCrypto", &ZFSCrypto },
 		{ "ZFSDataset", &ZFSDataset },
 		{ "ZFSEventIterator", &ZFSEventIterator },

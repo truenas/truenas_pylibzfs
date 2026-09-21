@@ -218,6 +218,27 @@ out:
 }
 
 static int
+bookmark_callback(zfs_handle_t *zhp, void *private)
+{
+	int result = ITER_RESULT_ERROR;
+	py_iter_state_t *state = (py_iter_state_t *)private;
+	py_zfs_bookmark_t *new_bmark = NULL;
+
+	ITER_END_ALLOW_THREADS(state);
+
+	new_bmark = init_zfs_bookmark(state->pylibzfsp, zhp);
+	if (new_bmark == NULL) {
+		zfs_close(zhp);
+		goto out;
+	}
+
+	result = common_callback((PyObject *)new_bmark, state);
+out:
+	ITER_ALLOW_THREADS(state);
+	return result;
+}
+
+static int
 userspace_callback(void *private,
 		   const char *dom,
 		   uid_t xid,
@@ -349,6 +370,59 @@ py_iter_snapshots(py_iter_state_t *state)
 	return iter_ret;
 }
 
+
+/**
+ * @brief iterate the bookmarks of a ZFS filesystem or volume from python
+ *
+ * NOTE: unlike the other libzfs iterators, zfs_iter_bookmarks_v2() reports
+ * failure as a raw positive errno and never calls zfs_standard_error(), so
+ * the libzfs error state is left untouched. Returning that value unchanged
+ * would be read as neither ITER_RESULT_IOCTL_ERROR nor ITER_RESULT_STOP and
+ * the failure would surface in python as a benign False. A positive return
+ * is unambiguously a libzfs failure (the callback only ever returns the
+ * negative ITER_RESULT_* codes), so it is translated here.
+ *
+ * @param[in] state	py_zfs iterator state structure
+ *
+ * @return		int - either:
+ *			(0) Continue iteration,
+ *			(-1) ZFS iterator error,
+ *			(-2) Stop iteration,
+ *			(-3) Error from callback function
+ *			Python exception will be set on error.
+ */
+int
+py_iter_bookmarks(py_iter_state_t *state)
+{
+	int iter_ret;
+	py_zfs_error_t zfs_err;
+
+	ITER_ALLOW_THREADS(state);
+	PY_ZFS_LOCK(state->pylibzfsp);
+
+	iter_ret = zfs_iter_bookmarks_v2(state->target,
+					 state->iter_config.bookmark.flags,
+					 bookmark_callback,
+					 (void *)state);
+	if (iter_ret > 0) {
+		// Set the libzfs error state that this iterator omits. Must be
+		// done under the handle lock since it writes the shared
+		// handle's error buffers.
+		(void) zfs_standard_error(state->pylibzfsp->lzh, iter_ret,
+					  "cannot iterate bookmarks");
+		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
+		iter_ret = ITER_RESULT_IOCTL_ERROR;
+	}
+
+	PY_ZFS_UNLOCK(state->pylibzfsp);
+	ITER_END_ALLOW_THREADS(state);
+
+	if (iter_ret == ITER_RESULT_IOCTL_ERROR) {
+		set_exc_from_libzfs(&zfs_err, "zfs_iter_bookmarks_v2() failed");
+	}
+
+	return iter_ret;
+}
 
 #define MAX_ZFS_USERSPACE_RETRIES 50  // number of retries with 0.1 sec sleep
 int

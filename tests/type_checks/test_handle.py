@@ -199,6 +199,51 @@ def check_snapshot_clone(snap: libzfs_types.ZFSSnapshot) -> None:
 
 
 # ---------------------------------------------------------------------------
+# ZFSBookmark
+# ---------------------------------------------------------------------------
+
+def _bookmark_callback(bookmark: libzfs_types.ZFSBookmark, state: Any) -> bool:
+    return True
+
+
+def check_iter_bookmarks_dataset(ds: libzfs_types.ZFSDataset) -> None:
+    done: bool = ds.iter_bookmarks(callback=_bookmark_callback, state=None)
+    _ = done
+
+
+def check_iter_bookmarks_volume(vol: libzfs_types.ZFSVolume) -> None:
+    done: bool = vol.iter_bookmarks(callback=_bookmark_callback, state=None)
+    _ = done
+
+
+def check_bookmark_attrs(bookmark: libzfs_types.ZFSBookmark) -> None:
+    name: str = bookmark.name
+    pool: str = bookmark.pool_name
+    guid: int = bookmark.guid
+    createtxg: int = bookmark.createtxg
+    btype: libzfs_types.ZFSType = bookmark.type
+    encrypted: bool = bookmark.encrypted
+    _ = (name, pool, guid, createtxg, btype, encrypted)
+
+
+def check_bookmark_get_properties(bookmark: libzfs_types.ZFSBookmark) -> None:
+    props: libzfs_types.struct_zfs_property = bookmark.get_properties(
+        properties={ZFSProperty.GUID, ZFSProperty.CREATETXG}
+    )
+    _ = props
+
+
+def check_bookmark_destroy(bookmark: libzfs_types.ZFSBookmark) -> None:
+    bookmark.destroy()
+
+
+def check_bookmark_rename_never_returns(
+    bookmark: libzfs_types.ZFSBookmark,
+) -> None:
+    bookmark.rename(new_name="tank/ds#new")
+
+
+# ---------------------------------------------------------------------------
 # struct field types
 # ---------------------------------------------------------------------------
 
