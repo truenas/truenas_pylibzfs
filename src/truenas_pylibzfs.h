@@ -218,7 +218,18 @@ extern const char *zfs_error_name(zfs_error_t error);
 extern void py_get_zfs_error(libzfs_handle_t *lz, py_zfs_error_t *out);
 
 extern PyObject *setup_zfs_exception(void);
-extern PyObject *setup_validation_exception(void);
+/*
+ * Create truenas_pylibzfs.ValidationError, publish it on the module and
+ * keep the module's own reference in its state.  Returns -1 with an
+ * exception set on failure.
+ */
+extern int init_validation_exception(PyObject *module);
+
+/*
+ * The state of this interpreter's truenas_pylibzfs module, for code that
+ * has no module or handle in hand.  Valid once the import has completed.
+ */
+extern pylibzfs_state_t *py_get_current_module_state(void);
 
 /*
  * Raise truenas_pylibzfs.ValidationError (a ValueError) for a refused

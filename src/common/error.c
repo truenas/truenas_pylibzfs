@@ -3,9 +3,6 @@
 static
 PyObject *PyExc_ZFSError;
 
-static
-PyObject *PyExc_ValidationError;
-
 PyDoc_STRVAR(py_zfs_exception__doc__,
 "ZFSException(exception)\n"
 "-----------------------\n\n"
@@ -79,36 +76,54 @@ PyDoc_STRVAR(py_validation_error__doc__,
 "reason: str\n"
 "    the explanation without the argument prefix\n"
 );
-PyObject *setup_validation_exception(void)
+int init_validation_exception(PyObject *module)
 {
+	pylibzfs_state_t *state = NULL;
 	PyObject *dict = NULL;
+	PyObject *exc = NULL;
+
+	state = (pylibzfs_state_t *)PyModule_GetState(module);
+	PYZFS_ASSERT(state, "Failed to get module state.");
 
 	dict = Py_BuildValue("{s:s,s:O,s:s}",
 			     "argument", "",
 			     "index", Py_None,
 			     "reason", "");
 	if (dict == NULL)
-		return NULL;
+		return -1;
 
-	PyExc_ValidationError = PyErr_NewExceptionWithDoc(PYLIBZFS_MODULE_NAME
-						   ".ValidationError",
-						   py_validation_error__doc__,
-						   PyExc_ValueError,
-						   dict);
-
+	exc = PyErr_NewExceptionWithDoc(PYLIBZFS_MODULE_NAME
+					".ValidationError",
+					py_validation_error__doc__,
+					PyExc_ValueError,
+					dict);
 	Py_DECREF(dict);
-	return PyExc_ValidationError;
+	if (exc == NULL)
+		return -1;
+
+	if (PyModule_AddObjectRef(module, "ValidationError", exc) < 0) {
+		Py_DECREF(exc);
+		return -1;
+	}
+
+	/* The state owns this reference; it is released in m_clear. */
+	state->validation_error = exc;
+	return 0;
 }
 
 void py_set_validation_error(const char *argument, Py_ssize_t index,
     const char *fmt, ...)
 {
 	va_list ap;
+	pylibzfs_state_t *state = NULL;
 	PyObject *reason = NULL;
 	PyObject *text = NULL;
 	PyObject *inst = NULL;
 	PyObject *py_argument = NULL;
 	PyObject *py_index = NULL;
+
+	state = py_get_current_module_state();
+	PYZFS_ASSERT(state->validation_error, "ValidationError not initialized");
 
 	va_start(ap, fmt);
 	reason = PyUnicode_FromFormatV(fmt, ap);
@@ -126,7 +141,7 @@ void py_set_validation_error(const char *argument, Py_ssize_t index,
 	if (text == NULL)
 		goto out;
 
-	inst = PyObject_CallOneArg(PyExc_ValidationError, text);
+	inst = PyObject_CallOneArg(state->validation_error, text);
 	if (inst == NULL)
 		goto out;
 
@@ -140,7 +155,7 @@ void py_set_validation_error(const char *argument, Py_ssize_t index,
 	    PyObject_SetAttrString(inst, "reason", reason) < 0)
 		goto out;
 
-	PyErr_SetObject(PyExc_ValidationError, inst);
+	PyErr_SetObject(state->validation_error, inst);
 out:
 	Py_XDECREF(reason);
 	Py_XDECREF(text);
@@ -155,14 +170,16 @@ out:
  */
 void py_validation_error_from_current(const char *argument)
 {
+	pylibzfs_state_t *state = NULL;
 	PyObject *exc = NULL;
 	PyObject *text = NULL;
 
 	exc = PyErr_GetRaisedException();
 	if (exc == NULL)
 		return;
+	state = py_get_current_module_state();
 	if (!PyErr_GivenExceptionMatches(exc, PyExc_ValueError) ||
-	    PyErr_GivenExceptionMatches(exc, PyExc_ValidationError)) {
+	    PyErr_GivenExceptionMatches(exc, state->validation_error)) {
 		PyErr_SetRaisedException(exc);
 		return;
 	}

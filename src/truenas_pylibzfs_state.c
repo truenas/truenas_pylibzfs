@@ -352,6 +352,7 @@ void free_py_zfs_state(PyObject *module)
 		state->struct_prop_fields[idx].doc = NULL;
 	}
 
+	Py_CLEAR(state->validation_error);
 	Py_CLEAR(state->struct_zfs_props_type);
 	Py_CLEAR(state->struct_zfs_prop_type);
 	Py_CLEAR(state->struct_zfs_prop_src_type);

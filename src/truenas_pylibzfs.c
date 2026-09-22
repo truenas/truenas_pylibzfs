@@ -479,6 +479,16 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 };
 
 static int
+pylibzfs_module_traverse(PyObject *module, visitproc visit, void *arg)
+{
+	pylibzfs_state_t *state = (pylibzfs_state_t *)PyModule_GetState(module);
+
+	if (state != NULL)
+		Py_VISIT(state->validation_error);
+	return 0;
+}
+
+static int
 pylibzfs_module_clear(PyObject *module)
 {
 	free_py_zfs_state(module);
@@ -498,10 +508,27 @@ static struct PyModuleDef truenas_pylibzfs = {
 	.m_name = PYLIBZFS_MODULE_NAME,
 	.m_doc = PYLIBZFS_MODULE_NAME " provides python bindings for libzfs for TrueNAS",
 	.m_size = sizeof(pylibzfs_state_t),
+	.m_traverse = pylibzfs_module_traverse,
 	.m_clear = pylibzfs_module_clear,
 	.m_free = pylibzfs_module_free,
 	.m_methods = TruenasPylibzfsMethods,
 };
+
+/*
+ * The import machinery registers a single-phase module with the interpreter
+ * state after PyInit returns, so PyState_FindModule() answers per interpreter
+ * from then on (and NULL during PyInit itself).
+ */
+pylibzfs_state_t *py_get_current_module_state(void)
+{
+	PyObject *module = PyState_FindModule(&truenas_pylibzfs);
+	pylibzfs_state_t *state = NULL;
+
+	PYZFS_ASSERT(module, "truenas_pylibzfs module not found in this interpreter");
+	state = (pylibzfs_state_t *)PyModule_GetState(module);
+	PYZFS_ASSERT(state, "Failed to get module state.");
+	return state;
+}
 
 /* Constants module */
 static struct PyModuleDef truenas_pylibzfs_constants = {
@@ -668,10 +695,7 @@ PyInit_truenas_pylibzfs(void)
 		return NULL;
 	}
 
-	zfs_exc = setup_validation_exception();
-	err = PyModule_AddObjectRef(mpylibzfs, "ValidationError", zfs_exc);
-	Py_XDECREF(zfs_exc);
-	if (err) {
+	if (init_validation_exception(mpylibzfs) < 0) {
 		Py_DECREF(mpylibzfs);
 		return NULL;
 	}
