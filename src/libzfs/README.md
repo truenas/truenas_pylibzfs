@@ -59,7 +59,7 @@ namespace.
 | File | Purpose |
 |---|---|
 | `py_zfs.c` | `ZFS` handle object - `open_handle`, `create_resource`, `open_resource`, `destroy_resource`, `iter_root_filesystems`, `iter_pools`, `open_pool`, `destroy_pool`, `export_pool`, `create_pool`, `import_pool_find`, `import_pool`, `resource_cryptography_config`, `zpool_events` |
-| `py_zfs_pool.c` | `ZFSPool` - all pool-level operations: status, properties, device management (`add_vdevs`, `attach_vdev`, `replace_vdev`, `detach_vdev`, `remove_vdev`, `online_device`, `offline_device`), `scan`, `sync_pool`, `upgrade`, `expand_info`, `scrub_info`, `iter_history` |
+| `py_zfs_pool.c` | `ZFSPool` - all pool-level operations: status, properties, device management (`add_vdevs`, `attach_vdev`, `replace_vdev`, `detach_vdev`, `remove_vdev`, `online_device`, `offline_device`), `scan`, `sync_pool`, `upgrade`, `expand_info`, `scrub_info`, `iter_history`, `iostat` |
 | `py_zfs_resource.c` | Shared methods on `ZFSResource`: property get/set, rename, promote, mount/unmount, snapshot, clone, destroy, iter_filesystems/snapshots/bookmarks |
 | `py_zfs_dataset.c` | `ZFSDataset`-specific additions: `iter_userspace`, `set_userquotas`, `crypto` property accessor, `local_replicate` thin wrapper |
 | `py_zfs_volume.c` | `ZFSVolume`-specific additions: `crypto` property accessor, `promote`, `local_replicate` thin wrapper |
@@ -72,7 +72,7 @@ namespace.
 | `py_zfs_pool_create.c` | Pool creation vdev-spec builder and `zpool_create` / `zpool_import_props` wrappers |
 | `py_zfs_pool_expand.c` | RAIDZ expansion status - `ZFSPoolExpand` struct-sequence (state, vdev, timing, bytes) |
 | `py_zfs_pool_scrub.c` | Scan/scrub statistics - `ZFSPoolScrub` struct-sequence (23 fields: state, timing, bytes examined/processed/issued/errors, pass stats) |
-| `py_zfs_pool_status.c` | Pool status - `ZFSPoolStatus` struct-sequence built from `zpool_get_status` |
+| `py_zfs_pool_status.c` | Pool status - `ZFSPoolStatus` struct-sequence built from `zpool_get_status`. Also builds `struct_zpool_iostat` for `ZFSPool.iostat()`, which refreshes the pool config and returns raw cumulative vdev counters (pool-wide root vdev stats, storage and support vdevs) without the error log |
 | `py_zfs_iter.c/.h` | Iterator engine - `py_iter_state_t`, callbacks for filesystems, snapshots, userspace, and pools; manages GIL/lock interleaving around callbacks |
 | `py_zfs_events.c/.h` | `ZFSEventIterator` - iterator over `zpool_events_next` records; holds its own `zevent_fd` |
 | `py_zfs_history.c` | `ZFSHistoryIterator` - iterator over `zpool_get_history` records with `since`/`until` timestamp filtering |
