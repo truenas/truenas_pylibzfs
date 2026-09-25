@@ -620,6 +620,20 @@ class struct_zpool_status:
     def __replace__(self, **changes: Any) -> Self: ...
 
 @final
+class struct_zpool_iostat:
+    """Pool I/O counters returned by ZFSPool.iostat()."""
+    name: str
+    guid: int
+    stats: struct_vdev_stats
+    storage_vdevs: tuple[struct_vdev, ...]
+    support_vdevs: struct_support_vdev
+    __match_args__: ClassVar[tuple[str, ...]]
+    n_fields: ClassVar[int]          # = 5
+    n_sequence_fields: ClassVar[int] # = 5
+    n_unnamed_fields: ClassVar[int]  # = 0
+    def __replace__(self, **changes: Any) -> Self: ...
+
+@final
 class struct_zfs_property_source:
     """Source information for a ZFS or pool property."""
     type: PropertySource
@@ -1148,6 +1162,24 @@ class ZFSPool:
         follow_links: bool = True,
         full_path: bool = True,
     ) -> struct_zpool_status: ...
+
+    def iostat(self) -> struct_zpool_iostat:
+        """Fetch fresh I/O counters for the pool and its vdevs.
+
+        This is the data behind zpool iostat -v. Every counter is a running
+        total since the pool was imported. To get rates, call iostat() twice
+        on the same pool handle and divide the change in a counter by the
+        change in stats.timestamp (nanoseconds). Match vdevs between samples
+        by guid. If the pool guid changes, or a timestamp goes backwards, the
+        pool was re-imported and the previous sample is stale.
+
+        This skips the error log and health checks done by status(), so it
+        is cheap enough to call once per second. Spares are not included.
+
+        Raises FileNotFoundError if the pool was exported, destroyed, or is
+        unavailable.
+        """
+        ...
 
     @overload
     def get_features(self, *, asdict: Literal[True]) -> dict[str, dict[str, str]]: ...
