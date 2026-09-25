@@ -526,9 +526,10 @@ class struct_vdev:
     children: tuple[struct_vdev, ...] | None
     top_guid: int | None
     path: str | None
+    stats_ex: dict[str, int | list[int]] | None
     __match_args__: ClassVar[tuple[str, ...]]
-    n_fields: ClassVar[int]          # = 8
-    n_sequence_fields: ClassVar[int] # = 8
+    n_fields: ClassVar[int]          # = 9
+    n_sequence_fields: ClassVar[int] # = 9
     n_unnamed_fields: ClassVar[int]  # = 0
     def __replace__(self, **changes: Any) -> Self: ...
 
@@ -627,9 +628,10 @@ class struct_zpool_iostat:
     stats: struct_vdev_stats
     storage_vdevs: tuple[struct_vdev, ...]
     support_vdevs: struct_support_vdev
+    stats_ex: dict[str, int | list[int]] | None
     __match_args__: ClassVar[tuple[str, ...]]
-    n_fields: ClassVar[int]          # = 5
-    n_sequence_fields: ClassVar[int] # = 5
+    n_fields: ClassVar[int]          # = 6
+    n_sequence_fields: ClassVar[int] # = 6
     n_unnamed_fields: ClassVar[int]  # = 0
     def __replace__(self, **changes: Any) -> Self: ...
 
@@ -1163,7 +1165,7 @@ class ZFSPool:
         full_path: bool = True,
     ) -> struct_zpool_status: ...
 
-    def iostat(self) -> struct_zpool_iostat:
+    def iostat(self, *, extended: bool = False) -> struct_zpool_iostat:
         """Fetch fresh I/O counters for the pool and its vdevs.
 
         This is the data behind zpool iostat -v. Every counter is a running
@@ -1175,6 +1177,17 @@ class ZFSPool:
 
         This skips the error log and health checks done by status(), so it
         is cheap enough to call once per second. Spares are not included.
+
+        With extended=True, stats_ex is also filled for the pool and every
+        vdev. This is the raw data behind zpool iostat -l, -q, -w and -r, as
+        a dict keyed by ZFS stat name. Keys ending in _queue are the number
+        of I/Os waiting or active right now, not running totals. Keys ending
+        in _histo are lists of running totals. In a latency histogram (37
+        entries) entry i counts I/Os that took at least 2^i and less than
+        2^(i+1) nanoseconds. In a request size histogram (25 entries) entry
+        i counts I/Os of at least 2^i and less than 2^(i+1) bytes. The last
+        entry also counts anything larger. Averages, rates and per interval
+        histograms are left to the caller.
 
         Raises FileNotFoundError if the pool was exported, destroyed, or is
         unavailable.

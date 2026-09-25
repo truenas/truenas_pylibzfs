@@ -60,3 +60,27 @@ def test_iostat_multiple_pools(make_pool):
         pool_b.iostat()
 
     assert pool_a.iostat().guid == io_a.guid
+
+
+def test_iostat_extended_off_by_default(make_pool):
+    lz, pool, root = make_pool('iostat_ex_off')
+    io = pool.iostat()
+    assert io.stats_ex is None
+    assert io.storage_vdevs[0].stats_ex is None
+    assert pool.status().storage_vdevs[0].stats_ex is None
+
+
+def test_iostat_extended(make_pool):
+    lz, pool, root = make_pool('iostat_ex')
+    before = pool.iostat(extended=True)
+    _write_and_sync(pool, root, 'iostat_ex')
+    after = pool.iostat(extended=True)
+
+    for ex in (after.stats_ex, after.storage_vdevs[0].stats_ex):
+        assert len(ex['vdev_tot_w_lat_histo']) == 37
+        assert len(ex['vdev_async_ind_w_histo']) == 25
+        assert isinstance(ex['vdev_async_w_active_queue'], int)
+
+    # Write latency histograms are running totals, so the writes show up.
+    key = 'vdev_tot_w_lat_histo'
+    assert sum(after.stats_ex[key]) > sum(before.stats_ex[key])
