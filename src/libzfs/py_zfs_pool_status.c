@@ -188,6 +188,8 @@ PyStructSequence_Field struct_pool_iostat_prop [] = {
 	                  "objects for the top-level storage vdevs."},
 	{"support_vdevs", PYLIBZFS_TYPES_MODULE_NAME ".struct_support_vdev "
 	                  "object for the cache, log, special and dedup vdevs."},
+	{"stats_ex", "Extended stats for the whole pool as a dict keyed by ZFS "
+	             "stat name, or None unless extended=True was passed."},
 	{0},
 };
 #define IOSTAT_NAME_IDX    0
@@ -195,12 +197,13 @@ PyStructSequence_Field struct_pool_iostat_prop [] = {
 #define IOSTAT_STATS_IDX   2
 #define IOSTAT_STORAGE_IDX 3
 #define IOSTAT_SUPPORT_IDX 4
+#define IOSTAT_STATS_EX_IDX 5
 
 PyStructSequence_Desc struct_pool_iostat_desc = {
 	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_iostat",
 	.fields = struct_pool_iostat_prop,
 	.doc = "Python ZFS pool iostat structure",
-	.n_in_sequence = 5
+	.n_in_sequence = 6
 };
 
 PyStructSequence_Field struct_pool_support_vdev [] = {
@@ -314,18 +317,22 @@ PyStructSequence_Field struct_vdev_status_prop [] = {
 	         "spare name (e.g. draid1-0-0) as the config path. None for "
 	         "interior vdevs (mirror, raidz, draid) that have no config "
 	         "path."},
+	{"stats_ex", "Extended stats (queue depths and latency and request "
+	             "size histograms) as a dict keyed by ZFS stat name. Only "
+	             "filled by ZFSPool.iostat(extended=True), otherwise None."},
 	{0},
 };
 #define STATS_IDX    4
 #define CHILDREN_IDX 5
 #define TOP_GUID_IDX 6
 #define PATH_IDX     7
+#define STATS_EX_IDX 8
 
 PyStructSequence_Desc struct_vdev_status_desc = {
 	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev",
 	.fields = struct_vdev_status_prop,
 	.doc = "Python pool vdev status structure",
-	.n_in_sequence = 8
+	.n_in_sequence = 9
 };
 
 /*
@@ -344,6 +351,7 @@ PyStructSequence_Desc struct_vdev_status_desc = {
 #define PY_VDEV_DATA_WANT_STATS		0x40  // gather stats on vdevs
 #define PY_VDEV_NAME_FOLLOW_LINKS	0x80  // resolve symlinks in vdev names
 #define PY_VDEV_NAME_PATH		0x100 // display full vdev path names
+#define PY_VDEV_DATA_WANT_STATS_EX	0x200 // gather extended stats on vdevs
 
 /*
  * Buffer large enough to hold a fully-qualified draid type name of the form
@@ -352,7 +360,8 @@ PyStructSequence_Desc struct_vdev_status_desc = {
 #define VDEV_TYPE_NAME_BUF_SIZE	64
 
 #define PY_VDEV_MASK_ALL	(PY_VDEV_CLASS_ALL | PY_VDEV_DATA_WANT_STATS | \
-	PY_VDEV_NAME_FOLLOW_LINKS | PY_VDEV_NAME_PATH)
+	PY_VDEV_NAME_FOLLOW_LINKS | PY_VDEV_NAME_PATH | \
+	PY_VDEV_DATA_WANT_STATS_EX)
 
 static
 boolean_t parse_vdev_stats(vdev_stat_t *vs,
@@ -603,6 +612,8 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	char type_buf[VDEV_TYPE_NAME_BUF_SIZE];
 	PyObject *out = NULL;
 	PyObject *vdev_stats = NULL;
+	PyObject *vdev_stats_ex = NULL;
+	nvlist_t *nvx = NULL;
 	vdev_stat_t *vs;
 
 	Py_BEGIN_ALLOW_THREADS
@@ -688,6 +699,17 @@ PyObject *gen_vdev_status_nvlist(pylibzfs_state_t *state,
 	}
 
 	PyStructSequence_SetItem(out, STATS_IDX, vdev_stats);
+
+	if ((request_mask & PY_VDEV_DATA_WANT_STATS_EX) &&
+	    nvlist_lookup_nvlist(nv, ZPOOL_CONFIG_VDEV_STATS_EX, &nvx) == 0) {
+		vdev_stats_ex = py_nvlist_to_dict(nvx);
+		if (vdev_stats_ex == NULL)
+			goto fail;
+	} else {
+		vdev_stats_ex = Py_NewRef(Py_None);
+	}
+
+	PyStructSequence_SetItem(out, STATS_EX_IDX, vdev_stats_ex);
 
 	if (children == 0)
 		PyStructSequence_SetItem(out, CHILDREN_IDX, Py_NewRef(Py_None));
@@ -864,6 +886,7 @@ boolean_t populate_support_vdevs(py_zfs_pool_t *pypool,
 				 nvlist_t *nvl,
 				 PyObject *vdev_struct,
 				 boolean_t get_stats,
+				 boolean_t get_stats_ex,
 				 boolean_t follow_links,
 				 boolean_t full_path)
 {
@@ -875,6 +898,8 @@ boolean_t populate_support_vdevs(py_zfs_pool_t *pypool,
 	PyObject *c_vdevs = NULL;
 	PyObject *val = NULL;
 	uint mask = get_stats ? PY_VDEV_DATA_WANT_STATS : 0;
+	if (get_stats_ex)
+		mask |= PY_VDEV_DATA_WANT_STATS_EX;
 	if (follow_links)
 		mask |= PY_VDEV_NAME_FOLLOW_LINKS;
 	if (full_path)
@@ -972,6 +997,7 @@ static
 PyObject *pypool_status_get_support_vdevs(py_zfs_pool_t *pypool,
 					  nvlist_t *nvl,
 					  boolean_t get_stats,
+					  boolean_t get_stats_ex,
 					  boolean_t follow_links,
 					  boolean_t full_path)
 {
@@ -983,7 +1009,7 @@ PyObject *pypool_status_get_support_vdevs(py_zfs_pool_t *pypool,
 		return NULL;
 
 	if (!populate_support_vdevs(pypool, state, nvl, vdev_struct,
-	    get_stats, follow_links, full_path))
+	    get_stats, get_stats_ex, follow_links, full_path))
 		Py_CLEAR(vdev_struct);
 
 	return vdev_struct;
@@ -1036,6 +1062,7 @@ static
 PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
 					  nvlist_t *nvl,
 					  boolean_t get_stats,
+					  boolean_t get_stats_ex,
 					  boolean_t follow_links,
 					  boolean_t full_path)
 {
@@ -1046,6 +1073,8 @@ PyObject *pypool_status_get_storage_vdevs(py_zfs_pool_t *pypool,
 
 	if (get_stats)
 		request_mask |= PY_VDEV_DATA_WANT_STATS;
+	if (get_stats_ex)
+		request_mask |= PY_VDEV_DATA_WANT_STATS_EX;
 	if (follow_links)
 		request_mask |= PY_VDEV_NAME_FOLLOW_LINKS;
 	if (full_path)
@@ -1129,14 +1158,14 @@ boolean_t pypool_status_add_vdevs(py_zfs_pool_t *pypool,
 	}
 
 	storage_vdevs = pypool_status_get_storage_vdevs(pypool, nvroot,
-	    get_stats, follow_links, full_path);
+	    get_stats, B_FALSE, follow_links, full_path);
 	if (storage_vdevs == NULL)
 		goto fail;
 
 	PyStructSequence_SetItem(status_struct, VDEVS_STORAGE_IDX, storage_vdevs);
 
 	support_vdevs = pypool_status_get_support_vdevs(pypool, nvroot,
-	    get_stats, follow_links, full_path);
+	    get_stats, B_FALSE, follow_links, full_path);
 	if (support_vdevs == NULL)
 		goto fail;
 
@@ -1848,14 +1877,17 @@ PyObject *py_get_pool_status_from_config(py_zfs_t *plz, nvlist_t *config)
 /*
  * Build a struct_zpool_iostat from a pool config owned by the caller. Vdev
  * names use the zpool iostat defaults (no symlink resolution, short names)
- * to avoid extra syscalls per vdev when polling.
+ * to avoid extra syscalls per vdev when polling. When extended is set, the
+ * raw extended stats nvlist of each vdev is converted to a dict as is.
  *
  * @note GIL must be held when calling this function.
  */
-PyObject *py_get_pool_iostat(py_zfs_pool_t *pypool, nvlist_t *config)
+PyObject *py_get_pool_iostat(py_zfs_pool_t *pypool, nvlist_t *config,
+    boolean_t extended)
 {
 	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
 	nvlist_t *nvroot = NULL;
+	nvlist_t *nvx = NULL;
 	vdev_stat_t *vs = NULL;
 	uint_t vsc;
 	PyObject *out = NULL;
@@ -1887,18 +1919,29 @@ PyObject *py_get_pool_iostat(py_zfs_pool_t *pypool, nvlist_t *config)
 		goto fail;
 
 	val = pypool_status_get_storage_vdevs(pypool, nvroot, B_TRUE,
-	    B_FALSE, B_FALSE);
+	    extended, B_FALSE, B_FALSE);
 	if (val == NULL)
 		goto fail;
 
 	PyStructSequence_SetItem(out, IOSTAT_STORAGE_IDX, val);
 
 	val = pypool_status_get_support_vdevs(pypool, nvroot, B_TRUE,
-	    B_FALSE, B_FALSE);
+	    extended, B_FALSE, B_FALSE);
 	if (val == NULL)
 		goto fail;
 
 	PyStructSequence_SetItem(out, IOSTAT_SUPPORT_IDX, val);
+
+	if (extended &&
+	    nvlist_lookup_nvlist(nvroot, ZPOOL_CONFIG_VDEV_STATS_EX, &nvx) == 0) {
+		val = py_nvlist_to_dict(nvx);
+		if (val == NULL)
+			goto fail;
+	} else {
+		val = Py_NewRef(Py_None);
+	}
+
+	PyStructSequence_SetItem(out, IOSTAT_STATS_EX_IDX, val);
 
 	return out;
 fail:

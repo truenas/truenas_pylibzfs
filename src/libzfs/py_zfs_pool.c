@@ -557,8 +557,8 @@ PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
 }
 
 PyDoc_STRVAR(py_zfs_pool_iostat__doc__,
-"iostat() -> struct_zpool_iostat\n\n"
-"-------------------------------\n\n"
+"iostat(*, extended=False) -> struct_zpool_iostat\n\n"
+"------------------------------------------------\n\n"
 "Fetch fresh I/O counters for the pool and its vdevs. This is the data\n"
 "behind zpool iostat -v.\n\n"
 "Every counter is a running total since the pool was imported. To get\n"
@@ -570,7 +570,17 @@ PyDoc_STRVAR(py_zfs_pool_iostat__doc__,
 "cheap enough to call once per second. Spares are not included.\n\n"
 "Parameters\n"
 "----------\n"
-"None\n\n"
+"extended: bool, optional, default=False\n"
+"    Also fill stats_ex for the pool and every vdev. This is the raw data\n"
+"    behind zpool iostat -l, -q, -w and -r, as a dict keyed by ZFS stat\n"
+"    name. Keys ending in _queue are the number of I/Os waiting or active\n"
+"    right now, not running totals. Keys ending in _histo are lists of\n"
+"    running totals. In a latency histogram (37 entries) entry i counts\n"
+"    I/Os that took at least 2^i and less than 2^(i+1) nanoseconds. In a\n"
+"    request size histogram (25 entries) entry i counts I/Os of at least\n"
+"    2^i and less than 2^(i+1) bytes. The last entry also counts anything\n"
+"    larger. Averages, rates and per interval histograms are left to the\n"
+"    caller.\n\n"
 "Returns\n"
 "-------\n"
 "truenas_pylibzfs.libzfs_types.struct_zpool_iostat\n\n"
@@ -582,11 +592,17 @@ PyDoc_STRVAR(py_zfs_pool_iostat__doc__,
 "   The pool was exported or destroyed, or is currently unavailable.\n"
 );
 static
-PyObject *py_zfs_pool_iostat(PyObject *self, PyObject *args)
+PyObject *py_zfs_pool_iostat(PyObject *self, PyObject *args, PyObject *kwargs)
 {
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	nvlist_t *config = NULL;
 	PyObject *out = NULL;
+	boolean_t extended = B_FALSE;
+	char *kwnames[] = {"extended", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$p", kwnames,
+	    &extended))
+		return NULL;
 
 	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.iostat", "O",
 	    p->name) < 0)
@@ -595,7 +611,7 @@ PyObject *py_zfs_pool_iostat(PyObject *self, PyObject *args)
 	if (!py_zfs_pool_refresh_impl(p, &config))
 		return NULL;
 
-	out = py_get_pool_iostat(p, config);
+	out = py_get_pool_iostat(p, config, extended);
 	fnvlist_free(config);
 	return out;
 }
@@ -2001,8 +2017,8 @@ PyMethodDef zfs_pool_methods[] = {
 	},
 	{
 		.ml_name = "iostat",
-		.ml_meth = py_zfs_pool_iostat,
-		.ml_flags = METH_NOARGS,
+		.ml_meth = (PyCFunction)py_zfs_pool_iostat,
+		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc = py_zfs_pool_iostat__doc__
 	},
 	{
