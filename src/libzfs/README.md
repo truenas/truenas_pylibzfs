@@ -69,7 +69,7 @@ namespace.
 | `py_zfs_common.c` | `py_zfs_promote()` shared helper used by dataset, volume, and resource |
 | `py_zfs_prop.c` | ZFS dataset property get/set - `py_zfs_get_properties`, `py_object_to_zfs_prop_t`; `ZFSProperty` struct-sequence types |
 | `py_zfs_pool_prop.c` | Pool property get/set - `py_zpool_get_properties`, `py_zpool_set_properties`, `py_zpool_get_user_properties`, `py_zpool_set_user_properties`; `ZPOOLProperty` struct-sequence types |
-| `py_zfs_pool_create.c` | Pool creation vdev-spec builder and `zpool_create` / `zpool_import_props` wrappers |
+| `py_zfs_pool_create.c` | Pool creation vdev-spec builder, the topology checks shared by `create_pool` and `add_vdevs` (structural rules always, policy rules unless `force=True`, both runnable without side effects via `dry_run=True`, refusals raised as `ValidationError` with `argument`/`index`) and the `zpool_create` / `zpool_add` / `zpool_import_props` wrappers |
 | `py_zfs_pool_expand.c` | RAIDZ expansion status - `ZFSPoolExpand` struct-sequence (state, vdev, timing, bytes) |
 | `py_zfs_pool_scrub.c` | Scan/scrub statistics - `ZFSPoolScrub` struct-sequence (23 fields: state, timing, bytes examined/processed/issued/errors, pass stats) |
 | `py_zfs_pool_status.c` | Pool status - `ZFSPoolStatus` struct-sequence built from `zpool_get_status`. Also builds `struct_zpool_iostat` for `ZFSPool.iostat()`, which refreshes the pool config and returns raw cumulative vdev counters (pool-wide root vdev stats, storage and support vdevs) without the error log |

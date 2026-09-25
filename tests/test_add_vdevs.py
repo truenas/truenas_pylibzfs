@@ -844,3 +844,57 @@ class TestAddVdevsForce:
             assert len(status.storage_vdevs) == 2
         finally:
             _destroy(lz)
+
+
+# ---------------------------------------------------------------------------
+# Section 5 — dry_run=True
+# ---------------------------------------------------------------------------
+
+class TestAddVdevsDryRun:
+    """dry_run=True runs the checks against the live pool but adds nothing."""
+
+    def test_dry_run_accepts_matching_vdev_and_adds_nothing(self, make_disks):
+        disks = make_disks(4)
+        lz = truenas_pylibzfs.open_handle()
+        pool = _create_mirror_pool(lz, disks[0], disks[1])
+        try:
+            # placeholder names are fine: the devices are never opened
+            new_mirror = _mirror("placeholder0", "placeholder1")
+            assert pool.add_vdevs(storage_vdevs=[new_mirror], dry_run=True) is None
+            assert pool.add_vdevs(cache_vdevs=[_spec("placeholder2")], dry_run=True) is None
+            assert len(pool.status().storage_vdevs) == 1
+            # the real add still works afterwards
+            pool.add_vdevs(storage_vdevs=[_mirror(disks[2], disks[3])])
+            assert len(pool.status().storage_vdevs) == 2
+        finally:
+            _destroy(lz)
+
+    def test_dry_run_rejects_geometry_mismatch(self, make_disks):
+        disks = make_disks(2)
+        lz = truenas_pylibzfs.open_handle()
+        pool = _create_mirror_pool(lz, disks[0], disks[1])
+        try:
+            with pytest.raises(truenas_pylibzfs.ValidationError, match=r"storage_vdevs\[0\]") as e:
+                pool.add_vdevs(storage_vdevs=[_spec("placeholder0")], dry_run=True)
+            assert (e.value.argument, e.value.index) == ("storage_vdevs", 0)
+            with pytest.raises(truenas_pylibzfs.ValidationError, match=r"special_vdevs\[0\]"):
+                pool.add_vdevs(special_vdevs=[_spec("placeholder0")], dry_run=True)
+            assert len(pool.status().storage_vdevs) == 1
+        finally:
+            _destroy(lz)
+
+    def test_dry_run_force_skips_geometry_but_not_structure(self, make_disks):
+        disks = make_disks(2)
+        lz = truenas_pylibzfs.open_handle()
+        pool = _create_mirror_pool(lz, disks[0], disks[1])
+        try:
+            assert pool.add_vdevs(storage_vdevs=[_spec("placeholder0")], force=True, dry_run=True) is None
+            with pytest.raises(ValueError, match="cache_vdevs"):
+                pool.add_vdevs(
+                    cache_vdevs=[_mirror("placeholder0", "placeholder1")], force=True, dry_run=True
+                )
+            with pytest.raises(ValueError, match="at least one vdev category"):
+                pool.add_vdevs(dry_run=True)
+            assert len(pool.status().storage_vdevs) == 1
+        finally:
+            _destroy(lz)

@@ -57,6 +57,140 @@ PyObject *setup_zfs_exception(void)
 	return PyExc_ZFSError;
 }
 
+PyDoc_STRVAR(py_validation_error__doc__,
+"ValidationError(ValueError)\n"
+"---------------------------\n\n"
+"An argument to create_vdev_spec(), ZFS.create_pool() or\n"
+"ZFSPool.add_vdevs() was refused before anything was done.  The\n"
+"message reads \"<argument>: <reason>\", or \"<argument>[<index>]: "
+"<reason>\"\n"
+"when the check knows which element of a sequence failed.\n\n"
+"attributes:\n"
+"-----------\n"
+"argument: str\n"
+"    the keyword argument that was judged, e.g. \"storage_vdevs\";\n"
+"    empty when the refusal spans several arguments\n"
+"index: int | None\n"
+"    position within that argument when it is a sequence and the\n"
+"    check knows which element failed, else None\n"
+"reason: str\n"
+"    the explanation without the argument prefix\n"
+);
+int init_validation_exception(PyObject *module)
+{
+	pylibzfs_state_t *state = NULL;
+	PyObject *dict = NULL;
+	PyObject *exc = NULL;
+
+	state = (pylibzfs_state_t *)PyModule_GetState(module);
+	PYZFS_ASSERT(state, "Failed to get module state.");
+
+	dict = Py_BuildValue("{s:s,s:O,s:s}",
+			     "argument", "",
+			     "index", Py_None,
+			     "reason", "");
+	if (dict == NULL)
+		return -1;
+
+	exc = PyErr_NewExceptionWithDoc(PYLIBZFS_MODULE_NAME
+					".ValidationError",
+					py_validation_error__doc__,
+					PyExc_ValueError,
+					dict);
+	Py_DECREF(dict);
+	if (exc == NULL)
+		return -1;
+
+	if (PyModule_AddObjectRef(module, "ValidationError", exc) < 0) {
+		Py_DECREF(exc);
+		return -1;
+	}
+
+	/* The state owns this reference; it is released in m_clear. */
+	state->validation_error = exc;
+	return 0;
+}
+
+void py_set_validation_error(const char *argument, Py_ssize_t index,
+    const char *fmt, ...)
+{
+	va_list ap;
+	pylibzfs_state_t *state = NULL;
+	PyObject *reason = NULL;
+	PyObject *text = NULL;
+	PyObject *inst = NULL;
+	PyObject *py_argument = NULL;
+	PyObject *py_index = NULL;
+
+	state = py_get_current_module_state();
+	PYZFS_ASSERT(state->validation_error, "ValidationError not initialized");
+
+	va_start(ap, fmt);
+	reason = PyUnicode_FromFormatV(fmt, ap);
+	va_end(ap);
+	if (reason == NULL)
+		return;
+
+	if (argument == NULL)
+		text = Py_NewRef(reason);
+	else if (index >= 0)
+		text = PyUnicode_FromFormat("%s[%zd]: %U", argument, index,
+		    reason);
+	else
+		text = PyUnicode_FromFormat("%s: %U", argument, reason);
+	if (text == NULL)
+		goto out;
+
+	inst = PyObject_CallOneArg(state->validation_error, text);
+	if (inst == NULL)
+		goto out;
+
+	py_argument = PyUnicode_FromString(argument ? argument : "");
+	py_index = index >= 0 ? PyLong_FromSsize_t(index) : Py_NewRef(Py_None);
+	if (py_argument == NULL || py_index == NULL)
+		goto out;
+
+	if (PyObject_SetAttrString(inst, "argument", py_argument) < 0 ||
+	    PyObject_SetAttrString(inst, "index", py_index) < 0 ||
+	    PyObject_SetAttrString(inst, "reason", reason) < 0)
+		goto out;
+
+	PyErr_SetObject(state->validation_error, inst);
+out:
+	Py_XDECREF(reason);
+	Py_XDECREF(text);
+	Py_XDECREF(inst);
+	Py_XDECREF(py_argument);
+	Py_XDECREF(py_index);
+}
+
+/*
+ * Turn a ValueError that a shared helper raised into a ValidationError
+ * for the given argument.  Any other exception is left as it is.
+ */
+void py_validation_error_from_current(const char *argument)
+{
+	pylibzfs_state_t *state = NULL;
+	PyObject *exc = NULL;
+	PyObject *text = NULL;
+
+	exc = PyErr_GetRaisedException();
+	if (exc == NULL)
+		return;
+	state = py_get_current_module_state();
+	if (!PyErr_GivenExceptionMatches(exc, PyExc_ValueError) ||
+	    PyErr_GivenExceptionMatches(exc, state->validation_error)) {
+		PyErr_SetRaisedException(exc);
+		return;
+	}
+	text = PyObject_Str(exc);
+	Py_DECREF(exc);
+	if (text == NULL)
+		return;
+	py_set_validation_error(argument, -1, "%U", text);
+	Py_DECREF(text);
+}
+
 const char *zfs_error_name(zfs_error_t error)
 {
 	uint i;
