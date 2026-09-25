@@ -255,6 +255,7 @@ py_register_struct_types(PyObject *module)
 	ADD_STRUCT("struct_vdev",                state->struct_vdev_status_type);
 	ADD_STRUCT("struct_vdev_stats",          state->struct_vdev_stats_type);
 	ADD_STRUCT("struct_support_vdev",        state->struct_support_vdev_type);
+	ADD_STRUCT("struct_zpool_iostat",        state->struct_zpool_iostat_type);
 	ADD_STRUCT("struct_zpool_feature",       state->struct_zpool_feature_type);
 	ADD_STRUCT("struct_vdev_create_spec",    state->struct_vdev_create_spec_type);
 	ADD_STRUCT("struct_zpool_scrub",         state->struct_zpool_scrub_type);
@@ -370,6 +371,7 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->struct_vdev_status_type);
 	Py_CLEAR(state->struct_vdev_stats_type);
 	Py_CLEAR(state->struct_support_vdev_type);
+	Py_CLEAR(state->struct_zpool_iostat_type);
 	Py_CLEAR(state->vdev_state_enum);
 	Py_CLEAR(state->struct_vdev_create_spec_type);
 	Py_CLEAR(state->vdev_type_enum);

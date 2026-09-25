@@ -484,12 +484,19 @@ PyDoc_STRVAR(py_zfs_pool_refresh_stats__doc__,
 "   out.\n"
 "\n\n"
 );
+/*
+ * Refresh the pool config from the kernel. If configp is not NULL, a copy of
+ * the fresh config is returned through it and must be freed by the caller.
+ * The copy is taken under the same lock hold as the refresh so that another
+ * thread refreshing the same handle cannot swap it out in between.
+ * Returns B_FALSE with a Python exception set on failure.
+ */
 static
-PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
+boolean_t py_zfs_pool_refresh_impl(py_zfs_pool_t *p, nvlist_t **configp)
 {
-	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	boolean_t missing;
 	pool_state_t pool_state;
+	nvlist_t *config = NULL;
 	int err;
 
 	Py_BEGIN_ALLOW_THREADS
@@ -499,10 +506,14 @@ PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
 	PY_ZFS_LOCK(p->pylibzfsp);
 
 	err = zpool_refresh_stats(p->zhp, &missing);
-	if (!err)
+	if (!err) {
 		// libzfs will set err to zero but change
 		// internal pool state on some types of error conditions
 		pool_state = zpool_get_state(p->zhp);
+		if (configp != NULL && !missing &&
+		    pool_state != POOL_STATE_UNAVAIL)
+			config = fnvlist_dup(zpool_get_config(p->zhp, NULL));
+	}
 	PY_ZFS_UNLOCK(p->pylibzfsp);
 	Py_END_ALLOW_THREADS
 
@@ -513,7 +524,7 @@ PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
 		PyErr_Format(PyExc_RuntimeError,
 			     "Failed to refresh zpool stats: %s",
 			     strerror(errno));
-		return NULL;
+		return B_FALSE;
 	} else if (missing) {
 		// During the refresh, the ZFS ioctol failed with ENOENT
 		// or EINVAL
@@ -522,15 +533,71 @@ PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
 			     "EINVAL or ENOENT. This may also indicate that the "
 			     "pool was exported or destroyed.");
 
-		return NULL;
+		return B_FALSE;
 	} else if (pool_state == POOL_STATE_UNAVAIL) {
 		PyErr_Format(PyExc_FileNotFoundError,
 			     "Attempt to refresh pool stats. Pool state "
 			     "is currently unavailable.");
-		return NULL;
+		return B_FALSE;
 	}
 
+	if (configp != NULL)
+		*configp = config;
+
+	return B_TRUE;
+}
+
+static
+PyObject *py_zfs_pool_refresh_stats(PyObject *self, PyObject *args)
+{
+	if (!py_zfs_pool_refresh_impl((py_zfs_pool_t *)self, NULL))
+		return NULL;
+
 	Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(py_zfs_pool_iostat__doc__,
+"iostat() -> struct_zpool_iostat\n\n"
+"-------------------------------\n\n"
+"Fetch fresh I/O counters for the pool and its vdevs. This is the data\n"
+"behind zpool iostat -v.\n\n"
+"Every counter is a running total since the pool was imported. To get\n"
+"rates, call iostat() twice on the same pool handle and divide the change\n"
+"in a counter by the change in stats.timestamp (nanoseconds). Match vdevs\n"
+"between samples by guid. If the pool guid changes, or a timestamp goes\n"
+"backwards, the pool was re-imported and the previous sample is stale.\n\n"
+"This skips the error log and health checks done by status(), so it is\n"
+"cheap enough to call once per second. Spares are not included.\n\n"
+"Parameters\n"
+"----------\n"
+"None\n\n"
+"Returns\n"
+"-------\n"
+"truenas_pylibzfs.libzfs_types.struct_zpool_iostat\n\n"
+"Raises:\n"
+"-------\n"
+"RuntimeError:\n"
+"   An unexpected error occurred when issuing the ZFS ioctl to refresh zpool stats.\n"
+"FileNotFoundError:\n"
+"   The pool was exported or destroyed, or is currently unavailable.\n"
+);
+static
+PyObject *py_zfs_pool_iostat(PyObject *self, PyObject *args)
+{
+	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
+	nvlist_t *config = NULL;
+	PyObject *out = NULL;
+
+	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".ZFSPool.iostat", "O",
+	    p->name) < 0)
+		return NULL;
+
+	if (!py_zfs_pool_refresh_impl(p, &config))
+		return NULL;
+
+	out = py_get_pool_iostat(p, config);
+	fnvlist_free(config);
+	return out;
 }
 
 PyDoc_STRVAR(py_zfs_pool_sync__doc__,
@@ -1931,6 +1998,12 @@ PyMethodDef zfs_pool_methods[] = {
 		.ml_meth = py_zfs_pool_refresh_stats,
 		.ml_flags = METH_NOARGS,
 		.ml_doc = py_zfs_pool_refresh_stats__doc__
+	},
+	{
+		.ml_name = "iostat",
+		.ml_meth = py_zfs_pool_iostat,
+		.ml_flags = METH_NOARGS,
+		.ml_doc = py_zfs_pool_iostat__doc__
 	},
 	{
 		.ml_name = "sync_pool",

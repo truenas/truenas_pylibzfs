@@ -177,6 +177,32 @@ PyStructSequence_Desc struct_pool_status_desc = {
 	.n_in_sequence = 10
 };
 
+PyStructSequence_Field struct_pool_iostat_prop [] = {
+	{"name", "Name of the pool."},
+	{"guid", "64-bit GUID of the pool. A different value on the same "
+	         "handle means another pool was imported under this name."},
+	{"stats", PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev_stats for the whole "
+	          "pool. Includes log, special and dedup vdevs but not cache "
+	          "vdevs, matching the pool line of zpool iostat."},
+	{"storage_vdevs", "Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev "
+	                  "objects for the top-level storage vdevs."},
+	{"support_vdevs", PYLIBZFS_TYPES_MODULE_NAME ".struct_support_vdev "
+	                  "object for the cache, log, special and dedup vdevs."},
+	{0},
+};
+#define IOSTAT_NAME_IDX    0
+#define IOSTAT_GUID_IDX    1
+#define IOSTAT_STATS_IDX   2
+#define IOSTAT_STORAGE_IDX 3
+#define IOSTAT_SUPPORT_IDX 4
+
+PyStructSequence_Desc struct_pool_iostat_desc = {
+	.name = PYLIBZFS_TYPES_MODULE_NAME ".struct_zpool_iostat",
+	.fields = struct_pool_iostat_prop,
+	.doc = "Python ZFS pool iostat structure",
+	.n_in_sequence = 5
+};
+
 PyStructSequence_Field struct_pool_support_vdev [] = {
 	{"cache", "Tuple of " PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev objects "
 	          "for L2ARC (read cache) vdevs, or None if not present."},
@@ -197,8 +223,9 @@ PyStructSequence_Desc struct_pool_support_vdev_desc = {
 };
 
 PyStructSequence_Field struct_vdev_stats [] = {
-	{"timestamp", "High-resolution timestamp (hrtime_t, nanoseconds since boot) "
-	              "when these stats were last updated."},
+	{"timestamp", "Nanoseconds elapsed since the vdev was loaded, normally "
+	              "at pool import. Use the change between two samples as "
+	              "the interval when computing rates."},
 	{"allocated", "Space allocated, in bytes"},
 	{"space", "Total capacity, in bytes"},
 	{"dspace", "Deflated capacity, in bytes"},
@@ -1818,6 +1845,67 @@ PyObject *py_get_pool_status_from_config(py_zfs_t *plz, nvlist_t *config)
 	    reason, errata, msgid, B_FALSE, B_FALSE, B_FALSE);
 }
 
+/*
+ * Build a struct_zpool_iostat from a pool config owned by the caller. Vdev
+ * names use the zpool iostat defaults (no symlink resolution, short names)
+ * to avoid extra syscalls per vdev when polling.
+ *
+ * @note GIL must be held when calling this function.
+ */
+PyObject *py_get_pool_iostat(py_zfs_pool_t *pypool, nvlist_t *config)
+{
+	pylibzfs_state_t *state = py_get_module_state(pypool->pylibzfsp);
+	nvlist_t *nvroot = NULL;
+	vdev_stat_t *vs = NULL;
+	uint_t vsc;
+	PyObject *out = NULL;
+	PyObject *val = NULL;
+
+	nvroot = fnvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE);
+	verify(nvlist_lookup_uint64_array(nvroot, ZPOOL_CONFIG_VDEV_STATS,
+	    (uint64_t **)&vs, &vsc) == 0);
+
+	out = PyStructSequence_New(state->struct_zpool_iostat_type);
+	if (out == NULL)
+		return NULL;
+
+	PyStructSequence_SetItem(out, IOSTAT_NAME_IDX, Py_NewRef(pypool->name));
+
+	val = PyLong_FromUnsignedLongLong(
+	    fnvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID));
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(out, IOSTAT_GUID_IDX, val);
+
+	val = PyStructSequence_New(state->struct_vdev_stats_type);
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(out, IOSTAT_STATS_IDX, val);
+	if (!parse_vdev_stats(vs, vsc, B_TRUE, val))
+		goto fail;
+
+	val = pypool_status_get_storage_vdevs(pypool, nvroot, B_TRUE,
+	    B_FALSE, B_FALSE);
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(out, IOSTAT_STORAGE_IDX, val);
+
+	val = pypool_status_get_support_vdevs(pypool, nvroot, B_TRUE,
+	    B_FALSE, B_FALSE);
+	if (val == NULL)
+		goto fail;
+
+	PyStructSequence_SetItem(out, IOSTAT_SUPPORT_IDX, val);
+
+	return out;
+fail:
+	Py_CLEAR(out);
+	return NULL;
+}
+
 /* create new dictionary containing references to info from struct sequence */
 static
 boolean_t py_vdev_add_stats(PyObject *vdev_dict,
@@ -2061,4 +2149,9 @@ void init_py_pool_status_state(pylibzfs_state_t *state)
 	PYZFS_ASSERT(obj, "Failed to create support vdev struct type");
 
 	state->struct_support_vdev_type = obj;
+
+	obj = PyStructSequence_NewType(&struct_pool_iostat_desc);
+	PYZFS_ASSERT(obj, "Failed to create zpool iostat struct type");
+
+	state->struct_zpool_iostat_type = obj;
 }
