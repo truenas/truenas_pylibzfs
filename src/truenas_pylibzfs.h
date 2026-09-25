@@ -757,6 +757,7 @@ extern PyObject *py_get_pool_status_dict(py_zfs_pool_t *pypool,
     boolean_t get_stats, boolean_t follow_links, boolean_t full_path);
 extern PyObject *py_get_pool_status_from_config(py_zfs_t *plz,
     nvlist_t *config);
+extern PyObject *py_get_pool_iostat(py_zfs_pool_t *pypool, nvlist_t *config);
 extern void init_py_pool_status_state(pylibzfs_state_t *state);
 
 /* provided by py_zfs_pool.c */

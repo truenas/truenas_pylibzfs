@@ -76,6 +76,7 @@ typedef struct {
 	PyTypeObject *struct_vdev_status_type;
 	PyTypeObject *struct_vdev_stats_type;
 	PyTypeObject *struct_support_vdev_type;
+	PyTypeObject *struct_zpool_iostat_type;
 	PyObject *vdev_state_enum;
 
 	PyTypeObject *struct_zpool_feature_type;
