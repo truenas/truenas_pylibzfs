@@ -58,13 +58,13 @@ PyObject *setup_zfs_exception(void)
 }
 
 PyDoc_STRVAR(py_validation_error__doc__,
-"ValidationError(ValueError)\n"
-"---------------------------\n\n"
-"An argument to create_vdev_spec(), ZFS.create_pool() or\n"
-"ZFSPool.add_vdevs() was refused before anything was done.  The\n"
-"message reads \"<argument>: <reason>\", or \"<argument>[<index>]: "
-"<reason>\"\n"
-"when the check knows which element of a sequence failed.\n\n"
+"ZPOOLValidationError(ValueError)\n"
+"--------------------------------\n\n"
+"An argument to create_vdev_spec(), ZFS.create_pool(),\n"
+"ZFSPool.add_vdevs(), ZFSPool.attach_vdev() or ZFSPool.replace_vdev()\n"
+"was refused before anything was done.  The message reads\n"
+"\"<argument>: <reason>\", or \"<argument>[<index>]: <reason>\" when the\n"
+"check knows which element of a sequence failed.\n\n"
 "attributes:\n"
 "-----------\n"
 "argument: str\n"
@@ -93,7 +93,7 @@ int init_validation_exception(PyObject *module)
 		return -1;
 
 	exc = PyErr_NewExceptionWithDoc(PYLIBZFS_MODULE_NAME
-					".ValidationError",
+					".ZPOOLValidationError",
 					py_validation_error__doc__,
 					PyExc_ValueError,
 					dict);
@@ -101,7 +101,7 @@ int init_validation_exception(PyObject *module)
 	if (exc == NULL)
 		return -1;
 
-	if (PyModule_AddObjectRef(module, "ValidationError", exc) < 0) {
+	if (PyModule_AddObjectRef(module, "ZPOOLValidationError", exc) < 0) {
 		Py_DECREF(exc);
 		return -1;
 	}
@@ -123,7 +123,8 @@ void py_set_validation_error(const char *argument, Py_ssize_t index,
 	PyObject *py_index = NULL;
 
 	state = py_get_current_module_state();
-	PYZFS_ASSERT(state->validation_error, "ValidationError not initialized");
+	PYZFS_ASSERT(state->validation_error,
+	    "ZPOOLValidationError not initialized");
 
 	va_start(ap, fmt);
 	reason = PyUnicode_FromFormatV(fmt, ap);
@@ -165,7 +166,7 @@ out:
 }
 
 /*
- * Turn a ValueError that a shared helper raised into a ValidationError
+ * Turn a ValueError that a shared helper raised into a ZPOOLValidationError
  * for the given argument.  Any other exception is left as it is.
  */
 void py_validation_error_from_current(const char *argument)

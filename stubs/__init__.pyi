@@ -19,10 +19,11 @@ from .libzfs_types import (
     ZPOOLStatus as ZPOOLStatus,
 )
 
-class ValidationError(ValueError):
-    """An argument to create_vdev_spec(), ZFS.create_pool() or ZFSPool.add_vdevs()
-    was refused before anything was done. The message reads ``"<argument>: <reason>"``,
-    or ``"<argument>[<index>]: <reason>"`` when the check knows which element of a
+class ZPOOLValidationError(ValueError):
+    """An argument to create_vdev_spec(), ZFS.create_pool(), ZFSPool.add_vdevs(),
+    ZFSPool.attach_vdev() or ZFSPool.replace_vdev() was refused before anything was
+    done. The message reads ``"<argument>: <reason>"``, or
+    ``"<argument>[<index>]: <reason>"`` when the check knows which element of a
     sequence failed."""
 
     argument: str
@@ -56,7 +57,7 @@ def create_vdev_spec(
     ``"<ndata>d:<nspares>s"`` (e.g. ``"3d:1s"``), or as ``"<nspares>s"`` to
     let the data disks per group default the way ``zpool create`` does (every
     child left after parity and spares, at most 8).  The child count is
-    derived automatically from ``len(children)``.  Raises ``ValidationError``
+    derived automatically from ``len(children)``.  Raises ``ZPOOLValidationError``
     when the combination is refused.
     """
     ...

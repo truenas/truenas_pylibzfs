@@ -381,7 +381,8 @@ py_zfs_validate_vdev_spec(pylibzfs_state_t *state, PyObject *spec,
 		for (i = 0; i < n; i++) {
 			child = PyTuple_GET_ITEM(py_children, i);
 			if (!py_zfs_validate_vdev_spec(state, child,
-			    argument, index))
+			    argument ? argument : "children",
+			    argument ? index : i))
 				return B_FALSE;
 		}
 
@@ -637,7 +638,7 @@ validate_storage_widths(PyObject *storage_seq)
  * The pool name rules zpool_create() applies through zpool_name_valid(),
  * which libzfs does not export: pool_namecheck() plus the reserved prefixes
  * libzfs refuses only on create.  The messages are libzfs's own.
- * Returns B_TRUE if valid, B_FALSE with a ValidationError set if not.
+ * Returns B_TRUE if valid, B_FALSE with a ZPOOLValidationError set if not.
  */
 static boolean_t
 validate_pool_name(const char *name)
@@ -660,8 +661,10 @@ validate_pool_name(const char *name)
 			reason = "name is too long";
 			break;
 		case NAME_ERR_INVALCHAR:
+			/* %c takes a code point, and char is signed */
 			py_set_validation_error("name", -1,
-			    "invalid character '%c' in pool name", what);
+			    "invalid character '%c' in pool name",
+			    (unsigned char)what);
 			return B_FALSE;
 		case NAME_ERR_NOLETTER:
 			reason = "name must begin with a letter";
@@ -1593,41 +1596,110 @@ apply_feature_properties(nvlist_t *props, PyObject *feat_dict)
 	return (0);
 }
 
-/*
- * Run libzfs's own value validation on the root filesystem properties, as
- * zpool_create() does before its ioctl (zoned and key_ok as it passes
- * them, no dataset or pool handle).  Returns B_TRUE if libzfs accepts
- * them, B_FALSE with a ValidationError carrying libzfs's description.
- */
-static boolean_t
-validate_fsprops(py_zfs_t *plz, nvlist_t *fsprops)
+static uint64_t
+fsprops_zoned(nvlist_t *fsprops)
 {
-	nvlist_t *valid = NULL;
 	const char *zonestr = NULL;
-	uint64_t zoned;
-	py_zfs_error_t zfs_err;
-	boolean_t err = B_FALSE;
 
-	zoned = (nvlist_lookup_string(fsprops,
+	return (nvlist_lookup_string(fsprops,
 	    zfs_prop_to_name(ZFS_PROP_ZONED), &zonestr) == 0 &&
 	    strcmp(zonestr, "on") == 0);
+}
+
+/*
+ * Validate the pool properties and the root filesystem properties with the
+ * functions zpool_create() itself calls before its ioctl, and with the
+ * arguments it passes them.  fsprops may be NULL.  Returns B_TRUE if libzfs
+ * accepts them, B_FALSE with a ZPOOLValidationError carrying libzfs's
+ * description.
+ */
+static boolean_t
+validate_create_props(py_zfs_t *plz, const char *name, nvlist_t *props,
+    nvlist_t *fsprops)
+{
+	prop_flags_t flags = { .create = B_TRUE, .import = B_FALSE };
+	nvlist_t *valid = NULL;
+	const char *argument = NULL;
+	char errbuf[1024];
+	py_zfs_error_t zfs_err;
+
+	(void) snprintf(errbuf, sizeof (errbuf), "cannot create '%s'", name);
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(plz);
-	valid = zfs_valid_proplist(plz->lzh, ZFS_TYPE_FILESYSTEM, fsprops,
-	    zoned, NULL, NULL, B_TRUE, "cannot create pool");
+	valid = zpool_valid_proplist(plz->lzh, name, props, SPA_VERSION_1,
+	    flags, errbuf);
 	if (valid == NULL) {
-		py_get_zfs_error(plz->lzh, &zfs_err);
-		err = B_TRUE;
-	} else {
+		argument = "properties";
+	} else if (fsprops != NULL) {
 		fnvlist_free(valid);
+		valid = zfs_valid_proplist(plz->lzh, ZFS_TYPE_FILESYSTEM,
+		    fsprops, fsprops_zoned(fsprops), NULL, NULL, B_TRUE,
+		    errbuf);
+		if (valid == NULL)
+			argument = "filesystem_properties";
 	}
+	if (argument != NULL)
+		py_get_zfs_error(plz->lzh, &zfs_err);
+	fnvlist_free(valid);
 	PY_ZFS_UNLOCK(plz);
 	Py_END_ALLOW_THREADS
 
-	if (err) {
-		py_set_validation_error("filesystem_properties", -1, "%s",
+	if (argument != NULL) {
+		py_set_validation_error(argument, -1, "%s",
 		    zfs_err.description);
+		return B_FALSE;
+	}
+	return B_TRUE;
+}
+
+/*
+ * Check the encryption properties of the root filesystem the way
+ * zpool_create() does, for a dry run.  The property conversion already
+ * refuses the creation-time ones (encryption, keyformat, pbkdf2iters), so
+ * what reaches this is a keylocation on its own, which zpool_create()
+ * refuses.  zfs_crypto_create() can load key material, so stdin is declared
+ * unavailable: a dry run must never block on a prompt.  It reports a
+ * refusal through the handle's auxiliary description alone, which would
+ * linger and be attached to the next error raised on a shared handle, so
+ * this uses a handle of its own.  A real creation leaves the check to
+ * libzfs.
+ */
+static boolean_t
+validate_create_crypto(nvlist_t *props, nvlist_t *fsprops)
+{
+	libzfs_handle_t *lzh = NULL;
+	nvlist_t *valid = NULL;
+	uint8_t *wkeydata = NULL;
+	uint_t wkeylen = 0;
+	char errbuf[1024];
+	char reason[1024];
+	boolean_t ok = B_FALSE;
+
+	(void) strlcpy(errbuf, "cannot create pool", sizeof (errbuf));
+	(void) strlcpy(reason, "failed to open a libzfs handle",
+	    sizeof (reason));
+
+	Py_BEGIN_ALLOW_THREADS
+	lzh = libzfs_init();
+	if (lzh != NULL) {
+		valid = zfs_valid_proplist(lzh, ZFS_TYPE_FILESYSTEM, fsprops,
+		    fsprops_zoned(fsprops), NULL, NULL, B_TRUE, errbuf);
+		if (valid != NULL && zfs_crypto_create(lzh, NULL, valid,
+		    props, B_FALSE, &wkeydata, &wkeylen) == 0)
+			ok = B_TRUE;
+		else
+			(void) strlcpy(reason, libzfs_error_description(lzh),
+			    sizeof (reason));
+		free(wkeydata);
+		fnvlist_free(valid);
+		libzfs_fini(lzh);
+	}
+	Py_END_ALLOW_THREADS
+
+	if (!ok) {
+		py_set_validation_error("filesystem_properties", -1, "%s",
+		    reason);
 		return B_FALSE;
 	}
 	return B_TRUE;
@@ -1725,17 +1797,22 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	}
 
 	/*
-	 * Every check that does not need the kernel has passed.  A dry run
-	 * also applies what zpool_create() checks before its ioctl, the
-	 * pool name rules and zfs_valid_proplist() on the root filesystem
-	 * properties, then stops here: no audit event, no device is opened,
-	 * nothing is created and no history is logged.
+	 * What zpool_create() checks before its ioctl, so that a dry run and
+	 * a real creation refuse the same request the same way.  libzfs
+	 * repeating them in a real creation is harmless.
+	 */
+	if (!validate_pool_name(cpa->name))
+		goto fail;
+	if (!validate_create_props(plz, cpa->name, props_nvl, fsprops_nvl))
+		goto fail;
+
+	/*
+	 * A dry run stops here: no audit event, no device is opened, nothing
+	 * is created and no history is logged.
 	 */
 	if (cpa->dry_run) {
-		if (!validate_pool_name(cpa->name))
-			goto fail;
 		if (fsprops_nvl != NULL &&
-		    !validate_fsprops(plz, fsprops_nvl))
+		    !validate_create_crypto(props_nvl, fsprops_nvl))
 			goto fail;
 		fnvlist_free(props_nvl);
 		fnvlist_free(fsprops_nvl);

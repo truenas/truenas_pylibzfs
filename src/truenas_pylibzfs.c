@@ -227,13 +227,12 @@ PYLIBZFS_TYPES_MODULE_NAME ".struct_vdev_create_spec\n"
 "    (name, vdev_type, children).\n\n"
 "Raises\n"
 "------\n"
-"ValidationError:\n"
-"    vdev_type is unrecognised, or the name/children combination is\n"
-"    inconsistent with the requested type (e.g. leaf vdev with children,\n"
-"    or dRAID with a malformed config string).  A ValueError subclass;\n"
-"    its argument attribute names the parameter judged.\n"
-"ValueError:\n"
-"    vdev_type is missing.\n"
+"ZPOOLValidationError:\n"
+"    vdev_type is missing or unrecognised, or the name/children\n"
+"    combination is inconsistent with the requested type (e.g. leaf vdev\n"
+"    with children, or dRAID with a malformed config string).  A\n"
+"    ValueError subclass; its argument attribute names the parameter\n"
+"    judged.\n"
 "TypeError:\n"
 "    vdev_type is not a string, name is not a string or None, or children\n"
 "    is not a sequence.\n"
@@ -252,8 +251,8 @@ py_create_vdev_spec(PyObject *self, PyObject *args, PyObject *kwargs)
 		return NULL;
 
 	if (py_vtype == NULL || py_vtype == Py_None) {
-		PyErr_SetString(PyExc_ValueError,
-		    "\"vdev_type\" keyword argument is required");
+		py_set_validation_error("vdev_type", -1,
+		    "keyword argument is required");
 		return NULL;
 	}
 

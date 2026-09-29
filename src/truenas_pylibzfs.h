@@ -219,7 +219,7 @@ extern void py_get_zfs_error(libzfs_handle_t *lz, py_zfs_error_t *out);
 
 extern PyObject *setup_zfs_exception(void);
 /*
- * Create truenas_pylibzfs.ValidationError, publish it on the module and
+ * Create truenas_pylibzfs.ZPOOLValidationError, publish it on the module and
  * keep the module's own reference in its state.  Returns -1 with an
  * exception set on failure.
  */
@@ -232,7 +232,7 @@ extern int init_validation_exception(PyObject *module);
 extern pylibzfs_state_t *py_get_current_module_state(void);
 
 /*
- * Raise truenas_pylibzfs.ValidationError (a ValueError) for a refused
+ * Raise truenas_pylibzfs.ZPOOLValidationError (a ValueError) for a refused
  * argument.  index is the offending position within a sequence argument,
  * or -1 when there is none; argument may be NULL when the refusal spans
  * several arguments.  Requires the GIL.
@@ -368,10 +368,12 @@ extern boolean_t py_zfs_validate_vdev_spec(pylibzfs_state_t *state,
  * Maximum number of dRAID distributed spares.  There is no named constant
  * for this in the ZFS headers; the value matches the hardcoded limit in
  * draid_config_by_type() in zpool_vdev.c.  It is named like the genuine
- * VDEV_DRAID_* macros it is exported beside, so if OpenZFS ever defines a
- * macro of this name this definition must be dropped in favour of it.
+ * VDEV_DRAID_* macros it is exported beside, so a definition from the ZFS
+ * headers takes over if one ever appears.
  */
+#ifndef VDEV_DRAID_MAX_SPARES
 #define VDEV_DRAID_MAX_SPARES 100
+#endif
 
 /* Provided by utils.c */
 extern const char *get_dataset_type(zfs_type_t type);
