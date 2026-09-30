@@ -1299,7 +1299,14 @@ def test_create_pool_dry_run_accepts_draid_with_placeholders():
     _pool_absent()
 
 
-@pytest.mark.parametrize("name", ["bogus", "3d", "3d:1", "3d:1x", "1s:x", "s", "", "3d:1s:0", "d:1s", ":1s"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "bogus", "3d", "3d:1", "3d:1x", "1s:x", "s", "", "3d:1s:0", "d:1s", ":1s",
+        # strtoul() alone would take these
+        " 1s", "+1s", "-1s", "3d: 1s", "3d:+1s", "3d:-1s",
+    ],
+)
 def test_create_vdev_spec_draid_malformed_name(name):
     with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="malformed") as e:
         truenas_pylibzfs.create_vdev_spec(
@@ -1557,16 +1564,20 @@ def test_create_pool_dry_run_checks_pool_name(bad, reason):
 def test_create_pool_dry_run_emits_no_audit_event(make_disks):
     # audit hooks cannot be removed, so this one only records
     seen = []
-    sys.addaudithook(lambda event, args: seen.append(event) if event == "truenas_pylibzfs.create_pool" else None)
+    sys.addaudithook(lambda event, args: seen.append(args) if event == "truenas_pylibzfs.create_pool" else None)
     lz = truenas_pylibzfs.open_handle()
     lz.create_pool(name=POOL_NAME, storage_vdevs=[_placeholder(0)], dry_run=True)
     assert seen == []
     _pool_absent()
-    # the same hook does see a real creation
+    # a real attempt is audited even when it is refused before any device is opened
+    with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
+        lz.create_pool(name="mirror", storage_vdevs=[_placeholder(0)])
+    assert seen == [("mirror",)]
+    # and, of course, when it goes ahead
     disk = make_disks(1)[0]
     try:
         lz.create_pool(name=POOL_NAME, storage_vdevs=[_spec(disk)])
-        assert seen == ["truenas_pylibzfs.create_pool"]
+        assert seen == [("mirror",), (POOL_NAME,)]
     finally:
         _destroy()
 

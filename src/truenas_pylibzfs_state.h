@@ -127,4 +127,6 @@ extern int py_register_struct_types(PyObject *module);
 extern void init_py_struct_prop_state(pylibzfs_state_t *state);
 extern void init_py_struct_zpool_prop_state(pylibzfs_state_t *state);
 extern void free_py_zfs_state(PyObject *module);
+extern int traverse_py_zfs_state(PyObject *module, visitproc visit,
+    void *arg);
 #endif /* _PYZFS_STATE_H */

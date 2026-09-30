@@ -1,4 +1,5 @@
 #include "../truenas_pylibzfs.h"
+#include <ctype.h>
 #include <errno.h>
 #include <libzutil.h>
 #include <stdlib.h>
@@ -163,6 +164,9 @@ parse_draid_config(const char *str, draid_config_t *out)
 	if (str == NULL || *str == '\0')
 		return B_FALSE;
 
+	/* strtoul() would also take whitespace and a sign */
+	if (!isdigit((unsigned char)*str))
+		return B_FALSE;
 	errno = 0;
 	first = strtoul(str, &endp, 10);
 	if (endp == str || errno == ERANGE)
@@ -176,6 +180,8 @@ parse_draid_config(const char *str, draid_config_t *out)
 		if (*str != ':')
 			return B_FALSE;
 		str++;
+		if (!isdigit((unsigned char)*str))
+			return B_FALSE;
 		errno = 0;
 		nspares = strtoul(str, &endp, 10);
 		if (endp == str || *endp != 's' || errno == ERANGE)
@@ -1610,15 +1616,17 @@ fsprops_zoned(nvlist_t *fsprops)
  * Validate the pool properties and the root filesystem properties with the
  * functions zpool_create() itself calls before its ioctl, and with the
  * arguments it passes them.  fsprops may be NULL.  Returns B_TRUE if libzfs
- * accepts them, B_FALSE with a ZPOOLValidationError carrying libzfs's
- * description.
+ * accepts them, with the converted root filesystem properties (or NULL) in
+ * *valid_fsprops_out for the caller to free, or B_FALSE with a
+ * ZPOOLValidationError carrying libzfs's description.
  */
 static boolean_t
 validate_create_props(py_zfs_t *plz, const char *name, nvlist_t *props,
-    nvlist_t *fsprops)
+    nvlist_t *fsprops, nvlist_t **valid_fsprops_out)
 {
 	prop_flags_t flags = { .create = B_TRUE, .import = B_FALSE };
 	nvlist_t *valid = NULL;
+	nvlist_t *valid_fsprops = NULL;
 	const char *argument = NULL;
 	char errbuf[1024];
 	py_zfs_error_t zfs_err;
@@ -1632,11 +1640,10 @@ validate_create_props(py_zfs_t *plz, const char *name, nvlist_t *props,
 	if (valid == NULL) {
 		argument = "properties";
 	} else if (fsprops != NULL) {
-		fnvlist_free(valid);
-		valid = zfs_valid_proplist(plz->lzh, ZFS_TYPE_FILESYSTEM,
-		    fsprops, fsprops_zoned(fsprops), NULL, NULL, B_TRUE,
-		    errbuf);
-		if (valid == NULL)
+		valid_fsprops = zfs_valid_proplist(plz->lzh,
+		    ZFS_TYPE_FILESYSTEM, fsprops, fsprops_zoned(fsprops),
+		    NULL, NULL, B_TRUE, errbuf);
+		if (valid_fsprops == NULL)
 			argument = "filesystem_properties";
 	}
 	if (argument != NULL)
@@ -1650,14 +1657,18 @@ validate_create_props(py_zfs_t *plz, const char *name, nvlist_t *props,
 		    zfs_err.description);
 		return B_FALSE;
 	}
+	*valid_fsprops_out = valid_fsprops;
 	return B_TRUE;
 }
 
 /*
  * Check the encryption properties of the root filesystem the way
- * zpool_create() does, for a dry run.  The property conversion already
- * refuses the creation-time ones (encryption, keyformat, pbkdf2iters), so
- * what reaches this is a keylocation on its own, which zpool_create()
+ * zpool_create() does, for a dry run.  valid_fsprops is what
+ * validate_create_props() converted; zfs_crypto_create() may add a
+ * keylocation to it, which is why the caller frees it afterwards rather
+ * than reusing it.  The property conversion already refuses the
+ * creation-time encryption properties (encryption, keyformat, pbkdf2iters),
+ * so what reaches this is a keylocation on its own, which zpool_create()
  * refuses.  zfs_crypto_create() can load key material, so stdin is declared
  * unavailable: a dry run must never block on a prompt.  It reports a
  * refusal through the handle's auxiliary description alone, which would
@@ -1666,33 +1677,27 @@ validate_create_props(py_zfs_t *plz, const char *name, nvlist_t *props,
  * libzfs.
  */
 static boolean_t
-validate_create_crypto(nvlist_t *props, nvlist_t *fsprops)
+validate_create_crypto(nvlist_t *props, nvlist_t *valid_fsprops)
 {
 	libzfs_handle_t *lzh = NULL;
-	nvlist_t *valid = NULL;
 	uint8_t *wkeydata = NULL;
 	uint_t wkeylen = 0;
-	char errbuf[1024];
 	char reason[1024];
 	boolean_t ok = B_FALSE;
 
-	(void) strlcpy(errbuf, "cannot create pool", sizeof (errbuf));
 	(void) strlcpy(reason, "failed to open a libzfs handle",
 	    sizeof (reason));
 
 	Py_BEGIN_ALLOW_THREADS
 	lzh = libzfs_init();
 	if (lzh != NULL) {
-		valid = zfs_valid_proplist(lzh, ZFS_TYPE_FILESYSTEM, fsprops,
-		    fsprops_zoned(fsprops), NULL, NULL, B_TRUE, errbuf);
-		if (valid != NULL && zfs_crypto_create(lzh, NULL, valid,
-		    props, B_FALSE, &wkeydata, &wkeylen) == 0)
+		if (zfs_crypto_create(lzh, NULL, valid_fsprops, props,
+		    B_FALSE, &wkeydata, &wkeylen) == 0)
 			ok = B_TRUE;
 		else
 			(void) strlcpy(reason, libzfs_error_description(lzh),
 			    sizeof (reason));
 		free(wkeydata);
-		fnvlist_free(valid);
 		libzfs_fini(lzh);
 	}
 	Py_END_ALLOW_THREADS
@@ -1725,6 +1730,7 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	nvlist_t *root_nvl = NULL;
 	nvlist_t *props_nvl = NULL;
 	nvlist_t *fsprops_nvl = NULL;
+	nvlist_t *valid_fsprops = NULL;
 
 	py_zfs_error_t zfs_err;
 	int err;
@@ -1797,23 +1803,35 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	}
 
 	/*
+	 * Audit the attempt before the checks libzfs would make, so that a
+	 * creation refused for its name or properties is recorded like one
+	 * refused by libzfs itself.  A dry run is not audited.
+	 */
+	if (!cpa->dry_run &&
+	    PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
+	    cpa->name) < 0)
+		goto fail;
+
+	/*
 	 * What zpool_create() checks before its ioctl, so that a dry run and
 	 * a real creation refuse the same request the same way.  libzfs
 	 * repeating them in a real creation is harmless.
 	 */
 	if (!validate_pool_name(cpa->name))
 		goto fail;
-	if (!validate_create_props(plz, cpa->name, props_nvl, fsprops_nvl))
+	if (!validate_create_props(plz, cpa->name, props_nvl, fsprops_nvl,
+	    &valid_fsprops))
 		goto fail;
 
 	/*
-	 * A dry run stops here: no audit event, no device is opened, nothing
-	 * is created and no history is logged.
+	 * A dry run stops here: no device is opened, nothing is created and
+	 * no history is logged.
 	 */
 	if (cpa->dry_run) {
-		if (fsprops_nvl != NULL &&
-		    !validate_create_crypto(props_nvl, fsprops_nvl))
+		if (valid_fsprops != NULL &&
+		    !validate_create_crypto(props_nvl, valid_fsprops))
 			goto fail;
+		fnvlist_free(valid_fsprops);
 		fnvlist_free(props_nvl);
 		fnvlist_free(fsprops_nvl);
 		Py_XDECREF(storage_seq);
@@ -1825,10 +1843,8 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 		Py_RETURN_NONE;
 	}
 
-	/* Audit before making any kernel calls */
-	if (PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
-	    cpa->name) < 0)
-		goto fail;
+	fnvlist_free(valid_fsprops);
+	valid_fsprops = NULL;
 
 	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
 	    special_seq, dedup_seq, spare_seq);
@@ -1871,6 +1887,7 @@ fail:
 	fnvlist_free(root_nvl);
 	fnvlist_free(props_nvl);
 	fnvlist_free(fsprops_nvl);
+	fnvlist_free(valid_fsprops);
 	Py_XDECREF(storage_seq);
 	Py_XDECREF(cache_seq);
 	Py_XDECREF(log_seq);

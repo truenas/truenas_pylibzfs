@@ -889,12 +889,28 @@ class TestAddVdevsDryRun:
         pool = _create_mirror_pool(lz, disks[0], disks[1])
         try:
             assert pool.add_vdevs(storage_vdevs=[_spec("placeholder0")], force=True, dry_run=True) is None
-            with pytest.raises(ValueError, match="cache_vdevs"):
-                pool.add_vdevs(
-                    cache_vdevs=[_mirror("placeholder0", "placeholder1")], force=True, dry_run=True
-                )
-            with pytest.raises(ValueError, match="at least one vdev category"):
+            placeholder_mirror = _mirror("placeholder0", "placeholder1")
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match=r"^cache_vdevs\[1\]") as e:
+                pool.add_vdevs(cache_vdevs=[_spec("placeholder2"), placeholder_mirror], force=True, dry_run=True)
+            assert (e.value.argument, e.value.index) == ("cache_vdevs", 1)
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match=r"^spare_vdevs\[0\]") as e:
+                pool.add_vdevs(spare_vdevs=[placeholder_mirror], force=True, dry_run=True)
+            assert (e.value.argument, e.value.index) == ("spare_vdevs", 0)
+            log_raidz = truenas_pylibzfs.create_vdev_spec(
+                vdev_type=VDevType.RAIDZ1, children=[_spec(f"placeholder{i}") for i in range(3)]
+            )
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match=r"^log_vdevs\[1\]") as e:
+                pool.add_vdevs(log_vdevs=[placeholder_mirror, log_raidz], force=True, dry_run=True)
+            assert (e.value.argument, e.value.index) == ("log_vdevs", 1)
+            dedup_draid = truenas_pylibzfs.create_vdev_spec(
+                vdev_type=VDevType.DRAID1, name="0s", children=[_spec(f"placeholder{i}") for i in range(2)]
+            )
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match=r"^dedup_vdevs\[0\]") as e:
+                pool.add_vdevs(dedup_vdevs=[dedup_draid], force=True, dry_run=True)
+            assert (e.value.argument, e.value.index) == ("dedup_vdevs", 0)
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^at least one vdev category") as e:
                 pool.add_vdevs(dry_run=True)
+            assert (e.value.argument, e.value.index) == ("", None)
             assert len(pool.status().storage_vdevs) == 1
         finally:
             _destroy(lz)

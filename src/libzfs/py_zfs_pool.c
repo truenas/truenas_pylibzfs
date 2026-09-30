@@ -1431,7 +1431,8 @@ PyDoc_STRVAR(py_zfs_pool_attach_vdev__doc__,
 "    A required argument is missing, the new device specification is\n"
 "    invalid, or a width limit would be exceeded without force=True.  A\n"
 "    ValueError subclass whose argument attribute names the parameter\n"
-"    judged.\n"
+"    judged, or is empty for the width limit, which is about the vdev\n"
+"    the two arguments would form together.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while attaching the device.\n"
 );
@@ -1538,7 +1539,7 @@ py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 	if (!force && vdev_width >= 0) {
 		if (is_mirror &&
 		    vdev_width >= PYLIBZFS_MAX_MIRROR_WIDTH) {
-			py_set_validation_error("device", -1,
+			py_set_validation_error(NULL, -1,
 			    "resulting mirror width (%d) would exceed limit "
 			    "of %d",
 			    vdev_width + 1, PYLIBZFS_MAX_MIRROR_WIDTH);
@@ -1547,7 +1548,7 @@ py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		}
 		if (is_raidz &&
 		    vdev_width >= PYLIBZFS_MAX_RAIDZ_WIDTH) {
-			py_set_validation_error("device", -1,
+			py_set_validation_error(NULL, -1,
 			    "resulting raidz width (%d) would exceed limit "
 			    "of %d",
 			    vdev_width + 1, PYLIBZFS_MAX_RAIDZ_WIDTH);

@@ -480,11 +480,7 @@ static PyMethodDef TruenasPylibzfsMethods[] = {
 static int
 pylibzfs_module_traverse(PyObject *module, visitproc visit, void *arg)
 {
-	pylibzfs_state_t *state = (pylibzfs_state_t *)PyModule_GetState(module);
-
-	if (state != NULL)
-		Py_VISIT(state->validation_error);
-	return 0;
+	return traverse_py_zfs_state(module, visit, arg);
 }
 
 static int

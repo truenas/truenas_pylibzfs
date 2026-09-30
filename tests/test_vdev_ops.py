@@ -279,9 +279,10 @@ class TestAttachVdev:
             # 3-way → 4-way: fine (resulting width 4 == limit, still allowed)
             pool.attach_vdev(device=disks[0], new_device=_spec(disks[3]))
             # 4-way → 5-way: rejected (resulting width 5 > 4)
-            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="mirror width") as e:
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^resulting mirror width") as e:
                 pool.attach_vdev(device=disks[0], new_device=_spec(disks[4]))
-            assert e.value.argument == "device"
+            # the limit is about the vdev both arguments would form, so no single one is named
+            assert (e.value.argument, e.value.index) == ("", None)
         finally:
             _destroy(lz)
 

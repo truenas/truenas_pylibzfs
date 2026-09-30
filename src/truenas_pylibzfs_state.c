@@ -318,6 +318,65 @@ PyObject *py_get_property_source(py_zfs_t *zfs, zprop_source_t sourcetype)
 	return Py_NewRef(out);
 }
 
+/*
+ * Visit every Python object the module state owns, for m_traverse.  Keep in
+ * step with free_py_zfs_state() below.
+ */
+int traverse_py_zfs_state(PyObject *module, visitproc visit, void *arg)
+{
+	pylibzfs_state_t *state = NULL;
+	size_t idx;
+
+	state = (pylibzfs_state_t *)PyModule_GetState(module);
+	if (state == NULL)
+		return 0;
+
+	for (idx = 0; idx < ARRAY_SIZE(state->zfs_type_enum_tbl); idx++) {
+		Py_VISIT(state->zfs_type_enum_tbl[idx].name);
+		Py_VISIT(state->zfs_type_enum_tbl[idx].obj);
+	}
+	for (idx = 0; idx < ARRAY_SIZE(state->zfs_prop_src_enum_tbl); idx++) {
+		Py_VISIT(state->zfs_prop_src_enum_tbl[idx].name);
+		Py_VISIT(state->zfs_prop_src_enum_tbl[idx].obj);
+	}
+	for (idx = 0; idx < ARRAY_SIZE(state->zfs_prop_enum_tbl); idx++) {
+		Py_VISIT(state->zfs_prop_enum_tbl[idx].name);
+		Py_VISIT(state->zfs_prop_enum_tbl[idx].obj);
+	}
+	for (idx = 0; idx < ZPOOL_NUM_PROPS; idx++) {
+		Py_VISIT(state->zpool_prop_enum_tbl[idx].name);
+		Py_VISIT(state->zpool_prop_enum_tbl[idx].obj);
+	}
+
+	Py_VISIT(state->validation_error);
+	Py_VISIT(state->struct_zfs_props_type);
+	Py_VISIT(state->struct_zfs_prop_type);
+	Py_VISIT(state->struct_zfs_prop_src_type);
+	Py_VISIT(state->struct_zfs_userquota_type);
+	Py_VISIT(state->struct_zfs_crypto_info_type);
+	Py_VISIT(state->struct_zfs_crypto_change_type);
+	Py_VISIT(state->zfs_property_src_enum);
+	Py_VISIT(state->zfs_property_enum);
+	Py_VISIT(state->zfs_type_enum);
+	Py_VISIT(state->zfs_uquota_enum);
+	Py_VISIT(state->zpool_status_enum);
+	Py_VISIT(state->zpool_property_enum);
+	Py_VISIT(state->struct_zpool_status_type);
+	Py_VISIT(state->struct_vdev_status_type);
+	Py_VISIT(state->struct_vdev_stats_type);
+	Py_VISIT(state->struct_support_vdev_type);
+	Py_VISIT(state->vdev_state_enum);
+	Py_VISIT(state->struct_vdev_create_spec_type);
+	Py_VISIT(state->vdev_type_enum);
+	Py_VISIT(state->scan_function_enum);
+	Py_VISIT(state->scan_state_enum);
+	Py_VISIT(state->struct_zpool_scrub_type);
+	Py_VISIT(state->struct_zpool_expand_type);
+	Py_VISIT(state->struct_zpool_props_type);
+	Py_VISIT(state->struct_zpool_prop_type);
+	return 0;
+}
+
 /* WARNING: this should only be called from m_clear for module */
 void free_py_zfs_state(PyObject *module)
 {

@@ -128,6 +128,8 @@ lz.create_pool(
 lz.destroy_pool(name="tank", force=False)
 ```
 
+`create_pool(..., dry_run=True)` runs every check the binding and libzfs make before the kernel is asked (vdev specs, the topology rules, the pool name, the property names and values) and returns `None` without creating anything; leaf names are not opened, so placeholders are fine. `add_vdevs(..., dry_run=True)` does the same against the live pool's geometry. A refusal is a `truenas_pylibzfs.ZPOOLValidationError` (see Error Handling). The width caps and dRAID limits the topology rules use are exported on `truenas_pylibzfs.constants` (`MAX_MIRROR_WIDTH`, `MAX_RAIDZ_WIDTH`, `VDEV_DRAID_MAX_CHILDREN`, `VDEV_DRAID_MAXPARITY`, `VDEV_DRAID_MAX_SPARES`).
+
 ### Pool status and health
 
 ```python
@@ -769,7 +771,7 @@ truenas_pylibzfs.lzc.wait(
 
 ## Error Handling
 
-All libzfs errors raise `truenas_pylibzfs.ZFSException`. libzfs_core errors raise `truenas_pylibzfs.ZFSCoreException`.
+All libzfs errors raise `truenas_pylibzfs.ZFSException`. libzfs_core errors raise `truenas_pylibzfs.ZFSCoreException`. An argument that `create_vdev_spec()`, `create_pool()`, `add_vdevs()`, `attach_vdev()` or `replace_vdev()` refuses before anything is done raises `truenas_pylibzfs.ZPOOLValidationError`, a `ValueError` subclass whose `argument`, `index` and `reason` attributes locate the refusal (`e.argument == "storage_vdevs"`, `e.index == 1`); its message reads `storage_vdevs[1]: <reason>`.
 
 ```python
 try:
@@ -820,7 +822,7 @@ src/
   truenas_pylibzfs.c          # module init
   truenas_pylibzfs_state.c    # per-interpreter module state
   common/
-    error.c                   # ZFSException / ZFSCoreException construction
+    error.c                   # ZFSException / ZFSCoreException / ZPOOLValidationError construction
     nvlist_utils.c            # nvlist ↔ Python dict dispatch
     nvlist_utils_nvl_to_dict.c
     nvlist_utils_dict_to_nvl.c
