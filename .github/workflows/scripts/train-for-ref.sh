@@ -9,18 +9,18 @@
 #
 # REF - branch name, e.g. master, stable/26, or a pull request base ref.
 #
-# Prints the train name (master or 26) on stdout.  This is the single
-# source of truth for the branch -> train mapping, mirroring the mapping
-# truenas/zfs uses for its own branches (truenas/zfs-2.4-release ->
-# master, stable/26 -> 26): this repo's master tracks that ZFS 2.4
-# release branch, hence the master train.
+# Prints REF's train from .github/trains.json, or default_train if REF
+# is not listed.
 ######################################################################
 
 set -eu
 
-REF="${1:-}"
-
-case "$REF" in
-  stable/26) echo "26" ;;
-  *)         echo "master" ;;
+resolve="$(dirname "$0")/resolve-train.py"
+rc=0
+entry=$("$resolve" branch "${1:-}") || rc=$?
+case $rc in
+  0) ;;
+  3) entry=$("$resolve" default) ;;  # not listed
+  *) exit "$rc" ;;                   # invalid config
 esac
+jq -r '.train' <<< "$entry"

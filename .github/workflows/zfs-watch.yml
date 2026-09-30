@@ -4,7 +4,7 @@ name: ZFS release watch
 # full suite when the published debs advance to a commit we have not tested yet.
 # This gives fast drift detection for ZFS-side breakage.  Because this runs on
 # the default branch, a rerun exercises master.  The branch -> train mapping
-# lives in .github/workflows/scripts/train-for-ref.sh.
+# lives in .github/trains.json.
 on:
   schedule:
     - cron: '17 * * * *'  # hourly, offset off :00 to dodge scheduler backlog
