@@ -372,6 +372,7 @@ int traverse_py_zfs_state(PyObject *module, visitproc visit, void *arg)
 	Py_VISIT(state->scan_state_enum);
 	Py_VISIT(state->struct_zpool_scrub_type);
 	Py_VISIT(state->struct_zpool_expand_type);
+	Py_VISIT(state->struct_zpool_feature_type);
 	Py_VISIT(state->struct_zpool_props_type);
 	Py_VISIT(state->struct_zpool_prop_type);
 	return 0;
@@ -438,6 +439,7 @@ void free_py_zfs_state(PyObject *module)
 	Py_CLEAR(state->scan_state_enum);
 	Py_CLEAR(state->struct_zpool_scrub_type);
 	Py_CLEAR(state->struct_zpool_expand_type);
+	Py_CLEAR(state->struct_zpool_feature_type);
 	for (idx = 0; idx < ZPOOL_NUM_PROPS; idx++) {
 		Py_CLEAR(state->zpool_prop_enum_tbl[idx].name);
 		Py_CLEAR(state->zpool_prop_enum_tbl[idx].obj);
@@ -453,5 +455,4 @@ void free_py_zfs_state(PyObject *module)
 
 	Py_CLEAR(state->struct_zpool_props_type);
 	Py_CLEAR(state->struct_zpool_prop_type);
-	Py_CLEAR(state->zpool_property_enum);
 }
