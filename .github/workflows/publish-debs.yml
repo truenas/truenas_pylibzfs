@@ -18,10 +18,11 @@ name: Publish debs
 # from a same-repo branch would otherwise fire both push and pull_request
 # and run this workflow twice.  Feature-branch pushes now run only via the
 # pull_request event (build-deb validates; publish is skipped); pushes to
-# master/stable/26 run via push (build-deb + publish).
+# the branches in .github/trains.json run via push (build-deb + publish).
+# on: cannot read trains.json, so keep this list in step with it.
 on:
   push:
-    branches: [master, stable/26]
+    branches: [master, stable/26, stable/27]
   pull_request:
 
 jobs:
@@ -34,6 +35,9 @@ jobs:
     defaults:
       run:
         shell: bash
+
+    outputs:
+      publish: ${{ steps.train.outputs.publish }}
 
     steps:
       # Install deps (including git) before checkout: the base debian:trixie
@@ -58,9 +62,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Map branch to TrueNAS train
+        id: train
         run: |
           # PRs build against their base branch's train; pushes use the
-          # pushed branch.  train-for-ref.sh is the single source of truth.
+          # pushed branch.  Only pushes to a branch listed in
+          # .github/trains.json publish.
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             ref="$GITHUB_BASE_REF"
           else
@@ -69,6 +75,12 @@ jobs:
           train="$(.github/workflows/scripts/train-for-ref.sh "$ref")"
           echo "TRAIN=$train" >> "$GITHUB_ENV"
           echo "Building against the $train train"
+          publish=false
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = branch ] &&
+              .github/workflows/scripts/resolve-train.py branch "$ref" > /dev/null; then
+            publish=true
+          fi
+          echo "publish=$publish" | tee -a "$GITHUB_OUTPUT"
 
       - name: Fetch and install OpenZFS release debs
         run: |
@@ -114,14 +126,14 @@ jobs:
           path: artifacts
 
   # On every push to a mapped branch, republish the deb built above as the
-  # single asset set of a per-train rolling prerelease (master-nightly /
-  # 26-nightly).  Release assets never expire and are downloadable
+  # single asset set of a per-train rolling prerelease (<train>-nightly).
+  # Release assets never expire and are downloadable
   # anonymously at stable URLs:
   #   https://github.com/truenas/truenas_pylibzfs/releases/download/master-nightly/<file>
   # Consumers fetch manifest.json first, then verify against SHA256SUMS.
   publish:
     needs: build-deb
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/stable/26') }}
+    if: ${{ needs.build-deb.outputs.publish == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

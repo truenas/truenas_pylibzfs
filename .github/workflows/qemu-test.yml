@@ -5,7 +5,7 @@ on:
   workflow_call:
     inputs:
       train:
-        # TrueNAS train (master or 26) whose rolling <train>-nightly kernel
+        # TrueNAS train whose rolling <train>-nightly kernel
         # and OpenZFS releases to test against.  Empty (the default, used by
         # nightly / PR runs) means derive it from the branch via
         # train-for-ref.sh.  Callers that pin a specific train (zfs-watch)
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       train:
-        description: 'TrueNAS train to test against (master or 26; default: derived from branch)'
+        description: 'TrueNAS train to test against (default: derived from branch)'
         type: string
         required: false
         default: ''
