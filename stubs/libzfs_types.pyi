@@ -1228,6 +1228,7 @@ class ZFSPool:
         dedup_vdevs: Iterable[struct_vdev_create_spec] | None = None,
         spare_vdevs: Iterable[struct_vdev_create_spec] | None = None,
         force: bool = False,
+        dry_run: bool = False,
     ) -> None: ...
 
     def attach_vdev(
@@ -1291,6 +1292,7 @@ class ZFS:
         filesystem_properties: dict[ZFSProperty, str] | None = None,
         feature_properties: dict[str, bool] | None = None,
         force: bool = False,
+        dry_run: bool = False,
     ) -> None: ...
     def destroy_pool(self, *, name: str, force: bool = False) -> None: ...
     def export_pool(self, *, name: str, force: bool = False) -> None: ...

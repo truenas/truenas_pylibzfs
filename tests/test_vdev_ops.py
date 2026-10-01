@@ -106,8 +106,9 @@ class TestVdevOpsArgValidation:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
         try:
-            with pytest.raises(ValueError, match="device"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^device: keyword argument") as e:
                 pool.attach_vdev(new_device=_spec(disks[1]))
+            assert e.value.argument == "device"
         finally:
             _destroy(lz)
 
@@ -117,8 +118,9 @@ class TestVdevOpsArgValidation:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
         try:
-            with pytest.raises(ValueError, match="new_device"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^new_device: keyword argument") as e:
                 pool.attach_vdev(device=disks[0])
+            assert e.value.argument == "new_device"
         finally:
             _destroy(lz)
 
@@ -277,8 +279,10 @@ class TestAttachVdev:
             # 3-way → 4-way: fine (resulting width 4 == limit, still allowed)
             pool.attach_vdev(device=disks[0], new_device=_spec(disks[3]))
             # 4-way → 5-way: rejected (resulting width 5 > 4)
-            with pytest.raises(ValueError, match="mirror width"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^resulting mirror width") as e:
                 pool.attach_vdev(device=disks[0], new_device=_spec(disks[4]))
+            # the limit is about the vdev both arguments would form, so no single one is named
+            assert (e.value.argument, e.value.index) == ("", None)
         finally:
             _destroy(lz)
 

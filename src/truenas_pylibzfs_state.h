@@ -83,6 +83,7 @@ typedef struct {
 
 	/* Reference to struct_vdev_create_spec type (py_zfs_pool_create.c) */
 	PyTypeObject *struct_vdev_create_spec_type;
+	PyObject *validation_error;
 
 	/* Reference to VDevType StrEnum */
 	PyObject *vdev_type_enum;
@@ -127,4 +128,6 @@ extern int py_register_struct_types(PyObject *module);
 extern void init_py_struct_prop_state(pylibzfs_state_t *state);
 extern void init_py_struct_zpool_prop_state(pylibzfs_state_t *state);
 extern void free_py_zfs_state(PyObject *module);
+extern int traverse_py_zfs_state(PyObject *module, visitproc visit,
+    void *arg);
 #endif /* _PYZFS_STATE_H */
