@@ -4,7 +4,7 @@
 # Install the prebuilt TrueNAS kernel and OpenZFS release debs in the VM,
 # then build and install truenas_pylibzfs against them.
 #
-# Invoked with the TrueNAS train (master or 26) in the TRAIN environment
+# Invoked with the TrueNAS train in the TRAIN environment
 # variable.  The kernel image (truenas/linux) and the OpenZFS userland +
 # kmod debs (truenas/zfs) are consumed from the rolling <TRAIN>-nightly
 # GitHub releases; the OpenZFS modules are prebuilt against that kernel,
@@ -14,7 +14,7 @@
 
 set -eu
 
-TRAIN="${TRAIN:?TRAIN must be set (master or 26)}"
+TRAIN="${TRAIN:?TRAIN must be set}"
 
 echo "Installing prebuilt TrueNAS kernel + OpenZFS ($TRAIN train) and building truenas_pylibzfs..."
 
