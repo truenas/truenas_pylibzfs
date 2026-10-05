@@ -1324,12 +1324,12 @@ class TestLocalReplicateConcurrent:
 
 def _get_resume_token(recv_fs):
     """After an interrupted resumable receive the token lives on the
-    destination filesystem (or its hidden recv_fs%recv child if the
+    destination filesystem (or its hidden recv_fs/%recv child if the
     parent was newly created).  Returns "-" if no token is set or the
     property value comes back as None."""
     lz = truenas_pylibzfs.open_handle()
     prop = truenas_pylibzfs.ZFSProperty.RECEIVE_RESUME_TOKEN
-    for name in (recv_fs, recv_fs + "%recv"):
+    for name in (recv_fs, recv_fs + "/%recv"):
         try:
             rsrc = lz.open_resource(name=name)
             info = rsrc.asdict(properties={prop})

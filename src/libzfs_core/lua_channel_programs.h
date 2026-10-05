@@ -22,7 +22,7 @@ static const char RECURSIVE_DESTROY_LUA[] =
 "    end\n"
 "\n"
 "    -- abort any resumable recv\n"
-"    local resume = root..\"%recv\"\n"
+"    local resume = root..\"/%recv\"\n"
 "    if (zfs.exists(resume)) then\n"
 "        err = zfs.sync.destroy(resume)\n"
 "        if (err ~= 0) then\n"
