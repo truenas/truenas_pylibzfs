@@ -106,14 +106,14 @@ def _get_resume_token(recv_fs: str) -> str:
     Return the receive_resume_token for *recv_fs* via truenas_pylibzfs.
 
     After an interrupted resumable receive, the partial state is held in a
-    hidden dataset named recv_fs + "%recv".  ZFS surfaces the token on the
+    hidden dataset named recv_fs + "/%recv".  ZFS surfaces the token on the
     parent filesystem via property delegation, but if that lookup returns "-"
     we also try the hidden dataset directly.  Returns "-" when no token is set.
     """
     lz  = truenas_pylibzfs.open_handle()
     prop = truenas_pylibzfs.ZFSProperty.RECEIVE_RESUME_TOKEN
 
-    for name in (recv_fs, recv_fs + "%recv"):
+    for name in (recv_fs, recv_fs + "/%recv"):
         try:
             rsrc  = lz.open_resource(name=name)
             info  = rsrc.asdict(properties={prop})
@@ -707,6 +707,67 @@ class TestSendResume:
         ds = lz.open_resource(name=recv_snap2)
         assert ds is not None
         _destroy_recv(lz, recv_fs)
+
+
+# ---------------------------------------------------------------------------
+# 7a. DESTROY_RESOURCES over the leftovers of an interrupted receive
+# ---------------------------------------------------------------------------
+
+class TestDestroyAfterPartialReceive:
+    def _interrupted_receive(self, snap, recv_fs):
+        """Leave *recv_fs* holding the hidden `%recv` of an aborted receive.
+
+        force=True is what makes ZFS keep the partial stream.  Without it the
+        failed receive takes the hidden dataset with it on the way out, and
+        there is nothing left to test.
+        """
+        with tempfile.TemporaryFile() as stream:
+            lzc.send(snapname=snap, fd=stream.fileno())
+            os.ftruncate(stream.fileno(), stream.tell() // 2)
+            stream.seek(0)
+            with pytest.raises(lzc.ZFSCoreException):
+                lzc.receive(
+                    snapname=f"{recv_fs}@bigsnap", fd=stream.fileno(),
+                    resumable=True, force=True,
+                )
+
+    def test_recursive_destroy_removes_hidden_recv_dataset(self, large_snapped_pool):
+        """The recursive destroy must take the hidden `%recv` dataset with it.
+
+        A resumable receive into an existing filesystem parks the partial
+        stream in `<recv_fs>/%recv`.  Nothing that enumerates children sees
+        that dataset, so the destroy has to name it explicitly or the parent
+        fails with EEXIST for still having a child.
+        """
+        lz, pool, snap = large_snapped_pool
+        recv_fs = f"{pool}/recv"
+        hidden = f"{recv_fs}/%recv"
+
+        lz.create_resource(
+            name=recv_fs, type=truenas_pylibzfs.ZFSType.ZFS_TYPE_FILESYSTEM
+        )
+        try:
+            self._interrupted_receive(snap, recv_fs)
+            assert lz.open_resource(name=hidden) is not None
+
+            out = lzc.run_channel_program(
+                pool_name=pool,
+                script=lzc.ChannelProgramEnum.DESTROY_RESOURCES,
+                script_arguments_dict={
+                    "target": recv_fs, "recursive": True, "defer": False
+                },
+                readonly=False,
+            )
+
+            assert out["return"]["failed"] == {}
+            with pytest.raises(truenas_pylibzfs.ZFSException):
+                lz.open_resource(name=recv_fs)
+        finally:
+            for name in (hidden, recv_fs):
+                try:
+                    lz.destroy_resource(name=name)
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------
