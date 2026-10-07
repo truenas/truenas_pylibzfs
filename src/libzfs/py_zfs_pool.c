@@ -1231,6 +1231,9 @@ PyDoc_STRVAR(py_zfs_pool_offline_device__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while taking the device offline.\n"
 );
@@ -1252,8 +1255,8 @@ PyObject *py_zfs_pool_offline_device(PyObject *self,
 		return NULL;
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "offline_device() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return NULL;
 	}
 
@@ -1299,6 +1302,9 @@ PyDoc_STRVAR(py_zfs_pool_online_device__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while bringing the device online.\n"
 );
@@ -1322,8 +1328,8 @@ PyObject *py_zfs_pool_online_device(PyObject *self,
 		return NULL;
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "online_device() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return NULL;
 	}
 
@@ -1358,7 +1364,7 @@ PyObject *py_zfs_pool_online_device(PyObject *self,
 PyDoc_STRVAR(py_zfs_pool_add_vdevs__doc__,
 "add_vdevs(*, storage_vdevs=None, cache_vdevs=None, log_vdevs=None,\n"
 "          special_vdevs=None, dedup_vdevs=None, spare_vdevs=None,\n"
-"          force=False) -> None\n\n"
+"          force=False, dry_run=False) -> None\n\n"
 "-----------------------------------------------------------------------\n\n"
 "Add vdevs to an existing pool (equivalent to 'zpool add').\n\n"
 "At least one vdev category must be non-empty.\n\n"
@@ -1384,17 +1390,26 @@ PyDoc_STRVAR(py_zfs_pool_add_vdevs__doc__,
 "force: bool, optional, default=False\n"
 "    Skip pool-match validation (storage type/parity/width against existing\n"
 "    pool geometry, special/dedup redundancy requirements), storage vdev\n"
-"    width limits (mirror: max 4 members, raidz: max 15 drives), and the\n"
-"    kernel ashift check.  Structural constraints (cache/spare must be\n"
+"    width limits (constants.MAX_MIRROR_WIDTH, constants.MAX_RAIDZ_WIDTH),\n"
+"    and the kernel ashift check.  Structural constraints (cache/spare must be\n"
 "    leaf, log must be leaf or mirror, dRAID not permitted for\n"
 "    special/dedup) always apply.  Equivalent to 'zpool add -f'.\n\n"
+"dry_run: bool, optional, default=False\n"
+"    Run every check that does not need the kernel (vdev specs, the\n"
+"    structural constraints, and unless force=True the width limits and\n"
+"    the match against the existing pool geometry) and return without\n"
+"    adding anything.  Leaf device names are not opened, so placeholders\n"
+"    are acceptable.  The kernel ashift check and the devices themselves\n"
+"    are only checked by a real add.\n\n"
 "Returns\n"
 "-------\n"
 "None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A vdev specification is invalid or topology constraints are violated.\n"
+"ZPOOLValidationError:\n"
+"    A vdev specification is invalid or topology constraints are\n"
+"    violated.  A ValueError subclass whose argument and index attributes\n"
+"    locate the refusal.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while adding vdevs.\n"
 );
@@ -1404,19 +1419,21 @@ py_zfs_pool_add_vdevs(PyObject *self, PyObject *args, PyObject *kwargs)
 	py_zfs_pool_t *p = (py_zfs_pool_t *)self;
 	py_zfs_add_vdevs_args_t ava = {0};
 	boolean_t force = B_FALSE;
+	boolean_t dry_run = B_FALSE;
 	char *kwnames[] = {
 		"storage_vdevs", "cache_vdevs", "log_vdevs",
 		"special_vdevs", "dedup_vdevs", "spare_vdevs",
-		"force", NULL
+		"force", "dry_run", NULL
 	};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OOOOOOp", kwnames,
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$OOOOOOpp", kwnames,
 	    &ava.storage_vdevs, &ava.cache_vdevs, &ava.log_vdevs,
 	    &ava.special_vdevs, &ava.dedup_vdevs, &ava.spare_vdevs,
-	    &force))
+	    &force, &dry_run))
 		return (NULL);
 
 	ava.force = force ? B_TRUE : B_FALSE;
+	ava.dry_run = dry_run ? B_TRUE : B_FALSE;
 	return (py_zfs_do_add_vdevs(p, &ava));
 }
 
@@ -1480,8 +1497,9 @@ PyDoc_STRVAR(py_zfs_pool_attach_vdev__doc__,
 "Converts a single-device vdev into a mirror, or expands a raidz when\n"
 "the raidz_expansion feature is enabled.\n\n"
 "By default an error is raised if the resulting mirror would exceed\n"
-"4 members or the resulting raidz would exceed 15 drives.  Pass\n"
-"force=True to bypass these width limits.\n\n"
+"constants.MAX_MIRROR_WIDTH members or the resulting raidz would exceed\n"
+"constants.MAX_RAIDZ_WIDTH drives.  Pass force=True to bypass these\n"
+"width limits.\n\n"
 "Parameters\n"
 "----------\n"
 "device: str, required\n"
@@ -1498,9 +1516,12 @@ PyDoc_STRVAR(py_zfs_pool_attach_vdev__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A required argument is missing, or a width limit would be exceeded\n"
-"    without force=True.\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing, the new device specification is\n"
+"    invalid, or a width limit would be exceeded without force=True.  A\n"
+"    ValueError subclass whose argument attribute names the parameter\n"
+"    judged, or is empty for the width limit, which is about the vdev\n"
+"    the two arguments would form together.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while attaching the device.\n"
 );
@@ -1528,17 +1549,17 @@ py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		return (NULL);
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "attach_vdev() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return (NULL);
 	}
 	if (new_device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "attach_vdev() requires 'new_device' argument");
+		py_set_validation_error("new_device", -1,
+		    "keyword argument is required");
 		return (NULL);
 	}
 	if (!py_zfs_validate_vdev_spec(py_get_module_state(p->pylibzfsp),
-	    new_device, "attach_vdev"))
+	    new_device, "new_device", -1))
 		return (NULL);
 
 	nvroot = py_zfs_build_single_vdev_nvroot(new_device);
@@ -1607,18 +1628,18 @@ py_zfs_pool_attach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 	if (!force && vdev_width >= 0) {
 		if (is_mirror &&
 		    vdev_width >= PYLIBZFS_MAX_MIRROR_WIDTH) {
-			PyErr_Format(PyExc_ValueError,
-			    "attach_vdev: resulting mirror width (%d) would "
-			    "exceed limit of %d; use force=True to override",
+			py_set_validation_error(NULL, -1,
+			    "resulting mirror width (%d) would exceed limit "
+			    "of %d",
 			    vdev_width + 1, PYLIBZFS_MAX_MIRROR_WIDTH);
 			fnvlist_free(nvroot);
 			return (NULL);
 		}
 		if (is_raidz &&
 		    vdev_width >= PYLIBZFS_MAX_RAIDZ_WIDTH) {
-			PyErr_Format(PyExc_ValueError,
-			    "attach_vdev: resulting raidz width (%d) would "
-			    "exceed limit of %d; use force=True to override",
+			py_set_validation_error(NULL, -1,
+			    "resulting raidz width (%d) would exceed limit "
+			    "of %d",
 			    vdev_width + 1, PYLIBZFS_MAX_RAIDZ_WIDTH);
 			fnvlist_free(nvroot);
 			return (NULL);
@@ -1676,8 +1697,10 @@ PyDoc_STRVAR(py_zfs_pool_replace_vdev__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A required argument is missing.\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing or the new device specification is\n"
+"    invalid.  A ValueError subclass whose argument attribute names the\n"
+"    parameter judged.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while replacing the device.\n"
 );
@@ -1705,8 +1728,8 @@ py_zfs_pool_replace_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		return (NULL);
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "replace_vdev() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return (NULL);
 	}
 
@@ -1715,7 +1738,7 @@ py_zfs_pool_replace_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 	if (!self_replace) {
 		if (!py_zfs_validate_vdev_spec(
 		    py_get_module_state(p->pylibzfsp), new_device,
-		    "replace_vdev"))
+		    "new_device", -1))
 			return (NULL);
 
 		nvroot = py_zfs_build_single_vdev_nvroot(new_device);
@@ -1804,8 +1827,9 @@ PyDoc_STRVAR(py_zfs_pool_detach_vdev__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A required argument is missing.\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while detaching the device.\n"
 );
@@ -1824,8 +1848,8 @@ py_zfs_pool_detach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		return (NULL);
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "detach_vdev() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return (NULL);
 	}
 
@@ -1871,8 +1895,9 @@ PyDoc_STRVAR(py_zfs_pool_remove_vdev__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A required argument is missing.\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while removing the device.\n"
 );
@@ -1891,8 +1916,8 @@ py_zfs_pool_remove_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		return (NULL);
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "remove_vdev() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return (NULL);
 	}
 
