@@ -114,23 +114,23 @@ class TestAddVdevsArgValidation:
         pass  # covered by test_all_none_raises_valueerror below
 
     def test_all_none_raises_valueerror(self, make_disks):
-        """add_vdevs() with no categories at all must raise ValueError."""
+        """add_vdevs() with no categories at all must raise ZPOOLValidationError."""
         disks = make_disks(1)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
         try:
-            with pytest.raises(ValueError, match="at least one"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="at least one"):
                 pool.add_vdevs()
         finally:
             _destroy(lz)
 
     def test_all_explicit_none_raises_valueerror(self, make_disks):
-        """add_vdevs(storage_vdevs=None, ...) must raise ValueError."""
+        """add_vdevs(storage_vdevs=None, ...) must raise ZPOOLValidationError."""
         disks = make_disks(1)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(
                     storage_vdevs=None,
                     cache_vdevs=None,
@@ -188,7 +188,7 @@ class TestAddVdevsArgValidation:
             children=[_spec(disks[1]), _spec(disks[2])],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(cache_vdevs=[cache_mirror])
         finally:
             _destroy(lz)
@@ -203,7 +203,7 @@ class TestAddVdevsArgValidation:
             children=[_spec(disks[1]), _spec(disks[2]), _spec(disks[3])],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(cache_vdevs=[cache_raidz])
         finally:
             _destroy(lz)
@@ -218,7 +218,7 @@ class TestAddVdevsArgValidation:
             children=[_spec(disks[1]), _spec(disks[2])],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(spare_vdevs=[spare_mirror])
         finally:
             _destroy(lz)
@@ -233,7 +233,7 @@ class TestAddVdevsArgValidation:
             children=[_spec(disks[1]), _spec(disks[2]), _spec(disks[3])],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(log_vdevs=[log_raidz])
         finally:
             _destroy(lz)
@@ -249,7 +249,7 @@ class TestAddVdevsArgValidation:
             children=[_spec(d) for d in disks[1:]],
         )
         try:
-            with pytest.raises(ValueError, match="dRAID"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="dRAID"):
                 pool.add_vdevs(special_vdevs=[special_draid])
         finally:
             _destroy(lz)
@@ -265,7 +265,7 @@ class TestAddVdevsArgValidation:
             children=[_spec(d) for d in disks[1:]],
         )
         try:
-            with pytest.raises(ValueError, match="dRAID"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="dRAID"):
                 pool.add_vdevs(dedup_vdevs=[dedup_draid])
         finally:
             _destroy(lz)
@@ -285,7 +285,7 @@ class TestAddVdevsTopologyValidation:
         pool = _create_stripe_pool(lz, disks[0])
         new_mirror = _mirror(disks[1], disks[2])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[new_mirror])
         finally:
             _destroy(lz)
@@ -296,7 +296,7 @@ class TestAddVdevsTopologyValidation:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_mirror_pool(lz, disks[0], disks[1])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[_spec(disks[2])])
         finally:
             _destroy(lz)
@@ -308,7 +308,7 @@ class TestAddVdevsTopologyValidation:
         pool = _create_raidz_pool(lz, 1, disks[:3])
         new_raidz2 = _raidz(2, disks[3:7])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[new_raidz2])
         finally:
             _destroy(lz)
@@ -320,7 +320,7 @@ class TestAddVdevsTopologyValidation:
         pool = _create_raidz_pool(lz, 2, disks[:4])
         new_raidz1 = _raidz(1, disks[4:7])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[new_raidz1])
         finally:
             _destroy(lz)
@@ -336,7 +336,7 @@ class TestAddVdevsTopologyValidation:
             children=[_spec(d) for d in disks[3:7]],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[wider])
         finally:
             _destroy(lz)
@@ -360,7 +360,7 @@ class TestAddVdevsTopologyValidation:
         # New mirror only has 2 disks
         narrow_mirror = _mirror(disks[3], disks[4])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[narrow_mirror])
         finally:
             _destroy(lz)
@@ -372,7 +372,7 @@ class TestAddVdevsTopologyValidation:
         pool = _create_raidz_pool(lz, 1, disks[:3])
         new_mirror = _mirror(disks[3], disks[4])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[new_mirror])
         finally:
             _destroy(lz)
@@ -403,7 +403,7 @@ class TestAddVdevsTopologyValidation:
         pool = _create_raidz_pool(lz, 2, disks[:4])
         # leaf dedup (parity 0) < raidz2 (parity 2)
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(dedup_vdevs=[_spec(disks[4])])
         finally:
             _destroy(lz)
@@ -414,18 +414,18 @@ class TestAddVdevsTopologyValidation:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_raidz_pool(lz, 1, disks[:3])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(special_vdevs=[_spec(disks[3])])
         finally:
             _destroy(lz)
 
     def test_empty_storage_list_raises(self, make_disks):
-        """Passing an empty list for storage_vdevs must still raise ValueError."""
+        """Passing an empty list for storage_vdevs must still raise ZPOOLValidationError."""
         disks = make_disks(1)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(storage_vdevs=[])
         finally:
             _destroy(lz)
@@ -702,11 +702,11 @@ class TestAddVdevsForce:
         pool = _create_stripe_pool(lz, disks[0])
         new_mirror = _mirror(disks[1], disks[2])
 
-        # Without force → ValueError
-        with pytest.raises(ValueError):
+        # Without force → ZPOOLValidationError
+        with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
             pool.add_vdevs(storage_vdevs=[new_mirror])
 
-        # With force → no Python ValueError (libzfs may or may not accept it)
+        # With force → no ZPOOLValidationError (libzfs may or may not accept it)
         try:
             pool.add_vdevs(storage_vdevs=[new_mirror], force=True)
         except truenas_pylibzfs.ZFSException:
@@ -723,11 +723,11 @@ class TestAddVdevsForce:
         pool = _create_raidz_pool(lz, 1, disks[:3])
         new_raidz2 = _raidz(2, disks[3:7])
 
-        # Without force → ValueError
-        with pytest.raises(ValueError):
+        # Without force → ZPOOLValidationError
+        with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
             pool.add_vdevs(storage_vdevs=[new_raidz2])
 
-        # With force → no Python ValueError
+        # With force → no ZPOOLValidationError
         try:
             pool.add_vdevs(storage_vdevs=[new_raidz2], force=True)
         except truenas_pylibzfs.ZFSException:
@@ -745,7 +745,7 @@ class TestAddVdevsForce:
         # leaf special (parity 0) on a redundant pool is rejected by default
         special_leaf = _spec(disks[4])
 
-        with pytest.raises(ValueError, match="redundancy"):
+        with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="redundancy"):
             pool.add_vdevs(special_vdevs=[special_leaf])
 
         try:
@@ -763,7 +763,7 @@ class TestAddVdevsForce:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_raidz_pool(lz, 2, disks[:4])
         # leaf dedup (parity 0) on a redundant pool is rejected by default
-        with pytest.raises(ValueError, match="redundancy"):
+        with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="redundancy"):
             pool.add_vdevs(dedup_vdevs=[_spec(disks[3])])
 
         try:
@@ -796,7 +796,7 @@ class TestAddVdevsForce:
             children=[_spec(disks[1]), _spec(disks[2])],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(cache_vdevs=[cache_mirror], force=True)
         finally:
             _destroy(lz)
@@ -811,7 +811,7 @@ class TestAddVdevsForce:
             children=[_spec(disks[1]), _spec(disks[2])],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(spare_vdevs=[spare_mirror], force=True)
         finally:
             _destroy(lz)
@@ -826,7 +826,7 @@ class TestAddVdevsForce:
             children=[_spec(disks[1]), _spec(disks[2]), _spec(disks[3])],
         )
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
                 pool.add_vdevs(log_vdevs=[log_raidz], force=True)
         finally:
             _destroy(lz)

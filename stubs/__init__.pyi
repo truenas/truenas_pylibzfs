@@ -20,11 +20,12 @@ from .libzfs_types import (
 )
 
 class ZPOOLValidationError(ValueError):
-    """An argument to create_vdev_spec(), ZFS.create_pool(), ZFSPool.add_vdevs(),
-    ZFSPool.attach_vdev() or ZFSPool.replace_vdev() was refused before anything was
-    done. The message reads ``"<argument>: <reason>"``, or
-    ``"<argument>[<index>]: <reason>"`` when the check knows which element of a
-    sequence failed."""
+    """An argument to create_vdev_spec(), ZFS.create_pool() or a ZFSPool vdev
+    operation (add_vdevs(), attach_vdev(), replace_vdev(), detach_vdev(),
+    remove_vdev(), offline_device(), online_device()) was refused before
+    anything was done. The message reads
+    ``"<argument>: <reason>"``, or ``"<argument>[<index>]: <reason>"`` when the
+    check knows which element of a sequence failed."""
 
     argument: str
     """The keyword argument that was judged, e.g. ``"storage_vdevs"``; empty when the

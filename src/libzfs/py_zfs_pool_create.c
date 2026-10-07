@@ -1662,19 +1662,38 @@ validate_create_props(py_zfs_t *plz, const char *name, nvlist_t *props,
 }
 
 /*
+ * Whether the converted root filesystem properties carry any of the
+ * properties zfs_crypto_create() looks at (what libzfs's private
+ * proplist_has_encryption_props() tests for).  Without them it returns
+ * success at once, so the caller skips the temporary handle.
+ */
+static boolean_t
+fsprops_have_encryption_props(nvlist_t *valid_fsprops)
+{
+	return (nvlist_exists(valid_fsprops,
+	    zfs_prop_to_name(ZFS_PROP_ENCRYPTION)) ||
+	    nvlist_exists(valid_fsprops,
+	    zfs_prop_to_name(ZFS_PROP_KEYLOCATION)) ||
+	    nvlist_exists(valid_fsprops,
+	    zfs_prop_to_name(ZFS_PROP_KEYFORMAT)) ||
+	    nvlist_exists(valid_fsprops,
+	    zfs_prop_to_name(ZFS_PROP_PBKDF2_ITERS)));
+}
+
+/*
  * Check the encryption properties of the root filesystem the way
- * zpool_create() does, for a dry run.  valid_fsprops is what
+ * zpool_create() does, before any device is opened.  valid_fsprops is what
  * validate_create_props() converted; zfs_crypto_create() may add a
  * keylocation to it, which is why the caller frees it afterwards rather
  * than reusing it.  The property conversion already refuses the
  * creation-time encryption properties (encryption, keyformat, pbkdf2iters),
  * so what reaches this is a keylocation on its own, which zpool_create()
  * refuses.  zfs_crypto_create() can load key material, so stdin is declared
- * unavailable: a dry run must never block on a prompt.  It reports a
+ * unavailable: a library call must never block on a prompt.  It reports a
  * refusal through the handle's auxiliary description alone, which would
  * linger and be attached to the next error raised on a shared handle, so
- * this uses a handle of its own.  A real creation leaves the check to
- * libzfs.
+ * this uses a handle of its own.  libzfs repeating the check inside
+ * zpool_create() is harmless.
  */
 static boolean_t
 validate_create_crypto(nvlist_t *props, nvlist_t *valid_fsprops)
@@ -1682,11 +1701,8 @@ validate_create_crypto(nvlist_t *props, nvlist_t *valid_fsprops)
 	libzfs_handle_t *lzh = NULL;
 	uint8_t *wkeydata = NULL;
 	uint_t wkeylen = 0;
-	char reason[1024];
+	char reason[1024] = "";
 	boolean_t ok = B_FALSE;
-
-	(void) strlcpy(reason, "failed to open a libzfs handle",
-	    sizeof (reason));
 
 	Py_BEGIN_ALLOW_THREADS
 	lzh = libzfs_init();
@@ -1702,6 +1718,11 @@ validate_create_crypto(nvlist_t *props, nvlist_t *valid_fsprops)
 	}
 	Py_END_ALLOW_THREADS
 
+	if (lzh == NULL) {
+		PyErr_SetString(PyExc_RuntimeError,
+		    "Failed to create temporary libzfs handle.");
+		return B_FALSE;
+	}
 	if (!ok) {
 		py_set_validation_error("filesystem_properties", -1, "%s",
 		    reason);
@@ -1822,16 +1843,18 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	if (!validate_create_props(plz, cpa->name, props_nvl, fsprops_nvl,
 	    &valid_fsprops))
 		goto fail;
+	if (valid_fsprops != NULL &&
+	    fsprops_have_encryption_props(valid_fsprops) &&
+	    !validate_create_crypto(props_nvl, valid_fsprops))
+		goto fail;
+	fnvlist_free(valid_fsprops);
+	valid_fsprops = NULL;
 
 	/*
 	 * A dry run stops here: no device is opened, nothing is created and
 	 * no history is logged.
 	 */
 	if (cpa->dry_run) {
-		if (valid_fsprops != NULL &&
-		    !validate_create_crypto(props_nvl, valid_fsprops))
-			goto fail;
-		fnvlist_free(valid_fsprops);
 		fnvlist_free(props_nvl);
 		fnvlist_free(fsprops_nvl);
 		Py_XDECREF(storage_seq);
@@ -1842,9 +1865,6 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 		Py_XDECREF(spare_seq);
 		Py_RETURN_NONE;
 	}
-
-	fnvlist_free(valid_fsprops);
-	valid_fsprops = NULL;
 
 	root_nvl = build_pool_root_nvlist(storage_seq, cache_seq, log_seq,
 	    special_seq, dedup_seq, spare_seq);

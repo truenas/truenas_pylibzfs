@@ -1148,6 +1148,9 @@ PyDoc_STRVAR(py_zfs_pool_offline_device__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while taking the device offline.\n"
 );
@@ -1169,8 +1172,8 @@ PyObject *py_zfs_pool_offline_device(PyObject *self,
 		return NULL;
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "offline_device() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return NULL;
 	}
 
@@ -1216,6 +1219,9 @@ PyDoc_STRVAR(py_zfs_pool_online_device__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while bringing the device online.\n"
 );
@@ -1239,8 +1245,8 @@ PyObject *py_zfs_pool_online_device(PyObject *self,
 		return NULL;
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "online_device() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return NULL;
 	}
 
@@ -1738,8 +1744,9 @@ PyDoc_STRVAR(py_zfs_pool_detach_vdev__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A required argument is missing.\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while detaching the device.\n"
 );
@@ -1758,8 +1765,8 @@ py_zfs_pool_detach_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		return (NULL);
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "detach_vdev() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return (NULL);
 	}
 
@@ -1805,8 +1812,9 @@ PyDoc_STRVAR(py_zfs_pool_remove_vdev__doc__,
 "None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A required argument is missing.\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing.  A ValueError subclass whose\n"
+"    argument attribute names the parameter.\n"
 "truenas_pylibzfs.ZFSError:\n"
 "    A libzfs error occurred while removing the device.\n"
 );
@@ -1825,8 +1833,8 @@ py_zfs_pool_remove_vdev(PyObject *self, PyObject *args, PyObject *kwargs)
 		return (NULL);
 
 	if (device == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "remove_vdev() requires 'device' argument");
+		py_set_validation_error("device", -1,
+		    "keyword argument is required");
 		return (NULL);
 	}
 

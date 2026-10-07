@@ -60,9 +60,10 @@ PyObject *setup_zfs_exception(void)
 PyDoc_STRVAR(py_validation_error__doc__,
 "ZPOOLValidationError(ValueError)\n"
 "--------------------------------\n\n"
-"An argument to create_vdev_spec(), ZFS.create_pool(),\n"
-"ZFSPool.add_vdevs(), ZFSPool.attach_vdev() or ZFSPool.replace_vdev()\n"
-"was refused before anything was done.  The message reads\n"
+"An argument to create_vdev_spec(), ZFS.create_pool() or a ZFSPool vdev\n"
+"operation (add_vdevs(), attach_vdev(), replace_vdev(), detach_vdev(),\n"
+"remove_vdev(), offline_device(), online_device()) was refused before\n"
+"anything was done.  The message reads\n"
 "\"<argument>: <reason>\", or \"<argument>[<index>]: <reason>\" when the\n"
 "check knows which element of a sequence failed.\n\n"
 "attributes:\n"

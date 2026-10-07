@@ -101,7 +101,7 @@ class TestVdevOpsArgValidation:
     """Validation errors that fire before any kernel call."""
 
     def test_attach_missing_device_raises(self, make_disks):
-        """attach_vdev() without device must raise ValueError."""
+        """attach_vdev() without device must raise ZPOOLValidationError."""
         disks = make_disks(2)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
@@ -113,7 +113,7 @@ class TestVdevOpsArgValidation:
             _destroy(lz)
 
     def test_attach_missing_new_device_raises(self, make_disks):
-        """attach_vdev() without new_device must raise ValueError."""
+        """attach_vdev() without new_device must raise ZPOOLValidationError."""
         disks = make_disks(1)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
@@ -136,7 +136,7 @@ class TestVdevOpsArgValidation:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
         try:
-            with pytest.raises((TypeError, ValueError)):
+            with pytest.raises(TypeError):
                 pool.attach_vdev(device=disks[0], new_device=bad_spec)
         finally:
             _destroy(lz)
@@ -153,7 +153,7 @@ class TestVdevOpsArgValidation:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_mirror_pool(lz, disks[0], disks[1])
         try:
-            with pytest.raises((TypeError, ValueError)):
+            with pytest.raises(TypeError):
                 pool.replace_vdev(device=disks[0], new_device=bad_spec)
         finally:
             _destroy(lz)
@@ -170,41 +170,44 @@ class TestVdevOpsArgValidation:
         lz = truenas_pylibzfs.open_handle()
         pool = _create_stripe_pool(lz, disks[0])
         try:
-            with pytest.raises((TypeError, ValueError)):
+            with pytest.raises(TypeError):
                 pool.attach_vdev(device=disks[0], new_device=bad)
         finally:
             _destroy(lz)
 
     def test_detach_missing_device_raises(self, make_disks):
-        """detach_vdev() without device must raise ValueError."""
+        """detach_vdev() without device must raise ZPOOLValidationError."""
         disks = make_disks(2)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_mirror_pool(lz, disks[0], disks[1])
         try:
-            with pytest.raises(ValueError, match="device"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^device: keyword argument") as e:
                 pool.detach_vdev()
+            assert e.value.argument == "device"
         finally:
             _destroy(lz)
 
     def test_remove_missing_device_raises(self, make_disks):
-        """remove_vdev() without device must raise ValueError."""
+        """remove_vdev() without device must raise ZPOOLValidationError."""
         disks = make_disks(2)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_pool_with_spare(lz, disks[0], disks[1])
         try:
-            with pytest.raises(ValueError, match="device"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^device: keyword argument") as e:
                 pool.remove_vdev()
+            assert e.value.argument == "device"
         finally:
             _destroy(lz)
 
     def test_replace_missing_device_raises(self, make_disks):
-        """replace_vdev() without device must raise ValueError."""
+        """replace_vdev() without device must raise ZPOOLValidationError."""
         disks = make_disks(2)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_mirror_pool(lz, disks[0], disks[1])
         try:
-            with pytest.raises(ValueError, match="device"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^device: keyword argument") as e:
                 pool.replace_vdev()
+            assert e.value.argument == "device"
         finally:
             _destroy(lz)
 
@@ -269,7 +272,7 @@ class TestAttachVdev:
             _destroy(lz)
 
     def test_attach_mirror_width_limit_rejected(self, make_disks):
-        """Attaching to a 4-wide mirror (would make 5) must raise ValueError."""
+        """Attaching to a 4-wide mirror (would make 5) must raise ZPOOLValidationError."""
         disks = make_disks(5)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_mirror_pool(lz, disks[0], disks[1])
@@ -294,7 +297,7 @@ class TestAttachVdev:
         try:
             pool.attach_vdev(device=disks[0], new_device=_spec(disks[2]))
             pool.attach_vdev(device=disks[0], new_device=_spec(disks[3]))
-            # 4-way → 5-way with force=True: no ValueError
+            # 4-way → 5-way with force=True: no ZPOOLValidationError
             pool.attach_vdev(
                 device=disks[0], new_device=_spec(disks[4]), force=True
             )
@@ -491,7 +494,7 @@ class TestWidthLimitsCreateAdd:
     """Width policy limits apply during pool creation and add_vdevs too."""
 
     def test_create_pool_wide_mirror_rejected(self, make_disks):
-        """Creating a pool with a 5-way mirror must raise ValueError."""
+        """Creating a pool with a 5-way mirror must raise ZPOOLValidationError."""
         disks = make_disks(5)
         lz = truenas_pylibzfs.open_handle()
         wide_mirror = truenas_pylibzfs.create_vdev_spec(
@@ -499,7 +502,7 @@ class TestWidthLimitsCreateAdd:
             children=[_spec(d) for d in disks],
         )
         try:
-            with pytest.raises(ValueError, match="mirror width"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="mirror width"):
                 lz.create_pool(name=POOL_NAME, storage_vdevs=[wide_mirror])
         finally:
             _destroy(lz)
@@ -539,7 +542,7 @@ class TestWidthLimitsCreateAdd:
             _destroy(lz)
 
     def test_add_vdevs_wide_mirror_rejected(self, make_disks):
-        """add_vdevs with a 5-way mirror must raise ValueError."""
+        """add_vdevs with a 5-way mirror must raise ZPOOLValidationError."""
         disks = make_disks(7)
         lz = truenas_pylibzfs.open_handle()
         pool = _create_mirror_pool(lz, disks[0], disks[1])
@@ -548,7 +551,7 @@ class TestWidthLimitsCreateAdd:
             children=[_spec(d) for d in disks[2:7]],
         )
         try:
-            with pytest.raises(ValueError, match="mirror width"):
+            with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="mirror width"):
                 pool.add_vdevs(storage_vdevs=[wide_mirror])
         finally:
             _destroy(lz)
