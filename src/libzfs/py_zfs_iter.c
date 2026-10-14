@@ -291,6 +291,7 @@ py_iter_filesystems(py_iter_state_t *state)
 
 	ITER_ALLOW_THREADS(state);
 	PY_ZFS_LOCK(state->pylibzfsp);
+	py_zfs_mnttab_enter(state->pylibzfsp);
 
 	iter_ret = zfs_iter_filesystems_v2(state->target,
 					   state->iter_config.filesystem.flags,
@@ -300,6 +301,7 @@ py_iter_filesystems(py_iter_state_t *state)
 		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
 	}
 
+	py_zfs_mnttab_exit(state->pylibzfsp);
 	PY_ZFS_UNLOCK(state->pylibzfsp);
 	ITER_END_ALLOW_THREADS(state);
 
@@ -319,6 +321,7 @@ py_iter_snapshots(py_iter_state_t *state)
 
 	ITER_ALLOW_THREADS(state);
 	PY_ZFS_LOCK(state->pylibzfsp);
+	py_zfs_mnttab_enter(state->pylibzfsp);
 
 	if (conf.sorted) {
 		iter_ret = zfs_iter_snapshots_sorted_v2(state->target,
@@ -339,6 +342,7 @@ py_iter_snapshots(py_iter_state_t *state)
 		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
 	}
 
+	py_zfs_mnttab_exit(state->pylibzfsp);
 	PY_ZFS_UNLOCK(state->pylibzfsp);
 	ITER_END_ALLOW_THREADS(state);
 
@@ -403,6 +407,7 @@ py_iter_root_filesystems(py_iter_state_t *state)
 
 	ITER_ALLOW_THREADS(state);
 	PY_ZFS_LOCK(state->pylibzfsp);
+	py_zfs_mnttab_enter(state->pylibzfsp);
 
 	// We can use our generic filesystem_callback here
 	// since we're producing only dataset handles
@@ -413,6 +418,7 @@ py_iter_root_filesystems(py_iter_state_t *state)
 		py_get_zfs_error(state->pylibzfsp->lzh, &zfs_err);
 	}
 
+	py_zfs_mnttab_exit(state->pylibzfsp);
 	PY_ZFS_UNLOCK(state->pylibzfsp);
 	ITER_END_ALLOW_THREADS(state);
 

@@ -55,6 +55,10 @@ typedef PyMutex py_zfs_lock_t;
  * Wrapper around libzfs_handle_t
  * lzh: libzfs handle
  * zfs_lock: mutex for protecting libzfs handle
+ * mnttab_cache_enable: cache the mount table while an iterator, or a call
+ *     that walks child datasets, runs (see py_zfs_mnttab_enter())
+ * mnttab_iter_depth: nesting depth of those calls on this handle,
+ *     protected by zfs_lock
  *
  * NOTE: the libzfs_handle_t is potentially shared by multiple python objects.
  * The `zfs_lock` should be taken prior to any ZFS operation (e.g. zfs_rename)
@@ -66,6 +70,7 @@ typedef struct {
 	libzfs_handle_t *lzh;
 	py_zfs_lock_t zfs_lock;
 	boolean_t mnttab_cache_enable;
+	int mnttab_iter_depth;
 	int history;
 	char history_prefix[MAX_HISTORY_PREFIX_LEN];
 	PyObject *proptypes;
@@ -387,6 +392,34 @@ extern int py_log_history_impl(libzfs_handle_t *hdl_in,
 
 /* Provided by py_zfs.c */
 extern int py_zfs_init(PyObject *, PyObject *, PyObject *);
+
+/*
+ * @brief start using the libzfs mnttab cache on this handle
+ *
+ * Used around calls that look up the mount state of many datasets
+ * (iterators, rename, recursive unmount, property changes that remount
+ * children) so that /proc/self/mounts is read once per call instead of
+ * once per dataset. Calls may nest, only the outermost one enables the
+ * cache. Does nothing if the handle was opened with mnttab_cache=False.
+ *
+ * @param[in]	pylibzfsp - pointer to py_zfs_t object.
+ *
+ * @note must be called under PY_ZFS_LOCK.
+ */
+extern void py_zfs_mnttab_enter(py_zfs_t *pylibzfsp);
+
+/*
+ * @brief stop using the libzfs mnttab cache on this handle
+ *
+ * Pairs with py_zfs_mnttab_enter(). When the outermost call returns, the
+ * cached entries are freed so that the next call reads the mount table
+ * again.
+ *
+ * @param[in]	pylibzfsp - pointer to py_zfs_t object.
+ *
+ * @note must be called under PY_ZFS_LOCK.
+ */
+extern void py_zfs_mnttab_exit(py_zfs_t *pylibzfsp);
 
 /* Provided by py_libzfs_types_module.c */
 extern PyObject *py_setup_libzfs_types_module(PyObject *parent);
