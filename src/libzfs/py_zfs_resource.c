@@ -508,12 +508,16 @@ PyObject *py_zfs_resource_set_properties(PyObject *self,
 		}
 	}
 
+	// setting mountpoint, sharenfs, sharesmb or canmount=off looks up the
+	// mount state of every child dataset
+	py_zfs_mnttab_enter(res->obj.pylibzfsp);
 	err = zfs_prop_set_list_flags(res->obj.zhp,
 				      nvl,
 				      remount ? 0 : ZFS_SET_NOMOUNT);
 	if (err) {
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
 	}
+	py_zfs_mnttab_exit(res->obj.pylibzfsp);
 
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
@@ -641,10 +645,14 @@ PyObject *py_zfs_resource_inherit_property(PyObject *self,
 
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
+	// inheriting mountpoint, sharenfs or sharesmb looks up the mount
+	// state of every child dataset
+	py_zfs_mnttab_enter(res->obj.pylibzfsp);
 	err = zfs_prop_inherit(res->obj.zhp, cprop, received);
 	if (err) {
 		py_get_zfs_error(res->obj.pylibzfsp->lzh, &zfs_err);
 	}
+	py_zfs_mnttab_exit(res->obj.pylibzfsp);
 	PY_ZFS_UNLOCK(res->obj.pylibzfsp);
 	Py_END_ALLOW_THREADS
 
@@ -1200,7 +1208,9 @@ PyObject *py_zfs_resource_unmount(PyObject *self,
 	Py_BEGIN_ALLOW_THREADS
 	PY_ZFS_LOCK(res->obj.pylibzfsp);
 	if (recurse) {
+		py_zfs_mnttab_enter(res->obj.pylibzfsp);
 		err = zfs_unmountall(res->obj.zhp, flags);
+		py_zfs_mnttab_exit(res->obj.pylibzfsp);
 	} else {
 		err = zfs_unmount(res->obj.zhp, mp, flags);
 	}
