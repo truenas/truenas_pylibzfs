@@ -1571,11 +1571,19 @@ def test_create_pool_dry_run_emits_no_audit_event(make_disks):
     with pytest.raises(truenas_pylibzfs.ZPOOLValidationError):
         lz.create_pool(name="mirror", storage_vdevs=[_placeholder(0)])
     assert seen == [("mirror",)]
+    # a refusal from the property conversion is audited too, as it was before
+    with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="not a valid zpool property"):
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[_placeholder(0)], properties={"bogus": "x"})
+    assert seen == [("mirror",), (POOL_NAME,)]
+    with pytest.raises(TypeError, match="Pool property keys"):
+        lz.create_pool(name=POOL_NAME, storage_vdevs=[_placeholder(0)], properties={1.5: "x"})
+    assert seen == [("mirror",), (POOL_NAME,), (POOL_NAME,)]
+    _pool_absent()
     # and, of course, when it goes ahead
     disk = make_disks(1)[0]
     try:
         lz.create_pool(name=POOL_NAME, storage_vdevs=[_spec(disk)])
-        assert seen == [("mirror",), (POOL_NAME,)]
+        assert seen == [("mirror",), (POOL_NAME,), (POOL_NAME,), (POOL_NAME,)]
     finally:
         _destroy()
 

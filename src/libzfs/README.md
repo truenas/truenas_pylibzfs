@@ -133,6 +133,13 @@ if (PySys_Audit(PYLIBZFS_MODULE_NAME ".<Type>.<method>", "...", ...) < 0)
     return NULL;
 ```
 
+A dry run is the exception: `create_pool(dry_run=True)` and
+`add_vdevs(dry_run=True)` emit nothing, because nothing is attempted. A real
+`create_pool` emits the event before the name and property checks rather than
+only before the mutating work, so an attempt turned away for its name or its
+properties is recorded alongside one the kernel turns away; the argument and
+topology checks refuse ahead of it and are not recorded.
+
 ### Type instantiation
 
 All extension types set `.tp_new = py_no_new_impl`, blocking direct Python

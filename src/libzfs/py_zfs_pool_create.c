@@ -1791,6 +1791,17 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 	    !validate_pool_policy(storage_seq, special_seq, dedup_seq))
 		goto fail;
 
+	/*
+	 * Audit the attempt before anything that can refuse it for its name
+	 * or properties, so that a refusal is recorded whether it comes from
+	 * the property conversion, from libzfs or from the kernel.  A dry run
+	 * is not audited.
+	 */
+	if (!cpa->dry_run &&
+	    PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
+	    cpa->name) < 0)
+		goto fail;
+
 	/* Cannot fail: fnvlist_alloc() aborts on OOM */
 	Py_BEGIN_ALLOW_THREADS
 	props_nvl = build_default_pool_props();
@@ -1822,16 +1833,6 @@ py_zfs_do_create_pool(py_zfs_t *plz, py_zfs_create_pool_args_t *cpa)
 			goto fail;
 		}
 	}
-
-	/*
-	 * Audit the attempt before the checks libzfs would make, so that a
-	 * creation refused for its name or properties is recorded like one
-	 * refused by libzfs itself.  A dry run is not audited.
-	 */
-	if (!cpa->dry_run &&
-	    PySys_Audit(PYLIBZFS_MODULE_NAME ".create_pool", "s",
-	    cpa->name) < 0)
-		goto fail;
 
 	/*
 	 * What zpool_create() checks before its ioctl, so that a dry run and
