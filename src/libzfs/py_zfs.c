@@ -17,6 +17,7 @@ int py_zfs_init(PyObject *type, PyObject *args, PyObject *kwds) {
 
 	zfs->history = B_TRUE;
 	zfs->mnttab_cache_enable = B_TRUE;
+	zfs->mnttab_iter_depth = 0;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|psp", kwlist,
 	    &zfs->history, &history_prefix, &zfs->mnttab_cache_enable)) {
@@ -64,6 +65,31 @@ void py_zfs_dealloc(py_zfs_t *self) {
 	self->lzh = NULL;
 	PY_ZFS_LOCK_DESTROY(&self->zfs_lock);
 	Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+void py_zfs_mnttab_enter(py_zfs_t *pylibzfsp) {
+	if (!pylibzfsp->mnttab_cache_enable)
+		return;
+
+	if (pylibzfsp->mnttab_iter_depth == 0)
+		libzfs_mnttab_cache(pylibzfsp->lzh, B_TRUE);
+
+	pylibzfsp->mnttab_iter_depth++;
+}
+
+void py_zfs_mnttab_exit(py_zfs_t *pylibzfsp) {
+	if (!pylibzfsp->mnttab_cache_enable)
+		return;
+
+	pylibzfsp->mnttab_iter_depth--;
+	if (pylibzfsp->mnttab_iter_depth > 0)
+		return;
+
+	// libzfs_mnttab_fini() frees the cached entries and also destroys
+	// the lock of the cache, so initialize it again for the next call.
+	libzfs_mnttab_cache(pylibzfsp->lzh, B_FALSE);
+	libzfs_mnttab_fini(pylibzfsp->lzh);
+	libzfs_mnttab_init(pylibzfsp->lzh);
 }
 
 PyObject *py_zfs_asdict(PyObject *self, PyObject *args) {

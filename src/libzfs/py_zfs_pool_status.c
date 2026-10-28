@@ -1195,6 +1195,7 @@ PyObject *pypool_error_log(py_zfs_pool_t *pypool)
 	py_zfs_error_t zfs_err;
 	nvlist_t *nverrlist = NULL;
 	nvpair_t *elem = NULL;
+	boolean_t mnttab_cached = B_FALSE;
 	int err;
 
 	/* Pool is not imported; no error log is available */
@@ -1216,6 +1217,11 @@ PyObject *pypool_error_log(py_zfs_pool_t *pypool)
 	err = zpool_get_errlog(pypool->zhp, &nverrlist);
 	if (err) {
 		py_get_zfs_error(pypool->pylibzfsp->lzh, &zfs_err);
+	} else {
+		// zpool_obj_to_path() looks up the mount state of the dataset
+		// of every entry
+		py_zfs_mnttab_enter(pypool->pylibzfsp);
+		mnttab_cached = B_TRUE;
 	}
 	PY_ZFS_UNLOCK(pypool->pylibzfsp);
 	Py_END_ALLOW_THREADS
@@ -1267,6 +1273,13 @@ PyObject *pypool_error_log(py_zfs_pool_t *pypool)
 	out = PyList_AsTuple(tmplist);
 
 done:
+	if (mnttab_cached) {
+		Py_BEGIN_ALLOW_THREADS
+		PY_ZFS_LOCK(pypool->pylibzfsp);
+		py_zfs_mnttab_exit(pypool->pylibzfsp);
+		PY_ZFS_UNLOCK(pypool->pylibzfsp);
+		Py_END_ALLOW_THREADS
+	}
 	Py_CLEAR(tmplist);
 	PyMem_RawFree(pathbuf);
 	fnvlist_free(nverrlist);
