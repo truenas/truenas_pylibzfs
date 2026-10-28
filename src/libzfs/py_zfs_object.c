@@ -162,10 +162,13 @@ PyObject *py_zfs_obj_rename(PyObject *self,
 	// Make a copy of the original name for logging history
 	strlcpy(orig_name, zfs_get_name(obj->zhp), sizeof(orig_name));
 
+	// the rename looks up the mount state of every child dataset
+	py_zfs_mnttab_enter(obj->pylibzfsp);
 	err = zfs_rename(obj->zhp, new_name, flags);
 	if (err) {
 		py_get_zfs_error(obj->pylibzfsp->lzh, &zfs_err);
 	}
+	py_zfs_mnttab_exit(obj->pylibzfsp);
 
 	PY_ZFS_UNLOCK(obj->pylibzfsp);
 	Py_END_ALLOW_THREADS
