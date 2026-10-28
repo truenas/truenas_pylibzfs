@@ -966,11 +966,25 @@ PyObject *py_zfs_iter_events(PyObject *self,
 PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "create_pool(*, name, storage_vdevs, cache_vdevs=None, log_vdevs=None,\n"
 "            special_vdevs=None, dedup_vdevs=None, spare_vdevs=None,\n"
-"            properties=None, filesystem_properties=None,"
-" force=False) -> None\n"
+"            properties=None, filesystem_properties=None,\n"
+"            feature_properties=None, force=False,"
+" dry_run=False) -> None\n"
 "--------------------------------------------------------------------\n\n"
 "Create a new ZFS storage pool.  All arguments are keyword-only.\n"
 "Vdev specifications must be built with create_vdev_spec() first.\n\n"
+"Before libzfs is called, the pool name, the pool property names and\n"
+"values and the root filesystem property names and values are checked\n"
+"with libzfs's own rules, so a request it would refuse is refused the\n"
+"same way whether or not dry_run is set.  The topology is checked in\n"
+"two layers.\n"
+"Structural constraints always apply: storage_vdevs is non-empty,\n"
+"cache and spare vdevs are leaves, log vdevs are leaves or mirrors,\n"
+"and special and dedup vdevs are leaf, mirror or raidz (never dRAID).\n"
+"Policy constraints apply unless force=True: every storage vdev has\n"
+"enough children for its type, all storage vdevs share one type and\n"
+"child count, mirror and raidz storage widths stay within\n"
+"constants.MAX_MIRROR_WIDTH and constants.MAX_RAIDZ_WIDTH, and special\n"
+"and dedup vdevs carry some redundancy when the storage vdevs do.\n\n"
 "Parameters\n"
 "----------\n"
 "name: str, required\n"
@@ -1007,19 +1021,40 @@ PyDoc_STRVAR(py_zfs_create_pool__doc__,
 "    all supported features are enabled; use this to selectively disable\n"
 "    specific features at pool creation time.\n\n"
 "force: bool, optional, default=False\n"
-"    Skip Python-level topology validation, including storage vdev width\n"
-"    limits (mirror: max 4 members, raidz: max 15 drives).  Equivalent\n"
-"    to passing -f to zpool(8).  Does not suppress kernel-level checks.\n\n"
+"    Skip the policy constraints described above.  Structural\n"
+"    constraints still apply.  Equivalent to passing -f to zpool(8).\n"
+"    Does not suppress kernel-level checks.\n\n"
+"dry_run: bool, optional, default=False\n"
+"    Run the checks described above and return without creating\n"
+"    anything: no audit event, no device is opened, no history entry.\n"
+"    Leaf device names are not opened, so placeholders are acceptable.\n"
+"    The checks zpool_create() itself makes before asking the kernel\n"
+"    (the name, the property names and values, and the root\n"
+"    filesystem's encryption properties, never reading stdin) run first\n"
+"    with or without dry_run, so both refuse the same request the same\n"
+"    way.  The creation-time encryption properties are not accepted in\n"
+"    filesystem_properties at all, so what the encryption check refuses\n"
+"    is a keylocation given on its own.  What only a real creation can\n"
+"    judge is left to it: the devices themselves, whether a pool of that\n"
+"    name already exists, and limits the kernel reads from the pool.\n"
+"    None of these checks is policy, so force=True does not skip them.\n\n"
 "Returns\n"
 "-------\n"
 "    None\n\n"
 "Raises\n"
 "------\n"
-"ValueError:\n"
-"    A required argument is missing or the pool topology violates\n"
-"    the enforced constraints (overridden by force=True).\n"
+"ZPOOLValidationError:\n"
+"    A required argument is missing, the pool topology violates a\n"
+"    structural constraint, it violates a policy constraint and\n"
+"    force=True was not passed, or the name, a property or a property\n"
+"    value is refused.  A ValueError subclass whose argument and index\n"
+"    attributes locate the refusal; the message reads\n"
+"    \"storage_vdevs[1]: ...\".\n"
 "TypeError:\n"
 "    An argument has an unexpected type.\n"
+"RuntimeError:\n"
+"    The temporary libzfs handle the encryption check needs could not\n"
+"    be created.\n"
 "ZFSException:\n"
 "    The kernel rejected the pool creation (e.g. pool already exists,\n"
 "    device in use, or insufficient devices for the requested topology).\n"
@@ -1033,27 +1068,27 @@ py_zfs_create_pool(PyObject *self, PyObject *args, PyObject *kwargs)
 		"name", "storage_vdevs", "cache_vdevs", "log_vdevs",
 		"special_vdevs", "dedup_vdevs", "spare_vdevs",
 		"properties", "filesystem_properties",
-		"feature_properties", "force",
+		"feature_properties", "force", "dry_run",
 		NULL
 	};
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOOp",
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|$sOOOOOOOOOpp",
 	    kwnames,
 	    &cpa.name, &cpa.storage_vdevs, &cpa.cache_vdevs, &cpa.log_vdevs,
 	    &cpa.special_vdevs, &cpa.dedup_vdevs, &cpa.spare_vdevs,
 	    &cpa.properties, &cpa.filesystem_properties,
-	    &cpa.feature_properties, &cpa.force))
+	    &cpa.feature_properties, &cpa.force, &cpa.dry_run))
 		return NULL;
 
 	if (cpa.name == NULL) {
-		PyErr_SetString(PyExc_ValueError,
-		    "\"name\" keyword argument is required");
+		py_set_validation_error("name", -1,
+		    "keyword argument is required");
 		return NULL;
 	}
 
 	if (cpa.storage_vdevs == NULL || cpa.storage_vdevs == Py_None) {
-		PyErr_SetString(PyExc_ValueError,
-		    "\"storage_vdevs\" is required and must be non-empty");
+		py_set_validation_error("storage_vdevs", -1,
+		    "at least one storage vdev is required");
 		return NULL;
 	}
 

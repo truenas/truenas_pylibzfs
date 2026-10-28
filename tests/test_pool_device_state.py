@@ -109,8 +109,9 @@ class TestOfflineDevice:
 
     def test_offline_missing_kwarg_raises(self, mirror_pool):
         lz, pool, disk0, disk1 = mirror_pool
-        with pytest.raises(ValueError):
+        with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^device: keyword argument") as e:
             pool.offline_device()
+        assert e.value.argument == "device"
 
     def test_offline_keyword_only_enforcement(self, mirror_pool):
         lz, pool, disk0, disk1 = mirror_pool
@@ -137,8 +138,9 @@ class TestOnlineDevice:
 
     def test_online_missing_kwarg_raises(self, mirror_pool):
         lz, pool, disk0, disk1 = mirror_pool
-        with pytest.raises(ValueError):
+        with pytest.raises(truenas_pylibzfs.ZPOOLValidationError, match="^device: keyword argument") as e:
             pool.online_device()
+        assert e.value.argument == "device"
 
     def test_online_keyword_only_enforcement(self, mirror_pool):
         lz, pool, disk0, disk1 = mirror_pool

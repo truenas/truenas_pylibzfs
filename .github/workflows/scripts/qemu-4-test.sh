@@ -159,7 +159,7 @@ MYPY_TYPE_CHECKS_EXIT=$?
 echo "Running stubtest for truenas_pylibzfs..."
 python3 -c "
 import truenas_pylibzfs, sys
-for name in ('lzc', 'libzfs_types', 'property_sets', 'kstat'):
+for name in ('constants', 'lzc', 'libzfs_types', 'property_sets', 'kstat'):
     sys.modules['truenas_pylibzfs.' + name] = getattr(truenas_pylibzfs, name)
 from mypy.stubtest import main
 sys.argv = ['stubtest', 'truenas_pylibzfs']
